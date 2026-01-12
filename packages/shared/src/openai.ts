@@ -14,6 +14,7 @@ export interface GlossaryTerm {
 export interface TranslatedContent {
 	title: string;
 	content: string;
+	model: string;
 }
 
 const SYSTEM_PROMPT = `You are a professional translator specializing in Japanese video game content,
@@ -43,6 +44,7 @@ export async function translateWithAI(
 	apiKey: string,
 ): Promise<TranslatedContent> {
 	const client = new OpenAI({ apiKey });
+	const model = "gpt-4o";
 
 	const glossaryContext =
 		glossaryTerms.length > 0
@@ -58,7 +60,7 @@ Content:
 ${content}`;
 
 	const response = await client.chat.completions.create({
-		model: "gpt-4o",
+		model,
 		temperature: 0.3,
 		response_format: { type: "json_object" },
 		messages: [
@@ -74,11 +76,13 @@ ${content}`;
 		return {
 			title: parsed.title ?? title,
 			content: parsed.content ?? content,
+			model,
 		};
 	} catch {
 		return {
 			title: title,
 			content: responseText,
+			model,
 		};
 	}
 }

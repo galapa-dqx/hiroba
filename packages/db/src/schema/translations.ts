@@ -34,6 +34,7 @@ export const translations = sqliteTable(
 
 		// Tracking
 		translatedAt: integer("translated_at").notNull(), // Unix timestamp
+		model: text("model"), // AI model used for translation (e.g., "gpt-4o")
 
 		// Concurrency lock for translation-in-progress
 		translatingSince: integer("translating_since"), // Unix timestamp
@@ -49,7 +50,7 @@ export const translations = sqliteTable(
 export type Translation = typeof translations.$inferSelect;
 export type NewTranslation = typeof translations.$inferInsert;
 
-export type TranslationResult = Pick<Translation, "title" | "content" | "translatedAt">;
+export type TranslationResult = Pick<Translation, "title" | "content" | "translatedAt" | "model">;
 
 /**
  * Get or create translation for a news item.
@@ -84,6 +85,7 @@ export async function getOrCreateTranslation(
 			title: existing.title,
 			content: existing.content,
 			translatedAt: existing.translatedAt,
+			model: existing.model,
 		};
 	}
 
@@ -126,6 +128,7 @@ export async function getOrCreateTranslation(
 					title: translated.title,
 					content: translated.content,
 					translatedAt: now,
+					model: translated.model,
 					translatingSince: null,
 				})
 				.onConflictDoUpdate({
@@ -134,6 +137,7 @@ export async function getOrCreateTranslation(
 						title: translated.title,
 						content: translated.content,
 						translatedAt: now,
+						model: translated.model,
 						translatingSince: null,
 					},
 				});
@@ -279,6 +283,7 @@ async function pollForTranslation(
 				title: result.title,
 				content: result.content,
 				translatedAt: result.translatedAt,
+				model: result.model,
 			};
 		}
 	}
