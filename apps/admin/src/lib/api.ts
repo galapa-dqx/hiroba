@@ -149,3 +149,36 @@ export async function lookupGlossary(
     body: JSON.stringify({ text, lang }),
   });
 }
+
+// Events API
+
+export type EventItem = {
+  id: string;
+  type: 'multiDay' | 'allDay' | 'span' | 'mark';
+  titleJa: string;
+  titleEn: string | null;
+  startTime: string;
+  endTime: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  createdAt: number;
+};
+
+export async function getEvents(options?: {
+  type?: string;
+  search?: string;
+  limit?: number;
+}): Promise<{ items: EventItem[] }> {
+  const params = new URLSearchParams();
+  if (options?.type) params.set('type', options.type);
+  if (options?.search) params.set('search', options.search);
+  if (options?.limit) params.set('limit', String(options.limit));
+  const url = `/api/events${params.toString() ? `?${params}` : ''}`;
+  return adminFetch(url);
+}
+
+export async function deleteEvent(id: string): Promise<{ success: boolean }> {
+  return adminFetch(`/api/events/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
