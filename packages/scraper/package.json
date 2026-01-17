@@ -8,7 +8,9 @@
 	},
 	"scripts": {
 		"build": "tsc --noEmit",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"test:watch": "vitest"
 	},
 	"dependencies": {
 		"@hiroba/db": "workspace:*",
@@ -19,6 +21,7 @@
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "^4.20250507.0",
-		"typescript": "^5.9.3"
+		"typescript": "^5.9.3",
+		"vitest": "^4.0.16"
 	}
 }
