@@ -8,6 +8,7 @@
  * - Parses CSV output and saves to translations table
  */
 
+import { parse } from 'csv-parse/sync';
 import { eq, inArray } from 'drizzle-orm';
 import OpenAI from 'openai';
 
@@ -67,61 +68,20 @@ function escapeCsvValue(value: string): string {
 }
 
 /**
- * Parse a simple CSV response.
- * Handles quoted fields with escaped quotes.
+ * Parse a CSV response using csv-parse.
  */
 function parseCsvResponse(csv: string): Map<string, string> {
   const result = new Map<string, string>();
-  const lines = csv.trim().split('\n');
 
-  // Skip header
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+  const records = parse(csv.trim(), {
+    columns: true,
+    skip_empty_lines: true,
+    relax_quotes: true,
+  }) as Array<{ id: string; translatedText: string }>;
 
-    // Parse CSV line with possible quoted fields
-    let id = '';
-    let translatedText = '';
-
-    // Simple state machine for CSV parsing
-    let inQuotes = false;
-    let currentField = '';
-    let fieldIndex = 0;
-
-    for (let j = 0; j < line.length; j++) {
-      const char = line[j];
-      const nextChar = line[j + 1];
-
-      if (char === '"') {
-        if (!inQuotes) {
-          inQuotes = true;
-        } else if (nextChar === '"') {
-          // Escaped quote
-          currentField += '"';
-          j++; // Skip next quote
-        } else {
-          // End of quoted field
-          inQuotes = false;
-        }
-      } else if (char === ',' && !inQuotes) {
-        // Field separator
-        if (fieldIndex === 0) {
-          id = currentField;
-        }
-        currentField = '';
-        fieldIndex++;
-      } else {
-        currentField += char;
-      }
-    }
-
-    // Last field
-    if (fieldIndex === 1) {
-      translatedText = currentField;
-    }
-
-    if (id && translatedText) {
-      result.set(id, translatedText);
+  for (const record of records) {
+    if (record.id && record.translatedText) {
+      result.set(record.id, record.translatedText);
     }
   }
 
