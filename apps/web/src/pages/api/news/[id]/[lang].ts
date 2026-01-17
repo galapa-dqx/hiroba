@@ -1,12 +1,12 @@
 /**
  * GET /api/news/:id/:lang - Get translated news item
  *
- * Fetches body if needed, then returns translated content.
+ * Uses Durable Object for coordinating body fetch and translation.
  */
 
 import type { APIRoute } from "astro";
-import { createDb, getNewsItem, getOrCreateTranslation } from "@hiroba/db";
-import { getNewsBodyWithFetch } from "@hiroba/scraper";
+import { createDb, getNewsItem } from "@hiroba/db";
+import type { NewsItemDO } from "../../../../types/do";
 
 export const GET: APIRoute = async ({ locals, params }) => {
 	const runtime = locals.runtime;
@@ -29,7 +29,7 @@ export const GET: APIRoute = async ({ locals, params }) => {
 		);
 	}
 
-	// Get the news item
+	// Get the news item metadata from D1
 	const item = await getNewsItem(db, id);
 	if (!item) {
 		return new Response(JSON.stringify({ error: "Not found" }), {
@@ -38,10 +38,14 @@ export const GET: APIRoute = async ({ locals, params }) => {
 		});
 	}
 
-	// Fetch body if needed
+	// Get DO stub for this news item
+	const doId = runtime.env.NEWS_ITEM_DO.idFromName(id);
+	const stub = runtime.env.NEWS_ITEM_DO.get(doId) as unknown as NewsItemDO;
+
+	// Fetch body via DO if needed
 	if (item.contentJa === null) {
 		try {
-			const body = await getNewsBodyWithFetch(db, id);
+			const body = await stub.fetchBodyIfNeeded(id);
 			if (body) {
 				item.contentJa = body.contentJa;
 			}
@@ -60,16 +64,14 @@ export const GET: APIRoute = async ({ locals, params }) => {
 		);
 	}
 
-	// Get or create translation
+	// Translate via DO
 	try {
-		const translations = await getOrCreateTranslation(
-			db,
+		const translations = await stub.translateFields(
 			id,
 			"news",
 			lang,
 			{ title: item.titleJa, content: item.contentJa },
 			item.publishedAt,
-			runtime.env.OPENAI_API_KEY,
 		);
 
 		// Extract values for response (backward compatible format)

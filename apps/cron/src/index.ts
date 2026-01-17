@@ -2,6 +2,7 @@
  * Cron-only Cloudflare Worker for scheduled news and glossary refresh.
  *
  * No HTTP endpoints - all API routes are now served by apps/web.
+ * Also hosts the NewsItemDO Durable Object for coordinating news operations.
  */
 
 import { sql } from "drizzle-orm";
@@ -9,8 +10,12 @@ import { createDb, glossary, upsertListItems, type Database } from "@hiroba/db";
 import { CATEGORIES } from "@hiroba/shared";
 import { fetchGlossary, scrapeNewsList } from "@hiroba/scraper";
 
+// Export the Durable Object class
+export { NewsItemDO } from "./news-item-do";
+
 type Bindings = {
 	DB: D1Database;
+	NEWS_ITEM_DO: DurableObjectNamespace;
 };
 
 export default {

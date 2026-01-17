@@ -10,5 +10,14 @@
 			"database_name": "dqx-tools--news-db",
 			"database_id": "local"
 		}
-	]
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "NEWS_ITEM_DO",
+				"class_name": "NewsItemDO",
+				"script_name": "hiroba-cron"
+			}
+		]
+	}
 }

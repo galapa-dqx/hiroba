@@ -4,7 +4,7 @@
 
 import type { APIRoute } from "astro";
 import { createDb, getNewsItem } from "@hiroba/db";
-import { getNewsBodyWithFetch } from "@hiroba/scraper";
+import type { NewsItemDO } from "../../../../types/do";
 
 export const GET: APIRoute = async ({ locals, params }) => {
 	const runtime = locals.runtime;
@@ -20,10 +20,12 @@ export const GET: APIRoute = async ({ locals, params }) => {
 		});
 	}
 
-	// Lazy body fetch if not yet fetched
+	// Lazy body fetch via DO if not yet fetched
 	if (item.contentJa === null) {
 		try {
-			const body = await getNewsBodyWithFetch(db, id);
+			const doId = runtime.env.NEWS_ITEM_DO.idFromName(id);
+			const stub = runtime.env.NEWS_ITEM_DO.get(doId) as unknown as NewsItemDO;
+			const body = await stub.fetchBodyIfNeeded(id);
 			if (body) {
 				item.contentJa = body.contentJa;
 			}

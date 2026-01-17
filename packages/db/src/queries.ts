@@ -215,7 +215,6 @@ export async function invalidateBody(
 		.set({
 			contentJa: null,
 			bodyFetchedAt: null,
-			bodyFetchingSince: null,
 		})
 		.where(eq(newsItems.id, id))
 		.returning({ id: newsItems.id });

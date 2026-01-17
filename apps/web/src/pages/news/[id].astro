@@ -1,8 +1,8 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import { createDb, getNewsItem, getOrCreateTranslation } from "@hiroba/db";
-import { getNewsBodyWithFetch } from "@hiroba/scraper";
+import { createDb, getNewsItem } from "@hiroba/db";
 import { CATEGORY_LABELS, type Category } from "@hiroba/shared";
+import type { NewsItemDO } from "../../types/do";
 
 const { id } = Astro.params;
 
@@ -13,16 +13,20 @@ if (!id) {
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
 
-// Get the news item
+// Get the news item metadata from D1
 const item = await getNewsItem(db, id);
 if (!item) {
 	return new Response("Not found", { status: 404 });
 }
 
-// Fetch body if needed
+// Get DO stub for this news item
+const doId = runtime.env.NEWS_ITEM_DO.idFromName(id);
+const stub = runtime.env.NEWS_ITEM_DO.get(doId) as unknown as NewsItemDO;
+
+// Fetch body via DO if needed
 if (item.contentJa === null) {
 	try {
-		const body = await getNewsBodyWithFetch(db, id);
+		const body = await stub.fetchBodyIfNeeded(id);
 		if (body) {
 			item.contentJa = body.contentJa;
 		}
@@ -35,17 +39,15 @@ if (!item.contentJa) {
 	return new Response("Content not available yet", { status: 500 });
 }
 
-// Get or create translation
+// Translate via DO
 let translations;
 try {
-	translations = await getOrCreateTranslation(
-		db,
+	translations = await stub.translateFields(
 		id,
 		"news",
 		"en",
 		{ title: item.titleJa, content: item.contentJa },
 		item.publishedAt,
-		runtime.env.OPENAI_API_KEY,
 	);
 } catch (error) {
 	return new Response(`Translation failed: ${error}`, { status: 500 });

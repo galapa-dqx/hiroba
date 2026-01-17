@@ -4,6 +4,8 @@
  * Supports two-phase scraping:
  * - Phase 1 (list scraping): Populates id, titleJa, category, publishedAt
  * - Phase 2 (body scraping): Populates contentJa on demand
+ *
+ * Note: Concurrency is now handled by Durable Objects, not database locks.
  */
 
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
@@ -22,7 +24,6 @@ export const newsItems = sqliteTable("news_items", {
 
 	// Body fetch tracking
 	bodyFetchedAt: integer("body_fetched_at"), // Unix timestamp
-	bodyFetchingSince: integer("body_fetching_since"), // Concurrency lock
 });
 
 // Type exports

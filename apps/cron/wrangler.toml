@@ -13,6 +13,16 @@ database_name = "dqx-tools--news-db"
 database_id = "local"
 migrations_dir = "migrations"
 
+# Durable Object for coordinating news item operations
+[durable_objects]
+bindings = [
+  { name = "NEWS_ITEM_DO", class_name = "NewsItemDO" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["NewsItemDO"]
+
 # Scheduled triggers:
 # - Hourly news refresh (first page of each category)
 # - Daily glossary refresh (midnight JST = 15:00 UTC)

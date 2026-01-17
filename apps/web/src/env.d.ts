@@ -3,6 +3,7 @@
 interface RuntimeEnv {
 	DB: D1Database;
 	OPENAI_API_KEY: string;
+	NEWS_ITEM_DO: DurableObjectNamespace;
 }
 
 declare namespace App {

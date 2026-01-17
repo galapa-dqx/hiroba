@@ -11,9 +11,8 @@ export {
 	CATEGORY_TO_ID,
 } from "./list-scraper";
 
-// Body scraper and fetcher
+// Body scraper (fetching is now handled by Durable Objects)
 export { fetchNewsBody, type BodyContent } from "./body-scraper";
-export { getNewsBodyWithFetch } from "./body-fetcher";
 
 // Glossary fetcher
 export {
