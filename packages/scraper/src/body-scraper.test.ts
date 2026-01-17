@@ -11,6 +11,7 @@ describe('body-scraper', () => {
   afterEach(() => {
     fetchMock.unmockGlobal();
     fetchMock.removeRoutes();
+    fetchMock.clearHistory();
   });
 
   describe('fetchNewsBody', () => {
