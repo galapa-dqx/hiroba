@@ -4,16 +4,16 @@
  * Pure functions for AI-powered translation with glossary support.
  */
 
-import OpenAI from "openai";
+import OpenAI from 'openai';
 
 export type GlossaryTerm = {
-	sourceText: string;
-	translatedText: string;
+  sourceText: string;
+  translatedText: string;
 };
 
 export type TranslatedFields = {
-	fields: Record<string, string>;
-	model: string;
+  fields: Record<string, string>;
+  model: string;
 };
 
 const SYSTEM_PROMPT = `You are a professional translator specializing in Japanese video game content,
@@ -41,51 +41,51 @@ Return your translation as a JSON object with the same field names as the input.
  * @returns Translated fields and model used
  */
 export async function translateWithAI(
-	fields: Record<string, string>,
-	targetLanguage: string,
-	glossaryTerms: GlossaryTerm[],
-	apiKey: string,
+  fields: Record<string, string>,
+  targetLanguage: string,
+  glossaryTerms: GlossaryTerm[],
+  apiKey: string,
 ): Promise<TranslatedFields> {
-	const client = new OpenAI({ apiKey });
-	const model = "gpt-4o";
+  const client = new OpenAI({ apiKey });
+  const model = 'gpt-4o';
 
-	const glossaryContext =
-		glossaryTerms.length > 0
-			? `\n\nGlossary (use these exact translations):\n${glossaryTerms.map((e) => `- ${e.sourceText} → ${e.translatedText}`).join("\n")}`
-			: "";
+  const glossaryContext =
+    glossaryTerms.length > 0
+      ? `\n\nGlossary (use these exact translations):\n${glossaryTerms.map((e) => `- ${e.sourceText} → ${e.translatedText}`).join('\n')}`
+      : '';
 
-	// Build input as labeled fields
-	const fieldEntries = Object.entries(fields)
-		.map(([name, value]) => `${name}: ${value}`)
-		.join("\n\n");
+  // Build input as labeled fields
+  const fieldEntries = Object.entries(fields)
+    .map(([name, value]) => `${name}: ${value}`)
+    .join('\n\n');
 
-	const userMessage = `Translate to ${targetLanguage}:
+  const userMessage = `Translate to ${targetLanguage}:
 ${glossaryContext}
 
 ${fieldEntries}`;
 
-	const response = await client.chat.completions.create({
-		model,
-		temperature: 0.3,
-		response_format: { type: "json_object" },
-		messages: [
-			{ role: "system", content: SYSTEM_PROMPT },
-			{ role: "user", content: userMessage },
-		],
-	});
+  const response = await client.chat.completions.create({
+    model,
+    temperature: 0.3,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'user', content: userMessage },
+    ],
+  });
 
-	const responseText = response.choices[0]?.message?.content ?? "{}";
+  const responseText = response.choices[0]?.message?.content ?? '{}';
 
-	try {
-		const parsed = JSON.parse(responseText) as Record<string, string>;
-		// Ensure all requested fields are in the result
-		const result: Record<string, string> = {};
-		for (const key of Object.keys(fields)) {
-			result[key] = parsed[key] ?? fields[key];
-		}
-		return { fields: result, model };
-	} catch {
-		// If parsing fails, return original fields
-		return { fields: { ...fields }, model };
-	}
+  try {
+    const parsed = JSON.parse(responseText) as Record<string, string>;
+    // Ensure all requested fields are in the result
+    const result: Record<string, string> = {};
+    for (const key of Object.keys(fields)) {
+      result[key] = parsed[key] ?? fields[key];
+    }
+    return { fields: result, model };
+  } catch {
+    // If parsing fails, return original fields
+    return { fields: { ...fields }, model };
+  }
 }

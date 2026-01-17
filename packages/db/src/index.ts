@@ -5,6 +5,6 @@
  * and query functions for the Hiroba news translation system.
  */
 
-export { createDb, type Database } from "./client";
-export * from "./schema";
-export * from "./queries";
+export { createDb, type Database } from './client';
+export * from './schema';
+export * from './queries';

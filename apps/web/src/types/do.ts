@@ -4,19 +4,19 @@
  * These match the methods exposed by NewsItemDO in apps/cron.
  */
 
-import type { FieldTranslations, ItemType } from "@hiroba/db";
+import type { FieldTranslations, ItemType } from '@hiroba/db';
 
 export type BodyContent = {
-	contentJa: string;
+  contentJa: string;
 };
 
 export type NewsItemDO = {
-	fetchBodyIfNeeded(itemId: string): Promise<BodyContent | null>;
-	translateFields(
-		itemId: string,
-		itemType: ItemType,
-		language: string,
-		sourceFields: Record<string, string>,
-		publishedAt: number,
-	): Promise<FieldTranslations>;
+  fetchBodyIfNeeded(itemId: string): Promise<BodyContent | null>;
+  translateFields(
+    itemId: string,
+    itemType: ItemType,
+    language: string,
+    sourceFields: Record<string, string>,
+    publishedAt: number,
+  ): Promise<FieldTranslations>;
 };

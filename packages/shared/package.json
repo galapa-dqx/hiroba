@@ -1,23 +1,23 @@
 {
-	"name": "@hiroba/shared",
-	"version": "1.0.0",
-	"private": true,
-	"type": "module",
-	"exports": {
-		".": "./src/index.ts"
-	},
-	"scripts": {
-		"build": "tsc --noEmit",
-		"typecheck": "tsc --noEmit",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"lint": "eslint ."
-	},
-	"dependencies": {
-		"openai": "^4.104.0",
-		"zod": "^3.24.0"
-	},
-	"devDependencies": {
-		"typescript": "^5.9.3"
-	}
+  "name": "@hiroba/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "openai": "^4.104.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }

@@ -23,18 +23,18 @@
  * @returns Next check time in milliseconds (for comparison with Date.now())
  */
 export function getNextCheckTime(
-	publishedAt: number,
-	bodyFetchedAt: number,
+  publishedAt: number,
+  bodyFetchedAt: number,
 ): number {
-	const now = Date.now();
-	const ageMs = now - publishedAt * 1000;
-	const ageHours = ageMs / (1000 * 60 * 60);
+  const now = Date.now();
+  const ageMs = now - publishedAt * 1000;
+  const ageHours = ageMs / (1000 * 60 * 60);
 
-	// Clamp interval between 1 hour and 168 hours (1 week)
-	const intervalHours = Math.max(1, Math.min(168, ageHours / 24));
-	const intervalMs = intervalHours * 60 * 60 * 1000;
+  // Clamp interval between 1 hour and 168 hours (1 week)
+  const intervalHours = Math.max(1, Math.min(168, ageHours / 24));
+  const intervalMs = intervalHours * 60 * 60 * 1000;
 
-	return bodyFetchedAt * 1000 + intervalMs;
+  return bodyFetchedAt * 1000 + intervalMs;
 }
 
 /**
@@ -45,14 +45,14 @@ export function getNextCheckTime(
  * @returns True if the body should be rechecked
  */
 export function isDueForCheck(
-	publishedAt: number,
-	bodyFetchedAt: number | null,
+  publishedAt: number,
+  bodyFetchedAt: number | null,
 ): boolean {
-	// Never fetched = always due
-	if (bodyFetchedAt === null) return true;
+  // Never fetched = always due
+  if (bodyFetchedAt === null) return true;
 
-	const nextCheck = getNextCheckTime(publishedAt, bodyFetchedAt);
-	return Date.now() >= nextCheck;
+  const nextCheck = getNextCheckTime(publishedAt, bodyFetchedAt);
+  return Date.now() >= nextCheck;
 }
 
 /**
@@ -63,10 +63,10 @@ export function isDueForCheck(
  * @returns True if the translation needs to be regenerated
  */
 export function isTranslationStale(
-	publishedAt: number,
-	translatedAt: number,
+  publishedAt: number,
+  translatedAt: number,
 ): boolean {
-	return publishedAt > translatedAt;
+  return publishedAt > translatedAt;
 }
 
 /**
@@ -77,19 +77,19 @@ export function isTranslationStale(
  * @returns Human-readable string like "2h 30m" or "now"
  */
 export function getTimeUntilCheck(
-	publishedAt: number,
-	bodyFetchedAt: number,
+  publishedAt: number,
+  bodyFetchedAt: number,
 ): string {
-	const nextCheck = getNextCheckTime(publishedAt, bodyFetchedAt);
-	const diff = nextCheck - Date.now();
+  const nextCheck = getNextCheckTime(publishedAt, bodyFetchedAt);
+  const diff = nextCheck - Date.now();
 
-	if (diff <= 0) return "now";
+  if (diff <= 0) return 'now';
 
-	const hours = Math.floor(diff / (1000 * 60 * 60));
-	const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
 
-	if (hours > 0) return `${hours}h ${minutes}m`;
-	return `${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
 }
 
 /**
@@ -99,9 +99,9 @@ export function getTimeUntilCheck(
  * @returns Interval in hours
  */
 export function getRecheckIntervalHours(publishedAt: number): number {
-	const now = Date.now();
-	const ageMs = now - publishedAt * 1000;
-	const ageHours = ageMs / (1000 * 60 * 60);
+  const now = Date.now();
+  const ageMs = now - publishedAt * 1000;
+  const ageHours = ageMs / (1000 * 60 * 60);
 
-	return Math.max(1, Math.min(168, ageHours / 24));
+  return Math.max(1, Math.min(168, ageHours / 24));
 }

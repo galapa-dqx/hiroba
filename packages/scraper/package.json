@@ -1,27 +1,27 @@
 {
-	"name": "@hiroba/scraper",
-	"version": "1.0.0",
-	"private": true,
-	"type": "module",
-	"exports": {
-		".": "./src/index.ts"
-	},
-	"scripts": {
-		"build": "tsc --noEmit",
-		"typecheck": "tsc --noEmit",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"lint": "eslint ."
-	},
-	"dependencies": {
-		"@hiroba/db": "workspace:*",
-		"@hiroba/shared": "workspace:*",
-		"cheerio": "^1.1.2",
-		"domhandler": "^5.0.3",
-		"drizzle-orm": "1.0.0-beta.6-cd45bda"
-	},
-	"devDependencies": {
-		"@cloudflare/workers-types": "^4.20250507.0",
-		"typescript": "^5.9.3"
-	}
+  "name": "@hiroba/scraper",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@hiroba/db": "workspace:*",
+    "@hiroba/shared": "workspace:*",
+    "cheerio": "^1.1.2",
+    "domhandler": "^5.0.3",
+    "drizzle-orm": "1.0.0-beta.6-cd45bda"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250507.0",
+    "typescript": "^5.9.3"
+  }
 }

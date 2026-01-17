@@ -1,37 +1,37 @@
 {
-	"name": "hiroba",
-	"private": true,
-	"type": "module",
-	"scripts": {
-		"dev": "turbo dev",
-		"build": "turbo build",
-		"deploy": "turbo deploy",
-		"typecheck": "turbo typecheck",
-		"test": "turbo test",
-		"lint": "turbo lint",
-		"db:setup": "mkdir -p .wrangler-shared/v3/d1 && pnpm db:migrate:local",
-		"db:migrate:local": "wrangler d1 migrations apply DB --local --persist-to .wrangler-shared --config apps/cron/wrangler.toml",
-		"db:migrate:prod": "wrangler d1 migrations apply DB --remote --config apps/cron/wrangler.toml"
-	},
-	"devDependencies": {
-		"@eslint/js": "^9.35.0",
-		"@ianvs/prettier-plugin-sort-imports": "^4.4.0",
-		"@vitest/eslint-plugin": "^1.3.9",
-		"dotenv-cli": "^11.0.0",
-		"eslint": "^9.17.0",
-		"eslint-config-prettier": "^9.1.0",
-		"eslint-import-resolver-typescript": "^4.4.0",
-		"eslint-plugin-import-x": "^4.6.1",
-		"globals": "^15.14.0",
-		"prettier": "^3.4.2",
-		"turbo": "^2.3.0",
-		"typescript": "^5.9.3",
-		"typescript-eslint": "^8.18.2",
-		"vitest": "^4.0.16",
-		"wrangler": "^4.54.0"
-	},
-	"packageManager": "pnpm@9.15.0",
-	"engines": {
-		"node": ">=20"
-	}
+  "name": "hiroba",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "deploy": "turbo deploy",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "db:setup": "mkdir -p .wrangler-shared/v3/d1 && pnpm db:migrate:local",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local --persist-to .wrangler-shared --config apps/cron/wrangler.toml",
+    "db:migrate:prod": "wrangler d1 migrations apply DB --remote --config apps/cron/wrangler.toml"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@ianvs/prettier-plugin-sort-imports": "^4.4.0",
+    "@vitest/eslint-plugin": "^1.3.9",
+    "dotenv-cli": "^11.0.0",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-import-resolver-typescript": "^4.4.0",
+    "eslint-plugin-import-x": "^4.6.1",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.18.2",
+    "vitest": "^4.0.16",
+    "wrangler": "^4.54.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
 }

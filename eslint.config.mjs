@@ -1,101 +1,101 @@
 // @ts-check
-import js from "@eslint/js";
-import vitest from "@vitest/eslint-plugin";
-import prettierConfig from "eslint-config-prettier";
-import importPlugin from "eslint-plugin-import-x";
-import globals from "globals";
-import ts from "typescript-eslint";
+import js from '@eslint/js';
+import vitest from '@vitest/eslint-plugin';
+import prettierConfig from 'eslint-config-prettier';
+import importPlugin from 'eslint-plugin-import-x';
+import globals from 'globals';
+import ts from 'typescript-eslint';
 
 export default ts.config(
-	{
-		ignores: [
-			"**/dist/",
-			"**/coverage/",
-			"**/.wrangler/",
-			".wrangler-shared/",
-			"**/node_modules/",
-			"**/*.astro",
-		],
-	},
+  {
+    ignores: [
+      '**/dist/',
+      '**/coverage/',
+      '**/.wrangler/',
+      '.wrangler-shared/',
+      '**/node_modules/',
+      '**/*.astro',
+    ],
+  },
 
-	js.configs.recommended,
-	...ts.configs.recommended,
-	importPlugin.flatConfigs.recommended,
-	importPlugin.flatConfigs.typescript,
-	prettierConfig,
+  js.configs.recommended,
+  ...ts.configs.recommended,
+  importPlugin.flatConfigs.recommended,
+  importPlugin.flatConfigs.typescript,
+  prettierConfig,
 
-	// Application files
-	{
-		plugins: {
-			vitest,
-		},
-		languageOptions: {
-			ecmaVersion: 2022,
-			sourceType: "module",
-			globals: {
-				...globals.node,
-			},
-		},
-		settings: {
-			"import-x/resolver": {
-				typescript: true,
-			},
-		},
-		rules: {
-			...vitest.configs.recommended.rules,
-			"@typescript-eslint/ban-ts-comment": [
-				"error",
-				{
-					"ts-ignore": "allow-with-description",
-					minimumDescriptionLength: 3,
-				},
-			],
-			"@typescript-eslint/consistent-type-imports": [
-				"error",
-				{
-					prefer: "type-imports",
-					fixStyle: "inline-type-imports",
-				},
-			],
-			"@typescript-eslint/consistent-type-definitions": ["error", "type"],
-			"@typescript-eslint/no-unused-vars": [
-				"error",
-				{
-					argsIgnorePattern: "^_",
-					varsIgnorePattern: "^_",
-				},
-			],
-			"import-x/no-absolute-path": "error",
-			"import-x/no-cycle": ["error", { ignoreExternal: true }],
-			"import-x/no-duplicates": [
-				"error",
-				{
-					"prefer-inline": true,
-					considerQueryString: true,
-				},
-			],
-			"import-x/no-unresolved": [
-				"error",
-				{
-					ignore: ["^cloudflare:", "^astro:"],
-				},
-			],
-		},
-	},
+  // Application files
+  {
+    plugins: {
+      vitest,
+    },
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+      },
+    },
+    settings: {
+      'import-x/resolver': {
+        typescript: true,
+      },
+    },
+    rules: {
+      ...vitest.configs.recommended.rules,
+      '@typescript-eslint/ban-ts-comment': [
+        'error',
+        {
+          'ts-ignore': 'allow-with-description',
+          minimumDescriptionLength: 3,
+        },
+      ],
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        {
+          prefer: 'type-imports',
+          fixStyle: 'inline-type-imports',
+        },
+      ],
+      '@typescript-eslint/consistent-type-definitions': ['error', 'type'],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+        },
+      ],
+      'import-x/no-absolute-path': 'error',
+      'import-x/no-cycle': ['error', { ignoreExternal: true }],
+      'import-x/no-duplicates': [
+        'error',
+        {
+          'prefer-inline': true,
+          considerQueryString: true,
+        },
+      ],
+      'import-x/no-unresolved': [
+        'error',
+        {
+          ignore: ['^cloudflare:', '^astro:'],
+        },
+      ],
+    },
+  },
 
-	// Test files
-	{
-		files: ["**/*.test.{js,ts}"],
-		rules: {
-			"@typescript-eslint/no-explicit-any": "off",
-		},
-	},
+  // Test files
+  {
+    files: ['**/*.test.{js,ts}'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
 
-	// Config files
-	{
-		files: ["**/*.config.{js,mjs,ts}"],
-		languageOptions: {
-			globals: globals.node,
-		},
-	},
+  // Config files
+  {
+    files: ['**/*.config.{js,mjs,ts}'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
 );

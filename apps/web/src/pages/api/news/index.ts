@@ -7,39 +7,39 @@
  * - cursor: Pagination cursor (publishedAt timestamp)
  */
 
-import type { APIRoute } from "astro";
+import type { APIRoute } from 'astro';
 
-import { createDb, getNewsItems } from "@hiroba/db";
-import type { Category } from "@hiroba/shared";
+import { createDb, getNewsItems } from '@hiroba/db';
+import type { Category } from '@hiroba/shared';
 
 export const GET: APIRoute = async ({ locals, url }) => {
-	const runtime = locals.runtime;
-	const db = createDb(runtime.env.DB);
+  const runtime = locals.runtime;
+  const db = createDb(runtime.env.DB);
 
-	const category = url.searchParams.get("category") as Category | undefined;
-	const limitParam = url.searchParams.get("limit");
-	const cursor = url.searchParams.get("cursor") ?? undefined;
+  const category = url.searchParams.get('category') as Category | undefined;
+  const limitParam = url.searchParams.get('limit');
+  const cursor = url.searchParams.get('cursor') ?? undefined;
 
-	const limit = Math.min(limitParam ? parseInt(limitParam, 10) : 20, 100);
+  const limit = Math.min(limitParam ? parseInt(limitParam, 10) : 20, 100);
 
-	// Validate category if provided
-	const validCategories = ["news", "event", "update", "maintenance"];
-	if (category && !validCategories.includes(category)) {
-		return new Response(
-			JSON.stringify({
-				error: "Invalid category",
-				valid: validCategories,
-			}),
-			{
-				status: 400,
-				headers: { "Content-Type": "application/json" },
-			},
-		);
-	}
+  // Validate category if provided
+  const validCategories = ['news', 'event', 'update', 'maintenance'];
+  if (category && !validCategories.includes(category)) {
+    return new Response(
+      JSON.stringify({
+        error: 'Invalid category',
+        valid: validCategories,
+      }),
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+  }
 
-	const result = await getNewsItems(db, { category, limit, cursor });
+  const result = await getNewsItems(db, { category, limit, cursor });
 
-	return new Response(JSON.stringify(result), {
-		headers: { "Content-Type": "application/json" },
-	});
+  return new Response(JSON.stringify(result), {
+    headers: { 'Content-Type': 'application/json' },
+  });
 };

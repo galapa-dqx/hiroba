@@ -8,22 +8,22 @@
  * Note: Concurrency is now handled by Durable Objects, not database locks.
  */
 
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-export const newsItems = sqliteTable("news_items", {
-	// Primary identifier - 32-char hex from source URL
-	id: text("id").primaryKey(),
+export const newsItems = sqliteTable('news_items', {
+  // Primary identifier - 32-char hex from source URL
+  id: text('id').primaryKey(),
 
-	// From list page (Phase 1)
-	titleJa: text("title_ja").notNull(),
-	category: text("category").notNull(), // news|event|update|maintenance
-	publishedAt: integer("published_at").notNull(), // Unix timestamp
+  // From list page (Phase 1)
+  titleJa: text('title_ja').notNull(),
+  category: text('category').notNull(), // news|event|update|maintenance
+  publishedAt: integer('published_at').notNull(), // Unix timestamp
 
-	// From detail page (Phase 2) - NULL if not yet fetched
-	contentJa: text("content_ja"),
+  // From detail page (Phase 2) - NULL if not yet fetched
+  contentJa: text('content_ja'),
 
-	// Body fetch tracking
-	bodyFetchedAt: integer("body_fetched_at"), // Unix timestamp
+  // Body fetch tracking
+  bodyFetchedAt: integer('body_fetched_at'), // Unix timestamp
 });
 
 // Type exports
@@ -32,6 +32,6 @@ export type NewNewsItem = typeof newsItems.$inferInsert;
 
 /** Phase 1 (list scraping) fields only */
 export type ListItem = Pick<
-	NewsItem,
-	"id" | "titleJa" | "category" | "publishedAt"
+  NewsItem,
+  'id' | 'titleJa' | 'category' | 'publishedAt'
 >;

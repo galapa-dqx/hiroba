@@ -1,6 +1,5 @@
 {
-	"useTabs": true,
-	"singleQuote": false,
-	"plugins": ["@ianvs/prettier-plugin-sort-imports"],
-	"importOrder": ["<THIRD_PARTY_MODULES>", "", "^@hiroba/(.*)$", "", "^[./]"]
+  "singleQuote": true,
+  "plugins": ["@ianvs/prettier-plugin-sort-imports"],
+  "importOrder": ["<THIRD_PARTY_MODULES>", "", "^@hiroba/(.*)$", "", "^[./]"]
 }
