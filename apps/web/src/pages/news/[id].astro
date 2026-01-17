@@ -79,15 +79,11 @@ const categoryLabel = CATEGORY_LABELS[item.category as Category] || item.categor
 			<h1>{title}</h1>
 		</header>
 
-		{!hasContent && (
-			<div class="loading-notice">
-				<p>Content is being fetched. Please refresh in a moment.</p>
-			</div>
-		)}
-
-		{hasContent && !isTranslated && (
-			<div class="translation-notice">
-				<p>Translation in progress. Showing original Japanese content.</p>
+		{(!hasContent || !isTranslated) && (
+			<div class="processing-notice" id="processing-notice" data-item-id={id}>
+				<p id="processing-status">
+					{!hasContent ? "Fetching content..." : "Translating..."}
+				</p>
 			</div>
 		)}
 
@@ -159,8 +155,7 @@ const categoryLabel = CATEGORY_LABELS[item.category as Category] || item.categor
 		line-height: 1.3;
 	}
 
-	.loading-notice,
-	.translation-notice {
+	.processing-notice {
 		background: #fff3cd;
 		border: 1px solid #ffc107;
 		padding: 1rem;
@@ -168,10 +163,27 @@ const categoryLabel = CATEGORY_LABELS[item.category as Category] || item.categor
 		margin-bottom: 1.5rem;
 	}
 
-	.loading-notice p,
-	.translation-notice p {
+	.processing-notice p {
 		margin: 0;
 		color: #856404;
+	}
+
+	.processing-notice.complete {
+		background: #d4edda;
+		border-color: #28a745;
+	}
+
+	.processing-notice.complete p {
+		color: #155724;
+	}
+
+	.processing-notice.error {
+		background: #f8d7da;
+		border-color: #dc3545;
+	}
+
+	.processing-notice.error p {
+		color: #721c24;
 	}
 
 	.content {
@@ -213,3 +225,48 @@ const categoryLabel = CATEGORY_LABELS[item.category as Category] || item.categor
 		margin-top: 2rem;
 	}
 </style>
+
+<script>
+	const notice = document.getElementById("processing-notice");
+	if (notice) {
+		const itemId = notice.dataset.itemId;
+		const statusEl = document.getElementById("processing-status");
+
+		const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+		const wsUrl = `${protocol}//${location.host}/api/news/${itemId}/ws`;
+
+		const ws = new WebSocket(wsUrl);
+
+		ws.onmessage = (event) => {
+			const data = JSON.parse(event.data);
+
+			if (data.type === "progress" && statusEl) {
+				statusEl.textContent =
+					data.status === "running" ? "Processing..." : data.status;
+			}
+
+			if (data.type === "complete") {
+				notice.classList.add("complete");
+				if (statusEl) statusEl.textContent = "Done! Reloading...";
+				setTimeout(() => location.reload(), 500);
+			}
+
+			if (data.type === "error") {
+				notice.classList.add("error");
+				if (statusEl) statusEl.textContent = `Error: ${data.error || "Unknown error"}`;
+			}
+		};
+
+		ws.onerror = () => {
+			// Fallback to polling if WebSocket fails
+			const poll = setInterval(async () => {
+				const res = await fetch(`/api/news/${itemId}/en`);
+				const data = await res.json();
+				if (!data.processing) {
+					clearInterval(poll);
+					location.reload();
+				}
+			}, 3000);
+		};
+	}
+</script>
