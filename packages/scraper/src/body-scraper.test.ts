@@ -1,41 +1,34 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fetchMock from 'fetch-mock';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fetchNewsBody } from './body-scraper';
 
 describe('body-scraper', () => {
-  const mockFetch = vi.fn();
-
   beforeEach(() => {
-    vi.stubGlobal('fetch', mockFetch);
+    fetchMock.mockGlobal();
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.resetAllMocks();
+    fetchMock.unmockGlobal();
+    fetchMock.removeRoutes();
   });
 
   describe('fetchNewsBody', () => {
     it('constructs the correct URL for the given ID', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () => Promise.resolve("<div class='newsContent'>Test</div>"),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/12345/', {
+        body: "<div class='newsContent'>Test</div>",
       });
 
       await fetchNewsBody('12345');
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://hiroba.dqx.jp/sc/news/detail/12345/',
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            'User-Agent': expect.any(String),
-          }),
-        }),
-      );
+      const calls = fetchMock.callHistory.calls();
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe('https://hiroba.dqx.jp/sc/news/detail/12345/');
+      expect(calls[0].options?.headers).toHaveProperty('user-agent');
     });
 
     it('throws an error when response is not ok', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/99999/', {
         status: 404,
       });
 
@@ -45,12 +38,8 @@ describe('body-scraper', () => {
     });
 
     it('extracts content from div.newsContent', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () =>
-          Promise.resolve(
-            "<html><body><div class='newsContent'>Hello World</div></body></html>",
-          ),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/123/', {
+        body: "<html><body><div class='newsContent'>Hello World</div></body></html>",
       });
 
       const result = await fetchNewsBody('123');
@@ -59,12 +48,8 @@ describe('body-scraper', () => {
     });
 
     it('converts br tags to newlines', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () =>
-          Promise.resolve(
-            "<div class='newsContent'>Line 1<br>Line 2<br/>Line 3<br />Line 4</div>",
-          ),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/123/', {
+        body: "<div class='newsContent'>Line 1<br>Line 2<br/>Line 3<br />Line 4</div>",
       });
 
       const result = await fetchNewsBody('123');
@@ -73,12 +58,8 @@ describe('body-scraper', () => {
     });
 
     it('converts closing p tags to double newlines', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () =>
-          Promise.resolve(
-            "<div class='newsContent'><p>Paragraph 1</p><p>Paragraph 2</p></div>",
-          ),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/123/', {
+        body: "<div class='newsContent'><p>Paragraph 1</p><p>Paragraph 2</p></div>",
       });
 
       const result = await fetchNewsBody('123');
@@ -87,12 +68,8 @@ describe('body-scraper', () => {
     });
 
     it('strips all other HTML tags', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () =>
-          Promise.resolve(
-            "<div class='newsContent'><strong>Bold</strong> and <em>italic</em> text</div>",
-          ),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/123/', {
+        body: "<div class='newsContent'><strong>Bold</strong> and <em>italic</em> text</div>",
       });
 
       const result = await fetchNewsBody('123');
@@ -101,12 +78,8 @@ describe('body-scraper', () => {
     });
 
     it('replaces &nbsp; with regular spaces', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () =>
-          Promise.resolve(
-            "<div class='newsContent'>Word&nbsp;with&nbsp;spaces</div>",
-          ),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/123/', {
+        body: "<div class='newsContent'>Word&nbsp;with&nbsp;spaces</div>",
       });
 
       const result = await fetchNewsBody('123');
@@ -115,12 +88,8 @@ describe('body-scraper', () => {
     });
 
     it('collapses multiple newlines to double newlines', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () =>
-          Promise.resolve(
-            "<div class='newsContent'>Line 1<br><br><br><br>Line 2</div>",
-          ),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/123/', {
+        body: "<div class='newsContent'>Line 1<br><br><br><br>Line 2</div>",
       });
 
       const result = await fetchNewsBody('123');
@@ -129,12 +98,8 @@ describe('body-scraper', () => {
     });
 
     it('trims whitespace from result', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () =>
-          Promise.resolve(
-            "<div class='newsContent'>   Trimmed content   </div>",
-          ),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/123/', {
+        body: "<div class='newsContent'>   Trimmed content   </div>",
       });
 
       const result = await fetchNewsBody('123');
@@ -143,12 +108,8 @@ describe('body-scraper', () => {
     });
 
     it('returns empty string when newsContent element is missing', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () =>
-          Promise.resolve(
-            '<html><body><div>No news content here</div></body></html>',
-          ),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/123/', {
+        body: '<html><body><div>No news content here</div></body></html>',
       });
 
       const result = await fetchNewsBody('123');
@@ -158,20 +119,19 @@ describe('body-scraper', () => {
 
     it('handles complex HTML with nested elements', async () => {
       const complexHtml = `
-				<div class='newsContent'>
-					<h2>Title</h2>
-					<p>First paragraph with <a href="#">link</a>.</p>
-					<ul>
-						<li>Item 1</li>
-						<li>Item 2</li>
-					</ul>
-					<p>Final paragraph.</p>
-				</div>
-			`;
+        <div class='newsContent'>
+          <h2>Title</h2>
+          <p>First paragraph with <a href="#">link</a>.</p>
+          <ul>
+            <li>Item 1</li>
+            <li>Item 2</li>
+          </ul>
+          <p>Final paragraph.</p>
+        </div>
+      `;
 
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: () => Promise.resolve(complexHtml),
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/detail/123/', {
+        body: complexHtml,
       });
 
       const result = await fetchNewsBody('123');
