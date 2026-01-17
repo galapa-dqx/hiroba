@@ -3,7 +3,9 @@
  */
 
 import type { APIRoute } from "astro";
+
 import { createDb, getNewsItem } from "@hiroba/db";
+
 import type { NewsItemDO } from "../../../../types/do";
 
 export const GET: APIRoute = async ({ locals, params }) => {

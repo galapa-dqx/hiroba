@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { fetchNewsBody } from "./body-scraper";
 
 describe("body-scraper", () => {
@@ -145,7 +146,9 @@ describe("body-scraper", () => {
 			mockFetch.mockResolvedValueOnce({
 				ok: true,
 				text: () =>
-					Promise.resolve("<html><body><div>No news content here</div></body></html>"),
+					Promise.resolve(
+						"<html><body><div>No news content here</div></body></html>",
+					),
 			});
 
 			const result = await fetchNewsBody("123");

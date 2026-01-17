@@ -38,4 +38,3 @@ export const SCRAPE_CONFIG = {
 	newsDetailPath: "/sc/news/detail/",
 	topicsDetailPath: "/sc/topics/detail/",
 } as const;
-

@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
 	getNextCheckTime,
-	isDueForCheck,
 	getRecheckIntervalHours,
 	getTimeUntilCheck,
+	isDueForCheck,
 } from "./freshness";
 
 describe("freshness", () => {
@@ -164,9 +165,7 @@ describe("freshness", () => {
 		it("includes recently published items that were fetched and are due", () => {
 			// Article published 2 days ago, body fetched 3 hours ago
 			// Interval = 2 hours, so should be due
-			const items = [
-				{ publishedAt: daysAgo(2), bodyFetchedAt: hoursAgo(3) },
-			];
+			const items = [{ publishedAt: daysAgo(2), bodyFetchedAt: hoursAgo(3) }];
 			const result = simulateRecheckQueue(items);
 			expect(result).toHaveLength(1);
 		});

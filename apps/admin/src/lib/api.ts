@@ -13,27 +13,27 @@ async function adminFetch(path: string, options: RequestInit = {}) {
 	return res.json();
 }
 
-export interface Stats {
+export type Stats = {
 	totalItems: number;
 	itemsWithBody: number;
 	itemsWithBodyFetchedAt: number;
 	itemsTranslated: number;
 	itemsPendingRecheck: number;
 	byCategory: Record<string, number>;
-}
+};
 
 export async function getStats(): Promise<Stats> {
 	return adminFetch("/api/stats");
 }
 
-export interface QueueItem {
+export type QueueItem = {
 	id: string;
 	titleJa: string;
 	category: string;
 	publishedAt: number;
 	bodyFetchedAt: number;
 	nextCheckAt: number;
-}
+};
 
 export async function getRecheckQueue(
 	limit = 50,
@@ -41,24 +41,24 @@ export async function getRecheckQueue(
 	return adminFetch(`/api/recheck-queue?limit=${limit}`);
 }
 
-export interface ScrapeResult {
+export type ScrapeResult = {
 	success: boolean;
 	results: Array<{ category: string; newItems: number; totalScraped: number }>;
 	totalNewItems: number;
 	totalScraped: number;
-}
+};
 
 export async function triggerScrape(full = false): Promise<ScrapeResult> {
 	return adminFetch(`/api/scrape?full=${full}`, { method: "POST" });
 }
 
-export interface NewsItem {
+export type NewsItem = {
 	id: string;
 	titleJa: string;
 	category: string;
 	publishedAt: number;
 	contentJa: string | null;
-}
+};
 
 export async function getNewsList(options?: {
 	category?: string;
@@ -73,7 +73,9 @@ export async function getNewsList(options?: {
 	return res.json();
 }
 
-export async function invalidateBody(id: string): Promise<{ success: boolean }> {
+export async function invalidateBody(
+	id: string,
+): Promise<{ success: boolean }> {
 	return adminFetch(`/api/news/${id}/body`, { method: "DELETE" });
 }
 
@@ -84,12 +86,12 @@ export async function deleteTranslation(
 	return adminFetch(`/api/news/${id}/${lang}`, { method: "DELETE" });
 }
 
-export interface GlossaryEntry {
+export type GlossaryEntry = {
 	sourceText: string;
 	targetLanguage: string;
 	translatedText: string;
 	updatedAt: number;
-}
+};
 
 export async function getGlossary(
 	lang?: string,
@@ -127,16 +129,15 @@ export async function deleteGlossaryEntry(
 	sourceText: string,
 	lang: string,
 ): Promise<{ success: boolean }> {
-	return adminFetch(
-		`/api/glossary/${encodeURIComponent(sourceText)}/${lang}`,
-		{ method: "DELETE" },
-	);
+	return adminFetch(`/api/glossary/${encodeURIComponent(sourceText)}/${lang}`, {
+		method: "DELETE",
+	});
 }
 
-export interface GlossaryMatch {
+export type GlossaryMatch = {
 	sourceText: string;
 	translatedText: string;
-}
+};
 
 export async function lookupGlossary(
 	text: string,

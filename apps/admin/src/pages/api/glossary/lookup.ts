@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+
 import { createDb } from "@hiroba/db";
 import { findMatchingGlossaryEntries } from "@hiroba/db/schema";
 

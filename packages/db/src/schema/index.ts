@@ -7,3 +7,4 @@
 export * from "./news-items";
 export * from "./translations";
 export * from "./glossary";
+export * from "./events";

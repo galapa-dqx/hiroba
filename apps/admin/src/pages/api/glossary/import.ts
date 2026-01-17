@@ -1,5 +1,7 @@
 import type { APIRoute } from "astro";
+
 import { createDb } from "@hiroba/db";
+
 import { importGlossaryFromCsv } from "../../../lib/db-operations";
 
 export const POST: APIRoute = async ({ locals, request }) => {
@@ -20,8 +22,7 @@ export const POST: APIRoute = async ({ locals, request }) => {
 	const csv = await file.text();
 	const imported = await importGlossaryFromCsv(db, csv, targetLanguage);
 
-	return new Response(
-		JSON.stringify({ success: true, imported }),
-		{ headers: { "Content-Type": "application/json" } },
-	);
+	return new Response(JSON.stringify({ success: true, imported }), {
+		headers: { "Content-Type": "application/json" },
+	});
 };

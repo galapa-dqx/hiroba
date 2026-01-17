@@ -2,21 +2,28 @@
  * Database operations for admin API routes.
  */
 
-import { eq, and, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+
 import {
+	deleteTranslation,
+	getRecheckQueue,
+	getStats,
 	glossary,
-	type Database,
+	invalidateBody,
 	upsertListItems,
+	type Database,
+} from "@hiroba/db";
+import { scrapeNewsList } from "@hiroba/scraper";
+import { CATEGORIES, type Category } from "@hiroba/shared";
+
+// Re-export db functions
+export {
 	getStats,
 	getRecheckQueue,
 	invalidateBody,
 	deleteTranslation,
-} from "@hiroba/db";
-import { type Category, CATEGORIES } from "@hiroba/shared";
-import { scrapeNewsList } from "@hiroba/scraper";
-
-// Re-export db functions
-export { getStats, getRecheckQueue, invalidateBody, deleteTranslation, upsertListItems };
+	upsertListItems,
+};
 
 /**
  * Trigger a scrape for all categories.
@@ -25,12 +32,20 @@ export async function triggerScrape(
 	db: Database,
 	options: { full?: boolean; category?: Category },
 ): Promise<{
-	results: Array<{ category: Category; newItems: number; totalScraped: number }>;
+	results: Array<{
+		category: Category;
+		newItems: number;
+		totalScraped: number;
+	}>;
 	totalNewItems: number;
 	totalScraped: number;
 }> {
 	const categoriesToScrape = options.category ? [options.category] : CATEGORIES;
-	const results: Array<{ category: Category; newItems: number; totalScraped: number }> = [];
+	const results: Array<{
+		category: Category;
+		newItems: number;
+		totalScraped: number;
+	}> = [];
 
 	for (const category of categoriesToScrape) {
 		let newItems = 0;
@@ -62,12 +77,14 @@ export async function triggerScrape(
 export async function getGlossaryEntries(
 	db: Database,
 	lang?: string,
-): Promise<Array<{
-	sourceText: string;
-	targetLanguage: string;
-	translatedText: string;
-	updatedAt: number;
-}>> {
+): Promise<
+	Array<{
+		sourceText: string;
+		targetLanguage: string;
+		translatedText: string;
+		updatedAt: number;
+	}>
+> {
 	const query = db.select().from(glossary).$dynamic();
 
 	return lang
@@ -183,7 +200,10 @@ export async function deleteGlossaryEntry(
 	const result = await db
 		.delete(glossary)
 		.where(
-			and(eq(glossary.sourceText, sourceText), eq(glossary.targetLanguage, targetLanguage)),
+			and(
+				eq(glossary.sourceText, sourceText),
+				eq(glossary.targetLanguage, targetLanguage),
+			),
 		)
 		.returning({ sourceText: glossary.sourceText });
 

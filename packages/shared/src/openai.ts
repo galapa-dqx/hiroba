@@ -6,15 +6,15 @@
 
 import OpenAI from "openai";
 
-export interface GlossaryTerm {
+export type GlossaryTerm = {
 	sourceText: string;
 	translatedText: string;
-}
+};
 
-export interface TranslatedFields {
+export type TranslatedFields = {
 	fields: Record<string, string>;
 	model: string;
-}
+};
 
 const SYSTEM_PROMPT = `You are a professional translator specializing in Japanese video game content,
 particularly Dragon Quest X (DQX) online game. Translate the following Japanese text to natural English.

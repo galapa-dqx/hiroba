@@ -6,7 +6,8 @@
 		"dev": "dotenv -e ../../.env -- astro dev --port 4321",
 		"build": "astro build",
 		"preview": "astro preview",
-		"deploy": "wrangler pages deploy dist"
+		"deploy": "wrangler pages deploy dist",
+		"lint": "eslint ."
 	},
 	"dependencies": {
 		"@astrojs/cloudflare": "^12.0.0",

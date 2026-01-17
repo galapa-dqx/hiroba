@@ -3,11 +3,12 @@
  */
 
 import * as cheerio from "cheerio";
+
 import { SCRAPE_CONFIG } from "@hiroba/shared";
 
-export interface BodyContent {
+export type BodyContent = {
 	contentJa: string;
-}
+};
 
 /**
  * Fetch and parse the detail page for a news item.

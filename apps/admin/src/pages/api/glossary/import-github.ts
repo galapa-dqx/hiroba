@@ -1,5 +1,7 @@
 import type { APIRoute } from "astro";
+
 import { createDb } from "@hiroba/db";
+
 import { importGlossaryFromGitHub } from "../../../lib/db-operations";
 
 export const POST: APIRoute = async ({ locals }) => {
@@ -8,8 +10,7 @@ export const POST: APIRoute = async ({ locals }) => {
 
 	const result = await importGlossaryFromGitHub(db);
 
-	return new Response(
-		JSON.stringify({ success: true, ...result }),
-		{ headers: { "Content-Type": "application/json" } },
-	);
+	return new Response(JSON.stringify({ success: true, ...result }), {
+		headers: { "Content-Type": "application/json" },
+	});
 };

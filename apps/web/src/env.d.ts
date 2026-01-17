@@ -1,21 +1,21 @@
 /// <reference types="astro/client" />
 
-interface RuntimeEnv {
+type RuntimeEnv = {
 	DB: D1Database;
 	OPENAI_API_KEY: string;
 	NEWS_ITEM_DO: DurableObjectNamespace;
-}
+};
 
 declare namespace App {
-	interface Locals {
+	type Locals = {
 		runtime: { env: RuntimeEnv };
-	}
+	};
 }
 
-interface ImportMetaEnv {
+type ImportMetaEnv = {
 	readonly API_URL: string;
-}
+};
 
-interface ImportMeta {
+type ImportMeta = {
 	readonly env: ImportMetaEnv;
-}
+};

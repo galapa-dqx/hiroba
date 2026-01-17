@@ -1,5 +1,7 @@
 import type { APIRoute } from "astro";
+
 import { createDb } from "@hiroba/db";
+
 import { deleteGlossaryEntry } from "../../../../lib/db-operations";
 
 export const DELETE: APIRoute = async ({ locals, params }) => {
@@ -12,14 +14,13 @@ export const DELETE: APIRoute = async ({ locals, params }) => {
 	const success = await deleteGlossaryEntry(db, sourceText, lang);
 
 	if (!success) {
-		return new Response(
-			JSON.stringify({ error: "Not found" }),
-			{ status: 404, headers: { "Content-Type": "application/json" } },
-		);
+		return new Response(JSON.stringify({ error: "Not found" }), {
+			status: 404,
+			headers: { "Content-Type": "application/json" },
+		});
 	}
 
-	return new Response(
-		JSON.stringify({ success: true }),
-		{ headers: { "Content-Type": "application/json" } },
-	);
+	return new Response(JSON.stringify({ success: true }), {
+		headers: { "Content-Type": "application/json" },
+	});
 };

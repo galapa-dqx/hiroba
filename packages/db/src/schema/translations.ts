@@ -9,13 +9,14 @@
  * Note: Concurrency is now handled by Durable Objects, not database locks.
  */
 
+import { and, eq } from "drizzle-orm";
 import {
-	sqliteTable,
-	text,
 	integer,
 	primaryKey,
+	sqliteTable,
+	text,
 } from "drizzle-orm/sqlite-core";
-import { eq, and } from "drizzle-orm";
+
 import type { Database } from "../client";
 
 export const translations = sqliteTable(
@@ -48,11 +49,11 @@ export type ItemType = "news" | "topic" | "event";
 export type TranslationField = "title" | "content";
 
 /** Result for a single translated field */
-export interface FieldTranslation {
+export type FieldTranslation = {
 	value: string;
 	translatedAt: number;
 	model: string | null;
-}
+};
 
 /** Map of field name to translation result */
 export type FieldTranslations = Partial<Record<string, FieldTranslation>>;

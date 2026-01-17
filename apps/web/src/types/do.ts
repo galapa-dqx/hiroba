@@ -6,11 +6,11 @@
 
 import type { FieldTranslations, ItemType } from "@hiroba/db";
 
-export interface BodyContent {
+export type BodyContent = {
 	contentJa: string;
-}
+};
 
-export interface NewsItemDO {
+export type NewsItemDO = {
 	fetchBodyIfNeeded(itemId: string): Promise<BodyContent | null>;
 	translateFields(
 		itemId: string,
@@ -19,4 +19,4 @@ export interface NewsItemDO {
 		sourceFields: Record<string, string>,
 		publishedAt: number,
 	): Promise<FieldTranslations>;
-}
+};

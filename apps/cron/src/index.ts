@@ -6,9 +6,10 @@
  */
 
 import { sql } from "drizzle-orm";
+
 import { createDb, glossary, upsertListItems, type Database } from "@hiroba/db";
-import { CATEGORIES } from "@hiroba/shared";
 import { fetchGlossary, scrapeNewsList } from "@hiroba/scraper";
+import { CATEGORIES } from "@hiroba/shared";
 
 // Export the Durable Object class
 export { NewsItemDO } from "./news-item-do";
@@ -23,9 +24,12 @@ export default {
 	 * No HTTP routes - redirect any requests to the main web app.
 	 */
 	async fetch(): Promise<Response> {
-		return new Response("This worker handles cron jobs only. API is at hiroba.dqx.tools", {
-			status: 404,
-		});
+		return new Response(
+			"This worker handles cron jobs only. API is at hiroba.dqx.tools",
+			{
+				status: 404,
+			},
+		);
 	},
 
 	/**

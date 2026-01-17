@@ -10,7 +10,8 @@
 	"scripts": {
 		"build": "tsc --noEmit",
 		"typecheck": "tsc --noEmit",
-		"generate": "drizzle-kit generate"
+		"generate": "drizzle-kit generate",
+		"lint": "eslint ."
 	},
 	"dependencies": {
 		"@hiroba/shared": "workspace:*",

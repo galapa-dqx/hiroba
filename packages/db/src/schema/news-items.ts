@@ -8,7 +8,7 @@
  * Note: Concurrency is now handled by Durable Objects, not database locks.
  */
 
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const newsItems = sqliteTable("news_items", {
 	// Primary identifier - 32-char hex from source URL
@@ -31,4 +31,7 @@ export type NewsItem = typeof newsItems.$inferSelect;
 export type NewNewsItem = typeof newsItems.$inferInsert;
 
 /** Phase 1 (list scraping) fields only */
-export type ListItem = Pick<NewsItem, "id" | "titleJa" | "category" | "publishedAt">;
+export type ListItem = Pick<
+	NewsItem,
+	"id" | "titleJa" | "category" | "publishedAt"
+>;

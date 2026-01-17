@@ -2,12 +2,13 @@
  * Database queries for news items.
  */
 
-import { eq, desc, and, lt, sql, isNotNull } from "drizzle-orm";
-import { newsItems } from "./schema/news-items";
-import { translations } from "./schema/translations";
+import { and, desc, eq, isNotNull, lt, sql } from "drizzle-orm";
+
+import { getNextCheckTime, isDueForCheck, type Category } from "@hiroba/shared";
+
 import type { Database } from "./client";
-import type { NewsItem, ListItem } from "./schema/news-items";
-import { isDueForCheck, getNextCheckTime, type Category } from "@hiroba/shared";
+import { newsItems, type ListItem, type NewsItem } from "./schema/news-items";
+import { translations } from "./schema/translations";
 
 /**
  * Upsert news items from list scraping.
@@ -116,7 +117,10 @@ export async function getStats(db: Database): Promise<{
 }> {
 	const [totalResult, withBodyResult, translatedResult, categoryResults] =
 		await Promise.all([
-			db.select({ count: sql<number>`count(*)` }).from(newsItems).get(),
+			db
+				.select({ count: sql<number>`count(*)` })
+				.from(newsItems)
+				.get(),
 			db
 				.select({ count: sql<number>`count(*)` })
 				.from(newsItems)
@@ -126,7 +130,10 @@ export async function getStats(db: Database): Promise<{
 				.select({ count: sql<number>`count(DISTINCT item_id)` })
 				.from(translations)
 				.where(
-					and(eq(translations.itemType, "news"), eq(translations.language, "en")),
+					and(
+						eq(translations.itemType, "news"),
+						eq(translations.language, "en"),
+					),
 				)
 				.get(),
 			db
@@ -221,4 +228,3 @@ export async function invalidateBody(
 
 	return result.length > 0;
 }
-

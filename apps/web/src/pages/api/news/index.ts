@@ -8,6 +8,7 @@
  */
 
 import type { APIRoute } from "astro";
+
 import { createDb, getNewsItems } from "@hiroba/db";
 import type { Category } from "@hiroba/shared";
 

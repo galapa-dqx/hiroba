@@ -10,7 +10,8 @@
 		"build": "tsc --noEmit",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
-		"test:watch": "vitest"
+		"test:watch": "vitest",
+		"lint": "eslint ."
 	},
 	"dependencies": {
 		"openai": "^4.104.0",

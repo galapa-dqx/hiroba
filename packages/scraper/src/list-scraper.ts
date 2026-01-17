@@ -7,13 +7,14 @@
 
 import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
+
+import type { ListItem } from "@hiroba/db";
 import {
 	CATEGORIES,
-	SCRAPE_CONFIG,
 	parseJstDateToUnix,
+	SCRAPE_CONFIG,
 	type Category,
 } from "@hiroba/shared";
-import type { ListItem } from "@hiroba/db";
 
 const BASE_URL = SCRAPE_CONFIG.baseUrl;
 

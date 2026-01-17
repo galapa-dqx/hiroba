@@ -1,6 +1,8 @@
 import type { APIRoute } from "astro";
+
 import { createDb } from "@hiroba/db";
 import type { Category } from "@hiroba/shared";
+
 import { triggerScrape } from "../../lib/db-operations";
 
 export const POST: APIRoute = async ({ locals, request }) => {

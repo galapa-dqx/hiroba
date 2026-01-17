@@ -5,7 +5,9 @@
  */
 
 import type { APIRoute } from "astro";
+
 import { createDb, getNewsItem } from "@hiroba/db";
+
 import type { NewsItemDO } from "../../../../types/do";
 
 export const GET: APIRoute = async ({ locals, params }) => {
@@ -58,10 +60,10 @@ export const GET: APIRoute = async ({ locals, params }) => {
 	}
 
 	if (!item.contentJa) {
-		return new Response(
-			JSON.stringify({ error: "Content not available" }),
-			{ status: 500, headers: { "Content-Type": "application/json" } },
-		);
+		return new Response(JSON.stringify({ error: "Content not available" }), {
+			status: 500,
+			headers: { "Content-Type": "application/json" },
+		});
 	}
 
 	// Translate via DO

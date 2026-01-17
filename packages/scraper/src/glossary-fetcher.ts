@@ -7,10 +7,10 @@
  */
 
 /** Glossary entry for translation. */
-export interface GlossaryEntry {
+export type GlossaryEntry = {
 	japanese_text: string;
 	english_text: string;
-}
+};
 
 export const GLOSSARY_URL =
 	"https://raw.githubusercontent.com/dqx-translation-project/dqx-custom-translations/main/csv/glossary.csv";

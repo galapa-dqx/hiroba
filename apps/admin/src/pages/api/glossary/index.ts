@@ -1,5 +1,7 @@
 import type { APIRoute } from "astro";
+
 import { createDb } from "@hiroba/db";
+
 import { getGlossaryEntries } from "../../../lib/db-operations";
 
 export const GET: APIRoute = async ({ locals, request }) => {

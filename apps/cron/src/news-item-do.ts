@@ -10,22 +10,22 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { eq } from "drizzle-orm";
+
 import {
 	createDb,
+	findMatchingGlossaryEntries,
 	newsItems,
 	translations,
-	findMatchingGlossaryEntries,
-	type Database,
 	type FieldTranslations,
 	type ItemType,
 } from "@hiroba/db";
-import { isTranslationStale, translateWithAI } from "@hiroba/shared";
 import { fetchNewsBody, type BodyContent } from "@hiroba/scraper";
+import { isTranslationStale, translateWithAI } from "@hiroba/shared";
 
-export interface Env {
+export type Env = {
 	DB: D1Database;
 	OPENAI_API_KEY: string;
-}
+};
 
 export class NewsItemDO extends DurableObject<Env> {
 	/**

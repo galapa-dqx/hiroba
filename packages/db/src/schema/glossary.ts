@@ -6,13 +6,14 @@
  * different translations for different target languages.
  */
 
+import { and, eq, sql } from "drizzle-orm";
 import {
-	sqliteTable,
-	text,
 	integer,
 	primaryKey,
+	sqliteTable,
+	text,
 } from "drizzle-orm/sqlite-core";
-import { eq, and, sql } from "drizzle-orm";
+
 import type { Database } from "../client";
 
 export const glossary = sqliteTable(
