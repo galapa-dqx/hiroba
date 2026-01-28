@@ -87,11 +87,9 @@ export type NewsWorkflowOutput = {
 };
 
 /**
- * WebSocket progress message types.
+ * SSE event types for workflow progress.
  */
-export type WorkflowStatus =
-  | { type: 'status'; status: string; instanceId?: string }
-  | { type: 'progress'; status: string; output?: unknown }
-  | { type: 'complete'; output?: unknown }
-  | { type: 'error'; error?: string }
-  | { type: 'pong' };
+export type SSEEvent =
+  | { type: 'progress'; message: string }
+  | { type: 'complete' }
+  | { type: 'error'; error: string };

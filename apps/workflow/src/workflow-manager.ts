@@ -2,37 +2,41 @@
  * WorkflowManager - Durable Object for coordinating workflow operations.
  *
  * Responsibilities:
- * - Accept WebSocket connections for progress updates
+ * - Stream SSE progress updates to connected clients
  * - Create/track workflow instances
- * - Poll workflow status and broadcast to connected clients
- * - Handle "already processing" case gracefully
+ * - Poll workflow status and emit events
  */
 
 import { DurableObject } from 'cloudflare:workers';
 
-import type { Env, WorkflowStatus } from './types';
+import type { Env, NewsWorkflowOutput } from './types';
+
+function getProgressMessage(output: Partial<NewsWorkflowOutput> | undefined): string {
+  if (!output) return 'Starting...';
+  if ('translate' in output) return 'Finishing up...';
+  if ('extractEvents' in output) return 'Translating...';
+  if ('fetchBody' in output) return 'Extracting events...';
+  return 'Fetching content...';
+}
 
 export class WorkflowManager extends DurableObject<Env> {
   /** Track active workflow instance IDs by news item ID */
   private activeWorkflows = new Map<string, string>();
 
   /**
-   * Handle incoming requests - either WebSocket upgrades or workflow triggers.
+   * Handle incoming requests.
    */
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
-    // WebSocket connection for progress updates
-    if (url.pathname === '/ws') {
-      return this.handleWebSocket(request, url);
+    if (url.pathname === '/sse') {
+      return this.handleSSE(url);
     }
 
-    // Trigger workflow for a news item
     if (url.pathname === '/trigger' && request.method === 'POST') {
       return this.handleTrigger(request);
     }
 
-    // Get workflow status
     if (url.pathname === '/status') {
       const itemId = url.searchParams.get('itemId');
       if (!itemId) {
@@ -45,33 +49,79 @@ export class WorkflowManager extends DurableObject<Env> {
   }
 
   /**
-   * Handle WebSocket upgrade request.
+   * Handle SSE connection — streams workflow progress as server-sent events.
    */
-  private handleWebSocket(request: Request, url: URL): Response {
-    if (request.headers.get('Upgrade') !== 'websocket') {
-      return new Response('Expected WebSocket', { status: 400 });
-    }
-
+  private handleSSE(url: URL): Response {
     const itemId = url.searchParams.get('itemId');
     if (!itemId) {
       return new Response('itemId query param required', { status: 400 });
     }
 
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start: async (controller) => {
+        const send = (event: Record<string, unknown>) => {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        };
 
-    // Accept with hibernation API, tag with itemId for filtering
-    this.ctx.acceptWebSocket(server, [itemId]);
+        const instanceId = this.activeWorkflows.get(itemId);
+        if (!instanceId) {
+          send({ type: 'error', error: 'No active workflow' });
+          controller.close();
+          return;
+        }
 
-    // Send current status immediately
-    const instanceId = this.activeWorkflows.get(itemId);
-    if (instanceId) {
-      server.send(
-        JSON.stringify({ type: 'status', status: 'processing', instanceId }),
-      );
-    }
+        const pollInterval = 1000;
+        const maxPolls = 300; // 5 minutes
 
-    return new Response(null, { status: 101, webSocket: client });
+        for (let i = 0; i < maxPolls; i++) {
+          await new Promise((resolve) => setTimeout(resolve, pollInterval));
+
+          try {
+            const instance = await this.env.NEWS_WORKFLOW.get(instanceId);
+            const status = await instance.status();
+
+            if (status.status === 'complete') {
+              send({ type: 'progress', message: 'Done!' });
+              send({ type: 'complete' });
+              this.activeWorkflows.delete(itemId);
+              controller.close();
+              return;
+            }
+
+            if (status.status === 'errored') {
+              send({ type: 'error', error: status.error ?? 'Unknown error' });
+              this.activeWorkflows.delete(itemId);
+              controller.close();
+              return;
+            }
+
+            const message = getProgressMessage(
+              status.output as Partial<NewsWorkflowOutput> | undefined,
+            );
+            send({ type: 'progress', message });
+          } catch (error) {
+            console.error('Error polling workflow status:', error);
+            send({ type: 'error', error: 'Polling failed' });
+            controller.close();
+            return;
+          }
+        }
+
+        // Timeout
+        this.activeWorkflows.delete(itemId);
+        send({ type: 'error', error: 'Workflow timeout' });
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
   }
 
   /**
@@ -88,7 +138,6 @@ export class WorkflowManager extends DurableObject<Env> {
     // Check if already processing
     const existingInstanceId = this.activeWorkflows.get(itemId);
     if (existingInstanceId) {
-      // Check if the workflow is still running
       const instance = await this.env.NEWS_WORKFLOW.get(existingInstanceId);
       const status = await instance.status();
 
@@ -105,18 +154,7 @@ export class WorkflowManager extends DurableObject<Env> {
       params: { itemId },
     });
 
-    // Track the workflow
     this.activeWorkflows.set(itemId, instance.id);
-
-    // Broadcast to connected clients
-    this.broadcast(itemId, {
-      type: 'status',
-      status: 'started',
-      instanceId: instance.id,
-    });
-
-    // Start polling for status updates
-    this.ctx.waitUntil(this.pollWorkflowStatus(itemId, instance.id));
 
     return Response.json({ status: 'started', instanceId: instance.id });
   }
@@ -142,119 +180,8 @@ export class WorkflowManager extends DurableObject<Env> {
         error: status.error,
       });
     } catch {
-      // Instance may have been cleaned up
       this.activeWorkflows.delete(itemId);
       return Response.json({ status: 'idle' });
     }
-  }
-
-  /**
-   * Poll workflow status and broadcast updates.
-   */
-  private async pollWorkflowStatus(
-    itemId: string,
-    instanceId: string,
-  ): Promise<void> {
-    const pollInterval = 1000; // 1 second
-    const maxPolls = 300; // 5 minutes max
-
-    for (let i = 0; i < maxPolls; i++) {
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
-
-      try {
-        const instance = await this.env.NEWS_WORKFLOW.get(instanceId);
-        const status = await instance.status();
-
-        this.broadcast(itemId, {
-          type: 'progress',
-          status: status.status,
-          output: status.output,
-        });
-
-        if (status.status === 'complete') {
-          this.activeWorkflows.delete(itemId);
-          this.broadcast(itemId, {
-            type: 'complete',
-            output: status.output,
-          });
-          return;
-        }
-
-        if (status.status === 'errored') {
-          this.activeWorkflows.delete(itemId);
-          this.broadcast(itemId, {
-            type: 'error',
-            error: status.error,
-          });
-          return;
-        }
-      } catch (error) {
-        console.error('Error polling workflow status:', error);
-      }
-    }
-
-    // Timeout - stop polling
-    this.activeWorkflows.delete(itemId);
-    this.broadcast(itemId, {
-      type: 'error',
-      error: 'Workflow timeout',
-    });
-  }
-
-  /**
-   * Broadcast message to all WebSocket clients subscribed to an item.
-   */
-  private broadcast(itemId: string, message: WorkflowStatus): void {
-    const sockets = this.ctx.getWebSockets(itemId);
-    const data = JSON.stringify(message);
-
-    for (const socket of sockets) {
-      try {
-        socket.send(data);
-      } catch {
-        // Socket may be closed
-      }
-    }
-  }
-
-  /**
-   * Handle incoming WebSocket messages.
-   */
-  async webSocketMessage(
-    ws: WebSocket,
-    message: string | ArrayBuffer,
-  ): Promise<void> {
-    // Currently we don't need to handle incoming messages from clients
-    // This is primarily a broadcast channel
-    if (typeof message === 'string') {
-      try {
-        const data = JSON.parse(message) as { type: string; itemId?: string };
-        if (data.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong' }));
-        }
-      } catch {
-        // Ignore invalid messages
-      }
-    }
-  }
-
-  /**
-   * Handle WebSocket close.
-   */
-  async webSocketClose(
-    _ws: WebSocket,
-    _code: number,
-    _reason: string,
-    _wasClean: boolean,
-  ): Promise<void> {
-    // No cleanup needed - hibernation API handles this
-  }
-
-  /**
-   * Handle WebSocket errors.
-   */
-  async webSocketError(_ws: WebSocket, _error: unknown): Promise<void> {
-    // Log but don't throw
-    console.error('WebSocket error');
   }
 }
