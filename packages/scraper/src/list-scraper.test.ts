@@ -247,7 +247,9 @@ describe('list-scraper', () => {
     });
 
     it('throws error on failed fetch', async () => {
-      fetchMock.get('https://hiroba.dqx.jp/sc/news/category/0', { status: 500 });
+      fetchMock.get('https://hiroba.dqx.jp/sc/news/category/0', {
+        status: 500,
+      });
 
       const generator = scrapeNewsList('news');
 

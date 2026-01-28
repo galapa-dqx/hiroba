@@ -1,151 +1,158 @@
 :root {
-	--color-bg: #fafafa;
-	--color-text: #333;
-	--color-link: #0066cc;
-	--color-muted: #666;
-	--max-width: 800px;
+  --color-bg: #fafafa;
+  --color-text: #333;
+  --color-link: #0066cc;
+  --color-muted: #666;
+  --max-width: 800px;
 }
 
 * {
-	box-sizing: border-box;
-	margin: 0;
-	padding: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-	font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-		"Helvetica Neue", Arial, sans-serif;
-	line-height: 1.6;
-	color: var(--color-text);
-	background: var(--color-bg);
-	min-height: 100vh;
-	display: flex;
-	flex-direction: column;
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  line-height: 1.6;
+  color: var(--color-text);
+  background: var(--color-bg);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 body > header {
-	border-bottom: 1px solid #eee;
-	background: white;
+  border-bottom: 1px solid #eee;
+  background: white;
 }
 
 body > header nav {
-	display: flex;
-	align-items: center;
-	gap: 1rem;
-	padding: 1rem;
-	max-width: var(--max-width);
-	margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  max-width: var(--max-width);
+  margin: 0 auto;
 }
 
 body > header .logo {
-	font-weight: bold;
-	font-size: 1.1rem;
-	text-decoration: none;
-	color: var(--color-text);
+  font-weight: bold;
+  font-size: 1.1rem;
+  text-decoration: none;
+  color: var(--color-text);
 }
 
 body > header .nav-links {
-	display: flex;
-	gap: 1rem;
-	margin-left: auto;
+  display: flex;
+  gap: 1rem;
+  margin-left: auto;
 }
 
 body > header .nav-links a {
-	text-decoration: none;
-	color: var(--color-muted);
-	font-size: 0.9rem;
+  text-decoration: none;
+  color: var(--color-muted);
+  font-size: 0.9rem;
 }
 
 body > header .nav-links a:hover {
-	color: var(--color-link);
+  color: var(--color-link);
 }
 
 main {
-	flex: 1;
-	max-width: var(--max-width);
-	margin: 0 auto;
-	padding: 2rem 1rem;
-	width: 100%;
+  flex: 1;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  width: 100%;
 }
 
 footer {
-	border-top: 1px solid #eee;
-	background: white;
-	padding: 1rem;
-	text-align: center;
-	color: var(--color-muted);
-	font-size: 0.85rem;
+  border-top: 1px solid #eee;
+  background: white;
+  padding: 1rem;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 0.85rem;
 }
 
 a {
-	color: var(--color-link);
+  color: var(--color-link);
 }
 
 h1 {
-	font-size: 1.75rem;
-	margin-bottom: 1rem;
+  font-size: 1.75rem;
+  margin-bottom: 1rem;
 }
 
 h2 {
-	font-size: 1.25rem;
-	margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
 }
 
 .news-list {
-	list-style: none;
+  list-style: none;
 }
 
 .news-list li {
-	border-bottom: 1px solid #eee;
+  border-bottom: 1px solid #eee;
 }
 
 .news-list li:last-child {
-	border-bottom: none;
+  border-bottom: none;
 }
 
 .news-list a {
-	display: flex;
-	justify-content: space-between;
-	align-items: baseline;
-	gap: 1rem;
-	padding: 0.75rem 0;
-	text-decoration: none;
-	color: var(--color-text);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  text-decoration: none;
+  color: var(--color-text);
 }
 
 .news-list a:hover .title {
-	color: var(--color-link);
+  color: var(--color-link);
 }
 
 .news-list .title {
-	flex: 1;
+  flex: 1;
 }
 
 .news-list time {
-	color: var(--color-muted);
-	font-size: 0.85rem;
-	white-space: nowrap;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
 
 /* Responsive */
 @media (max-width: 600px) {
-	body > header nav {
-		flex-wrap: wrap;
-	}
+  body > header nav {
+    flex-wrap: wrap;
+  }
 
-	body > header .nav-links {
-		width: 100%;
-		margin-left: 0;
-		justify-content: flex-start;
-		gap: 0.75rem;
-	}
+  body > header .nav-links {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    gap: 0.75rem;
+  }
 
-	.news-list a {
-		flex-direction: column;
-		gap: 0.25rem;
-	}
+  .news-list a {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
 
-	.news-list time {
-		font-size: 0.8rem;
-	}
+  .news-list time {
+    font-size: 0.8rem;
+  }
 }

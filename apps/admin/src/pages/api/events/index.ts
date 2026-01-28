@@ -4,8 +4,9 @@
  */
 
 import type { APIRoute } from 'astro';
+import { and, desc, eq, like } from 'drizzle-orm';
+
 import { createDb, events, translations } from '@hiroba/db';
-import { desc, eq, and, like } from 'drizzle-orm';
 
 export const GET: APIRoute = async ({ locals, url }) => {
   const runtime = locals.runtime;

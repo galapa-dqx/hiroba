@@ -66,7 +66,9 @@ export class WorkflowManager extends DurableObject<Env> {
     // Send current status immediately
     const instanceId = this.activeWorkflows.get(itemId);
     if (instanceId) {
-      server.send(JSON.stringify({ type: 'status', status: 'processing', instanceId }));
+      server.send(
+        JSON.stringify({ type: 'status', status: 'processing', instanceId }),
+      );
     }
 
     return new Response(null, { status: 101, webSocket: client });
@@ -107,7 +109,11 @@ export class WorkflowManager extends DurableObject<Env> {
     this.activeWorkflows.set(itemId, instance.id);
 
     // Broadcast to connected clients
-    this.broadcast(itemId, { type: 'status', status: 'started', instanceId: instance.id });
+    this.broadcast(itemId, {
+      type: 'status',
+      status: 'started',
+      instanceId: instance.id,
+    });
 
     // Start polling for status updates
     this.ctx.waitUntil(this.pollWorkflowStatus(itemId, instance.id));
@@ -145,7 +151,10 @@ export class WorkflowManager extends DurableObject<Env> {
   /**
    * Poll workflow status and broadcast updates.
    */
-  private async pollWorkflowStatus(itemId: string, instanceId: string): Promise<void> {
+  private async pollWorkflowStatus(
+    itemId: string,
+    instanceId: string,
+  ): Promise<void> {
     const pollInterval = 1000; // 1 second
     const maxPolls = 300; // 5 minutes max
 
@@ -211,7 +220,10 @@ export class WorkflowManager extends DurableObject<Env> {
   /**
    * Handle incoming WebSocket messages.
    */
-  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+  async webSocketMessage(
+    ws: WebSocket,
+    message: string | ArrayBuffer,
+  ): Promise<void> {
     // Currently we don't need to handle incoming messages from clients
     // This is primarily a broadcast channel
     if (typeof message === 'string') {

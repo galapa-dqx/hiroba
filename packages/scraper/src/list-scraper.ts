@@ -9,14 +9,14 @@ import * as cheerio from 'cheerio';
 import type { AnyNode } from 'domhandler';
 
 import type { ListItem } from '@hiroba/db';
-
-export type { ListItem };
 import {
   CATEGORIES,
   parseJstDateToUnix,
   SCRAPE_CONFIG,
   type Category,
 } from '@hiroba/shared';
+
+export type { ListItem };
 
 const BASE_URL = SCRAPE_CONFIG.baseUrl;
 

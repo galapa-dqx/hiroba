@@ -3,8 +3,9 @@
  */
 
 import type { APIRoute } from 'astro';
+import { and, eq } from 'drizzle-orm';
+
 import { createDb, events, translations } from '@hiroba/db';
-import { eq, and } from 'drizzle-orm';
 
 export const DELETE: APIRoute = async ({ locals, params }) => {
   const runtime = locals.runtime;

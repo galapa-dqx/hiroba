@@ -10,7 +10,11 @@
  * returning only minimal state (success/failure, counts).
  */
 
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import {
+  WorkflowEntrypoint,
+  type WorkflowEvent,
+  type WorkflowStep,
+} from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 
@@ -35,9 +39,12 @@ export class NewsWorkflow extends WorkflowEntrypoint<Env, NewsWorkflowParams> {
     const db = createDb(this.env.DB);
 
     // Step 1: Fetch and save body content
-    const fetchBodyResult = await step.do('fetch-body', async (): Promise<FetchBodyResult> => {
-      return fetchAndSaveBody(db, itemId);
-    });
+    const fetchBodyResult = await step.do(
+      'fetch-body',
+      async (): Promise<FetchBodyResult> => {
+        return fetchAndSaveBody(db, itemId);
+      },
+    );
 
     // If fetch failed, skip remaining steps
     if (!fetchBodyResult.success) {
@@ -58,9 +65,17 @@ export class NewsWorkflow extends WorkflowEntrypoint<Env, NewsWorkflowParams> {
     );
 
     // Step 3: Translate title, content, and event titles
-    const translateResult = await step.do('translate', async (): Promise<TranslateResult> => {
-      return translateAndSave(db, this.env.OPENAI_API_KEY, itemId, extractEventsResult.eventIds);
-    });
+    const translateResult = await step.do(
+      'translate',
+      async (): Promise<TranslateResult> => {
+        return translateAndSave(
+          db,
+          this.env.OPENAI_API_KEY,
+          itemId,
+          extractEventsResult.eventIds,
+        );
+      },
+    );
 
     return {
       itemId,

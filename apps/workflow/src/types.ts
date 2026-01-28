@@ -8,7 +8,14 @@
 export type WorkflowInstance = {
   id: string;
   status(): Promise<{
-    status: 'queued' | 'running' | 'paused' | 'complete' | 'errored' | 'terminated' | 'unknown';
+    status:
+      | 'queued'
+      | 'running'
+      | 'paused'
+      | 'complete'
+      | 'errored'
+      | 'terminated'
+      | 'unknown';
     output?: unknown;
     error?: string;
   }>;

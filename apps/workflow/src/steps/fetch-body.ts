@@ -19,7 +19,10 @@ import type { FetchBodyResult } from '../types';
  * @param itemId - News item ID
  * @returns Result with success status and content length
  */
-export async function fetchAndSaveBody(db: Database, itemId: string): Promise<FetchBodyResult> {
+export async function fetchAndSaveBody(
+  db: Database,
+  itemId: string,
+): Promise<FetchBodyResult> {
   // Check if item exists and if body is already fetched
   const item = await db
     .select({

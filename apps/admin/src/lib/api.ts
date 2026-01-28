@@ -3,7 +3,10 @@
  * No authentication needed - protected by Cloudflare Access at edge.
  */
 
-async function adminFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function adminFetch<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
   const res = await fetch(path, options);
 
   if (!res.ok) {

@@ -337,7 +337,10 @@ export async function extractAndSaveEvents(
   await db.delete(events).where(eq(events.sourceId, itemId));
 
   // Extract events using LLM
-  const extractedEvents = await extractEventsFromContent(item.contentJa, apiKey);
+  const extractedEvents = await extractEventsFromContent(
+    item.contentJa,
+    apiKey,
+  );
 
   if (extractedEvents.length === 0) {
     return { count: 0, eventIds: [] };

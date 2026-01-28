@@ -227,7 +227,11 @@ export async function translateAndSave(
 
   // Combine all texts for glossary matching
   const combinedText = rows.map((r) => r.text).join(' ');
-  const glossaryTerms = await findMatchingGlossaryEntries(db, combinedText, TARGET_LANGUAGE);
+  const glossaryTerms = await findMatchingGlossaryEntries(
+    db,
+    combinedText,
+    TARGET_LANGUAGE,
+  );
 
   // Build glossary text
   const glossaryText = glossaryTerms
@@ -263,7 +267,12 @@ export async function translateAndSave(
         model,
       })
       .onConflictDoUpdate({
-        target: [translations.itemType, translations.itemId, translations.language, translations.field],
+        target: [
+          translations.itemType,
+          translations.itemId,
+          translations.language,
+          translations.field,
+        ],
         set: {
           value: translatedText,
           translatedAt: now,

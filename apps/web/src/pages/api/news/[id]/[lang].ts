@@ -6,11 +6,14 @@
  */
 
 import type { APIRoute } from 'astro';
-
-import { createDb, getNewsItem, translations } from '@hiroba/db';
 import { and, eq } from 'drizzle-orm';
 
-import type { WorkflowStatusResponse, WorkflowTriggerResponse } from '../../../../types/do';
+import { createDb, getNewsItem, translations } from '@hiroba/db';
+
+import type {
+  WorkflowStatusResponse,
+  WorkflowTriggerResponse,
+} from '../../../../types/do';
 
 export const GET: APIRoute = async ({ locals, params, url }) => {
   const runtime = locals.runtime;
@@ -55,8 +58,12 @@ export const GET: APIRoute = async ({ locals, params, url }) => {
     )
     .all();
 
-  const titleTranslation = existingTranslations.find((t) => t.field === 'title');
-  const contentTranslation = existingTranslations.find((t) => t.field === 'content');
+  const titleTranslation = existingTranslations.find(
+    (t) => t.field === 'title',
+  );
+  const contentTranslation = existingTranslations.find(
+    (t) => t.field === 'content',
+  );
 
   // If we have both translations and content exists, return them
   if (titleTranslation && (contentTranslation || !item.contentJa)) {
@@ -81,7 +88,9 @@ export const GET: APIRoute = async ({ locals, params, url }) => {
   const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
 
   // Check current workflow status
-  const statusResponse = await stub.fetch(`http://internal/status?itemId=${id}`);
+  const statusResponse = await stub.fetch(
+    `http://internal/status?itemId=${id}`,
+  );
   const status = (await statusResponse.json()) as WorkflowStatusResponse;
 
   // If already processing, return status
@@ -109,14 +118,16 @@ export const GET: APIRoute = async ({ locals, params, url }) => {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    const triggerResult = (await triggerResponse.json()) as WorkflowTriggerResponse;
+    const triggerResult =
+      (await triggerResponse.json()) as WorkflowTriggerResponse;
     const wsUrl = buildWsUrl(url, id);
 
     return new Response(
       JSON.stringify({
         item,
         processing: true,
-        status: triggerResult.status === 'started' ? 'started' : 'already_processing',
+        status:
+          triggerResult.status === 'started' ? 'started' : 'already_processing',
         instanceId: triggerResult.instanceId,
         wsUrl,
       }),

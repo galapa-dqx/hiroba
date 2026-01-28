@@ -27,86 +27,93 @@ export default Sentry.withSentry(
     tracesSampleRate: 1.0,
   }),
   {
-  /**
-   * Handle HTTP requests.
-   * Routes requests to the appropriate WorkflowManager DO.
-   */
-  async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
+    /**
+     * Handle HTTP requests.
+     * Routes requests to the appropriate WorkflowManager DO.
+     */
+    async fetch(request: Request, env: Env): Promise<Response> {
+      const url = new URL(request.url);
 
-    // Health check
-    if (url.pathname === '/health') {
-      return Response.json({ status: 'ok' });
-    }
-
-    // Route /workflow/* requests to the WorkflowManager DO
-    if (url.pathname.startsWith('/workflow/')) {
-      const itemId = url.pathname.split('/')[2];
-      if (!itemId) {
-        return Response.json({ error: 'itemId required in path' }, { status: 400 });
+      // Health check
+      if (url.pathname === '/health') {
+        return Response.json({ status: 'ok' });
       }
 
-      // Get DO stub for this item
-      const doId = env.WORKFLOW_MANAGER.idFromName(itemId);
-      const stub = env.WORKFLOW_MANAGER.get(doId);
+      // Route /workflow/* requests to the WorkflowManager DO
+      if (url.pathname.startsWith('/workflow/')) {
+        const itemId = url.pathname.split('/')[2];
+        if (!itemId) {
+          return Response.json(
+            { error: 'itemId required in path' },
+            { status: 400 },
+          );
+        }
 
-      // Forward the request to the DO
-      const doUrl = new URL(request.url);
-      doUrl.pathname = url.pathname.replace(`/workflow/${itemId}`, '');
-      if (!doUrl.pathname) doUrl.pathname = '/';
+        // Get DO stub for this item
+        const doId = env.WORKFLOW_MANAGER.idFromName(itemId);
+        const stub = env.WORKFLOW_MANAGER.get(doId);
 
-      return stub.fetch(doUrl.toString(), request);
-    }
+        // Forward the request to the DO
+        const doUrl = new URL(request.url);
+        doUrl.pathname = url.pathname.replace(`/workflow/${itemId}`, '');
+        if (!doUrl.pathname) doUrl.pathname = '/';
 
-    // Trigger workflow for a specific item
-    if (url.pathname === '/trigger' && request.method === 'POST') {
-      const body = (await request.json()) as { itemId: string };
-      const { itemId } = body;
-
-      if (!itemId) {
-        return Response.json({ error: 'itemId required' }, { status: 400 });
+        return stub.fetch(doUrl.toString(), request);
       }
 
-      // Route to the DO for this item
-      const doId = env.WORKFLOW_MANAGER.idFromName(itemId);
-      const stub = env.WORKFLOW_MANAGER.get(doId);
+      // Trigger workflow for a specific item
+      if (url.pathname === '/trigger' && request.method === 'POST') {
+        const body = (await request.json()) as { itemId: string };
+        const { itemId } = body;
 
-      return stub.fetch('http://internal/trigger', {
-        method: 'POST',
-        body: JSON.stringify({ itemId }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+        if (!itemId) {
+          return Response.json({ error: 'itemId required' }, { status: 400 });
+        }
 
-    return Response.json(
-      { error: 'Not found', endpoints: ['/health', '/trigger', '/workflow/:itemId/*'] },
-      { status: 404 },
-    );
+        // Route to the DO for this item
+        const doId = env.WORKFLOW_MANAGER.idFromName(itemId);
+        const stub = env.WORKFLOW_MANAGER.get(doId);
+
+        return stub.fetch('http://internal/trigger', {
+          method: 'POST',
+          body: JSON.stringify({ itemId }),
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+
+      return Response.json(
+        {
+          error: 'Not found',
+          endpoints: ['/health', '/trigger', '/workflow/:itemId/*'],
+        },
+        { status: 404 },
+      );
+    },
+
+    /**
+     * Handle scheduled cron jobs.
+     *
+     * Triggers:
+     * - "0 * * * *" = Hourly news refresh (first page of each category)
+     * - "0 15 * * *" = Daily glossary refresh (midnight JST)
+     */
+    async scheduled(
+      controller: ScheduledController,
+      env: Env,
+      _ctx: ExecutionContext,
+    ): Promise<void> {
+      const db = createDb(env.DB);
+
+      const isGlossaryRefresh = controller.cron === '0 15 * * *';
+
+      if (isGlossaryRefresh) {
+        await refreshGlossary(db);
+      } else {
+        await refreshNews(db, env);
+      }
+    },
   },
-
-  /**
-   * Handle scheduled cron jobs.
-   *
-   * Triggers:
-   * - "0 * * * *" = Hourly news refresh (first page of each category)
-   * - "0 15 * * *" = Daily glossary refresh (midnight JST)
-   */
-  async scheduled(
-    controller: ScheduledController,
-    env: Env,
-    _ctx: ExecutionContext,
-  ): Promise<void> {
-    const db = createDb(env.DB);
-
-    const isGlossaryRefresh = controller.cron === '0 15 * * *';
-
-    if (isGlossaryRefresh) {
-      await refreshGlossary(db);
-    } else {
-      await refreshNews(db, env);
-    }
-  },
-});
+);
 
 /**
  * Refresh glossary from GitHub CSV.
