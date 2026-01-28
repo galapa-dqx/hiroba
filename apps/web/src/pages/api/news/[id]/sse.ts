@@ -13,5 +13,14 @@ export const GET: APIRoute = async ({ locals, params }) => {
   const doId = runtime.env.WORKFLOW_MANAGER.idFromName(id);
   const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
 
-  return stub.fetch(`http://internal/sse?itemId=${id}`);
+  const res = await stub.fetch(`http://internal/sse?itemId=${id}`);
+
+  return new Response(res.body, {
+    status: res.status,
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
 };
