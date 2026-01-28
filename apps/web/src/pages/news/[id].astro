@@ -208,41 +208,31 @@ const categoryLabel = CATEGORY_LABELS[item.category as Category] || item.categor
 		const itemId = notice.dataset.itemId;
 		const statusEl = document.getElementById("processing-status");
 
-		const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-		const wsUrl = `${protocol}//${location.host}/api/news/${itemId}/ws`;
+		const evtSource = new EventSource(`/api/news/${itemId}/sse`);
 
-		const ws = new WebSocket(wsUrl);
-
-		ws.onmessage = (event) => {
+		evtSource.onmessage = (event) => {
 			const data = JSON.parse(event.data);
 
 			if (data.type === "progress" && statusEl) {
-				statusEl.textContent =
-					data.status === "running" ? "Processing..." : data.status;
+				statusEl.textContent = data.message;
 			}
 
 			if (data.type === "complete") {
+				evtSource.close();
 				notice.classList.add("complete");
 				if (statusEl) statusEl.textContent = "Done! Reloading...";
 				setTimeout(() => location.reload(), 500);
 			}
 
 			if (data.type === "error") {
+				evtSource.close();
 				notice.classList.add("error");
 				if (statusEl) statusEl.textContent = `Error: ${data.error || "Unknown error"}`;
 			}
 		};
 
-		ws.onerror = () => {
-			// Fallback to polling if WebSocket fails
-			const poll = setInterval(async () => {
-				const res = await fetch(`/api/news/${itemId}/en`);
-				const data = await res.json();
-				if (!data.processing) {
-					clearInterval(poll);
-					location.reload();
-				}
-			}, 3000);
+		evtSource.onerror = () => {
+			evtSource.close();
 		};
 	}
 </script>
