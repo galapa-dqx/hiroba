@@ -12,6 +12,9 @@ export default function NewsList() {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState<string>('');
+  const [workflowStatus, setWorkflowStatus] = useState<Map<string, string>>(
+    new Map(),
+  );
 
   useEffect(() => {
     loadItems();
@@ -46,7 +49,44 @@ export default function NewsList() {
   async function handleTriggerWorkflow(id: string) {
     try {
       await triggerWorkflow(id);
-      alert('Workflow triggered');
+      setWorkflowStatus((prev) => new Map(prev).set(id, 'Starting...'));
+
+      const evtSource = new EventSource(`/api/news/${id}/sse`);
+
+      evtSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'progress') {
+          setWorkflowStatus((prev) => new Map(prev).set(id, data.message));
+        }
+
+        if (data.type === 'complete') {
+          evtSource.close();
+          setWorkflowStatus((prev) => new Map(prev).set(id, 'Done!'));
+          setTimeout(() => {
+            setWorkflowStatus((prev) => {
+              const next = new Map(prev);
+              next.delete(id);
+              return next;
+            });
+            loadItems();
+          }, 2000);
+        }
+
+        if (data.type === 'error') {
+          evtSource.close();
+          setWorkflowStatus((prev) =>
+            new Map(prev).set(id, `Error: ${data.error}`),
+          );
+        }
+      };
+
+      evtSource.onerror = () => {
+        evtSource.close();
+        setWorkflowStatus((prev) =>
+          new Map(prev).set(id, 'Connection lost'),
+        );
+      };
     } catch (err) {
       alert('Failed to trigger workflow');
       console.error(err);
@@ -130,9 +170,15 @@ export default function NewsList() {
                   <button
                     onClick={() => handleTriggerWorkflow(item.id)}
                     className="btn-small"
+                    disabled={workflowStatus.has(item.id)}
                   >
                     Run Workflow
                   </button>
+                  {workflowStatus.has(item.id) && (
+                    <span className="workflow-status">
+                      {workflowStatus.get(item.id)}
+                    </span>
+                  )}
                   <button
                     onClick={() => handleInvalidateBody(item.id)}
                     className="btn-small"
