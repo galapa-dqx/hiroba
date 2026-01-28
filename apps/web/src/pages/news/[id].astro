@@ -69,11 +69,16 @@ const categoryLabel = CATEGORY_LABELS[item.category as Category] || item.categor
 			<div class="meta">
 				<a href={`/category/${item.category}`} class="category">{categoryLabel}</a>
 				<time datetime={new Date(item.publishedAt * 1000).toISOString()}>
-					{new Date(item.publishedAt * 1000).toLocaleDateString("en-US", {
-						year: "numeric",
-						month: "long",
-						day: "numeric",
-					})}
+					<script define:vars={{ publishedAt: item.publishedAt }}>
+						const timeEl = document.currentScript.parentElement;
+						timeEl.textContent = new Date(publishedAt * 1000).toLocaleString("en-US", {
+							year: "numeric",
+							month: "long",
+							day: "numeric",
+							hour: "numeric",
+							minute: "2-digit",
+						});
+					</script>
 				</time>
 			</div>
 			<h1>{title}</h1>
