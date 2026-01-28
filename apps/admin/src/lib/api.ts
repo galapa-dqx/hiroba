@@ -82,6 +82,12 @@ export async function invalidateBody(
   return adminFetch(`/api/news/${id}/body`, { method: 'DELETE' });
 }
 
+export async function triggerWorkflow(
+  id: string,
+): Promise<{ success: boolean }> {
+  return adminFetch(`/api/news/${id}/workflow`, { method: 'POST' });
+}
+
 export async function deleteTranslation(
   id: string,
   lang: string,

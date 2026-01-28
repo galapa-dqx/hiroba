@@ -17,6 +17,11 @@
 				"name": "NEWS_ITEM_DO",
 				"class_name": "NewsItemDO",
 				"script_name": "hiroba-cron"
+			},
+			{
+				"name": "WORKFLOW_MANAGER",
+				"class_name": "WorkflowManager",
+				"script_name": "hiroba-workflow"
 			}
 		]
 	}

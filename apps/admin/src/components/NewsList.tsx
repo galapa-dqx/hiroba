@@ -4,6 +4,7 @@ import {
   deleteTranslation,
   getNewsList,
   invalidateBody,
+  triggerWorkflow,
   type NewsItem,
 } from '../lib/api';
 
@@ -38,6 +39,16 @@ export default function NewsList() {
       loadItems();
     } catch (err) {
       alert('Failed to invalidate body');
+      console.error(err);
+    }
+  }
+
+  async function handleTriggerWorkflow(id: string) {
+    try {
+      await triggerWorkflow(id);
+      alert('Workflow triggered');
+    } catch (err) {
+      alert('Failed to trigger workflow');
       console.error(err);
     }
   }
@@ -116,6 +127,12 @@ export default function NewsList() {
                 </td>
                 <td>{item.contentJa ? '✓' : '—'}</td>
                 <td className="actions-cell">
+                  <button
+                    onClick={() => handleTriggerWorkflow(item.id)}
+                    className="btn-small"
+                  >
+                    Run Workflow
+                  </button>
                   <button
                     onClick={() => handleInvalidateBody(item.id)}
                     className="btn-small"
