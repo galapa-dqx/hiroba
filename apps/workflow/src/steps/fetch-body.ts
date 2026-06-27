@@ -6,6 +6,7 @@
  */
 
 import { eq } from 'drizzle-orm';
+import { Temporal } from 'temporal-polyfill';
 
 import { newsItems, type Database } from '@hiroba/db';
 import { fetchNewsBody } from '@hiroba/scraper';
@@ -48,7 +49,7 @@ export async function fetchAndSaveBody(
   try {
     // Fetch the body from hiroba.dqx.jp
     const body = await fetchNewsBody(itemId);
-    const now = Math.floor(Date.now() / 1000);
+    const now = Temporal.Now.instant();
 
     // Save to D1
     await db

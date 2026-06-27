@@ -1,3 +1,4 @@
+import { Temporal } from 'temporal-polyfill';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -20,11 +21,11 @@ describe('freshness', () => {
     vi.useRealTimers();
   });
 
-  // Helper to create Unix seconds from hours ago
-  const hoursAgo = (hours: number): number =>
-    Math.floor((NOW - hours * 60 * 60 * 1000) / 1000);
+  // Helper to create an Instant from hours/days ago
+  const hoursAgo = (hours: number): Temporal.Instant =>
+    Temporal.Instant.fromEpochMilliseconds(NOW - hours * 60 * 60 * 1000);
 
-  const daysAgo = (days: number): number => hoursAgo(days * 24);
+  const daysAgo = (days: number): Temporal.Instant => hoursAgo(days * 24);
 
   describe('getRecheckIntervalHours', () => {
     it('returns 1 hour minimum for very recent articles', () => {
@@ -64,8 +65,10 @@ describe('freshness', () => {
       const bodyFetchedAt = hoursAgo(2); // 2 hours ago
       // Interval for 1-day-old article = 1 hour
       // Next check = bodyFetchedAt + 1 hour = 1 hour ago
-      const expected = bodyFetchedAt * 1000 + 1 * 60 * 60 * 1000;
-      expect(getNextCheckTime(publishedAt, bodyFetchedAt)).toBe(expected);
+      const expected = bodyFetchedAt.epochMilliseconds + 1 * 60 * 60 * 1000;
+      expect(getNextCheckTime(publishedAt, bodyFetchedAt).epochMilliseconds).toBe(
+        expected,
+      );
     });
 
     it('calculates next check time correctly for older article', () => {
@@ -73,8 +76,10 @@ describe('freshness', () => {
       const bodyFetchedAt = hoursAgo(4); // 4 hours ago
       // Interval for 7-day-old article = 7 hours
       // Next check = bodyFetchedAt + 7 hours = 3 hours from now
-      const expected = bodyFetchedAt * 1000 + 7 * 60 * 60 * 1000;
-      expect(getNextCheckTime(publishedAt, bodyFetchedAt)).toBe(expected);
+      const expected = bodyFetchedAt.epochMilliseconds + 7 * 60 * 60 * 1000;
+      expect(getNextCheckTime(publishedAt, bodyFetchedAt).epochMilliseconds).toBe(
+        expected,
+      );
     });
   });
 
@@ -121,7 +126,9 @@ describe('freshness', () => {
 
     it('returns only minutes when less than an hour', () => {
       const publishedAt = daysAgo(1); // interval = 1 hour
-      const bodyFetchedAt = Math.floor((NOW - 30 * 60 * 1000) / 1000); // 30 min ago
+      const bodyFetchedAt = Temporal.Instant.fromEpochMilliseconds(
+        NOW - 30 * 60 * 1000,
+      ); // 30 min ago
       // Next check in 30 minutes
       expect(getTimeUntilCheck(publishedAt, bodyFetchedAt)).toBe('30m');
     });
@@ -131,17 +138,18 @@ describe('freshness', () => {
     // This simulates what getRecheckQueue does to filter items
     const simulateRecheckQueue = (
       items: Array<{
-        publishedAt: number;
-        bodyFetchedAt: number | null;
+        publishedAt: Temporal.Instant;
+        bodyFetchedAt: Temporal.Instant | null;
       }>,
     ) => {
+      const now = Temporal.Now.instant();
       return items
         .filter((item) => item.bodyFetchedAt !== null)
         .map((item) => ({
           ...item,
           nextCheckAt: getNextCheckTime(item.publishedAt, item.bodyFetchedAt!),
         }))
-        .filter((item) => item.nextCheckAt <= Date.now());
+        .filter((item) => Temporal.Instant.compare(item.nextCheckAt, now) <= 0);
     };
 
     it('includes items that are due for recheck', () => {

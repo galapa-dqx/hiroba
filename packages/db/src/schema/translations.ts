@@ -8,12 +8,9 @@
  */
 
 import { and, eq } from 'drizzle-orm';
-import {
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from 'drizzle-orm/sqlite-core';
+import { primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+import { Temporal } from 'temporal-polyfill';
 
 import { instant } from '../types/instant';
 import type { Database } from '../client';
@@ -31,7 +28,7 @@ export const translations = sqliteTable(
     value: text('value').notNull(),
 
     // Tracking
-    translatedAt: instant('translated_at').notNull(), // Unix timestamp
+    translatedAt: instant('translated_at').notNull(), // epoch ms (Temporal.Instant)
     model: text('model'), // AI model used for translation (e.g., "gpt-4o")
   },
   (table) => ({
@@ -50,7 +47,7 @@ export type TranslationField = 'title' | 'content';
 /** Result for a single translated field */
 export type FieldTranslation = {
   value: string;
-  translatedAt: number;
+  translatedAt: Temporal.Instant;
   model: string | null;
 };
 

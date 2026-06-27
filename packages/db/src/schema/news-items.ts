@@ -6,7 +6,7 @@
  * - Phase 2 (body scraping): Populates contentJa on demand
  */
 
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { instant } from '../types/instant';
 
 export const newsItems = sqliteTable('news_items', {
@@ -16,13 +16,13 @@ export const newsItems = sqliteTable('news_items', {
   // From list page (Phase 1)
   titleJa: text('title_ja').notNull(),
   category: text('category').notNull(), // news|event|update|maintenance
-  publishedAt: instant('published_at').notNull(), // Unix timestamp
+  publishedAt: instant('published_at').notNull(), // epoch ms (Temporal.Instant)
 
   // From detail page (Phase 2) - NULL if not yet fetched
   contentJa: text('content_ja'),
 
   // Body fetch tracking
-  bodyFetchedAt: instant('body_fetched_at'), // Unix timestamp
+  bodyFetchedAt: instant('body_fetched_at'), // epoch ms (Temporal.Instant)
 });
 
 // Type exports

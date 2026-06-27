@@ -1,4 +1,5 @@
 import fetchMock from 'fetch-mock';
+import { Temporal } from 'temporal-polyfill';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
@@ -47,7 +48,7 @@ describe('list-scraper', () => {
       expect(items[0].id).toBe('12345');
       expect(items[0].titleJa).toBe('Test News Title');
       expect(items[0].category).toBe('news');
-      expect(items[0].publishedAt).toBeTypeOf('number');
+      expect(items[0].publishedAt).toBeInstanceOf(Temporal.Instant);
     });
 
     it('extracts multiple items', () => {
@@ -101,31 +102,36 @@ describe('list-scraper', () => {
 
     it('extracts date from sibling td.date element', () => {
       const html = `
-        <tr>
-          <td class="news"><a href="/sc/news/detail/123/">Title</a></td>
-          <td class="date"><div>2024/06/20 14:30</div></td>
-        </tr>
+        <table>
+          <tr>
+            <td class="news"><a href="/sc/news/detail/123/">Title</a></td>
+            <td class="date"><div>2024/06/20 14:30</div></td>
+          </tr>
+        </table>
       `;
 
       const items = parseListPage(html, 'news');
 
       expect(items).toHaveLength(1);
-      // The exact timestamp depends on parseJstDateToUnix, just verify it's set
-      expect(items[0].publishedAt).toBeGreaterThan(0);
+      // 2024/06/20 14:30 JST == 2024-06-20T05:30:00Z
+      expect(items[0].publishedAt.toString()).toBe('2024-06-20T05:30:00Z');
     });
 
     it('falls back to row text for date extraction', () => {
       const html = `
-        <tr>
-          <td><a href="/sc/news/detail/123/">Title</a></td>
-          <td>2024/03/10</td>
-        </tr>
+        <table>
+          <tr>
+            <td><a href="/sc/news/detail/123/">Title</a></td>
+            <td>2024/03/10</td>
+          </tr>
+        </table>
       `;
 
       const items = parseListPage(html, 'news');
 
       expect(items).toHaveLength(1);
-      expect(items[0].publishedAt).toBeGreaterThan(0);
+      // 2024/03/10 (date-only) anchored to midnight JST == 2024-03-09T15:00:00Z
+      expect(items[0].publishedAt.toString()).toBe('2024-03-09T15:00:00Z');
     });
 
     it('handles links with trailing slash variations', () => {

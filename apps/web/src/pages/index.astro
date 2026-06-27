@@ -33,8 +33,8 @@ const newsByCategory = await Promise.all(
 						<li>
 							<a href={`/news/${item.id}`}>
 								<span class="title">{item.titleJa}</span>
-								<time datetime={new Date(item.publishedAt * 1000).toISOString()}>
-									{new Date(item.publishedAt * 1000).toLocaleDateString("en-US", {
+								<time datetime={item.publishedAt.toString()}>
+									{new Date(item.publishedAt.epochMilliseconds).toLocaleDateString("en-US", {
 										year: "numeric",
 										month: "short",
 										day: "numeric",

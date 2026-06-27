@@ -15,7 +15,8 @@
     "@hiroba/scraper": "workspace:*",
     "@hiroba/shared": "workspace:*",
     "astro": "^5.1.0",
-    "drizzle-orm": "1.0.0-beta.6-cd45bda"
+    "drizzle-orm": "1.0.0-beta.6-cd45bda",
+    "temporal-polyfill": "^0.3.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.6",

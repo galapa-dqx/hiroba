@@ -7,12 +7,7 @@
  */
 
 import { and, eq, sql } from 'drizzle-orm';
-import {
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from 'drizzle-orm/sqlite-core';
+import { primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 import type { Database } from '../client';
 import { instant } from '../types/instant';
@@ -28,7 +23,7 @@ export const glossary = sqliteTable(
     translatedText: text('translated_text').notNull(),
 
     // Tracking
-    updatedAt: instant('updated_at').notNull(), // Unix timestamp
+    updatedAt: instant('updated_at').notNull(), // epoch ms (Temporal.Instant)
   },
   (table) => ({
     pk: primaryKey({

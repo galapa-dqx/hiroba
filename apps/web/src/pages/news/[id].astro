@@ -58,7 +58,7 @@ if (!hasContent || !hasTranslations) {
 // Use translations if available, otherwise fall back to Japanese
 const title = titleTranslation?.value ?? item.titleJa;
 const content = contentTranslation?.value ?? item.contentJa ?? "";
-const translatedAt = titleTranslation?.translatedAt ?? 0;
+const translatedAt = titleTranslation?.translatedAt ?? null;
 const isTranslated = !!titleTranslation;
 const categoryLabel = CATEGORY_LABELS[item.category as Category] || item.category;
 ---
@@ -68,10 +68,10 @@ const categoryLabel = CATEGORY_LABELS[item.category as Category] || item.categor
 		<header>
 			<div class="meta">
 				<a href={`/category/${item.category}`} class="category">{categoryLabel}</a>
-				<time datetime={new Date(item.publishedAt * 1000).toISOString()}>
-					<script define:vars={{ publishedAt: item.publishedAt }}>
+				<time datetime={item.publishedAt.toString()}>
+					<script define:vars={{ publishedAt: item.publishedAt.epochMilliseconds }}>
 						const timeEl = document.currentScript.parentElement;
-						timeEl.textContent = new Date(publishedAt * 1000).toLocaleString("en-US", {
+						timeEl.textContent = new Date(publishedAt).toLocaleString("en-US", {
 							year: "numeric",
 							month: "long",
 							day: "numeric",
@@ -96,10 +96,10 @@ const categoryLabel = CATEGORY_LABELS[item.category as Category] || item.categor
 			<div class="content" set:html={content} />
 		)}
 
-		{translatedAt > 0 && (
+		{translatedAt && (
 			<footer class="translation-info">
 				<p>
-					Translated on {new Date(translatedAt * 1000).toLocaleDateString("en-US", {
+					Translated on {new Date(translatedAt.epochMilliseconds).toLocaleDateString("en-US", {
 						year: "numeric",
 						month: "long",
 						day: "numeric",

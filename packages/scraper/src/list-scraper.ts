@@ -11,7 +11,7 @@ import type { AnyNode } from 'domhandler';
 import type { ListItem } from '@hiroba/db';
 import {
   CATEGORIES,
-  parseJstDateToUnix,
+  parseJstDate,
   SCRAPE_CONFIG,
   type Category,
 } from '@hiroba/shared';
@@ -123,7 +123,7 @@ export function parseListPage(html: string, category: Category): ListItem[] {
       id: newsId,
       titleJa: title,
       category,
-      publishedAt: parseJstDateToUnix(dateStr),
+      publishedAt: parseJstDate(dateStr),
     });
   });
 

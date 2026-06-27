@@ -5,6 +5,7 @@
  * parses the response, and saves events to the events table.
  */
 
+import { Temporal } from 'temporal-polyfill';
 import { eq } from 'drizzle-orm';
 import OpenAI from 'openai';
 import { z } from 'zod';
@@ -191,19 +192,27 @@ function generateEventId(event: ExtractedEvent, sourceId: string): string {
 /**
  * Convert extracted event to database format.
  */
+function toZonedDate(dateStr: string): Temporal.ZonedDateTime {
+  return Temporal.PlainDate.from(dateStr).toZonedDateTime('Asia/Tokyo');
+}
+
+function toZonedDateTime(isoStr: string): Temporal.ZonedDateTime {
+  return Temporal.ZonedDateTime.from(isoStr);
+}
+
 function toDbEvent(
   event: ExtractedEvent,
   sourceId: string,
-  now: number,
+  now: Temporal.Instant,
 ): {
   id: string;
   type: EventType;
   titleJa: string;
-  startTime: string;
-  endTime: string | null;
+  startTime: Temporal.ZonedDateTime;
+  endTime: Temporal.ZonedDateTime | null;
   sourceType: string;
   sourceId: string;
-  createdAt: number;
+  createdAt: Temporal.Instant;
 } {
   const id = generateEventId(event, sourceId);
 
@@ -212,8 +221,8 @@ function toDbEvent(
       id,
       type: 'multiDay',
       titleJa: event.title,
-      startTime: event.start,
-      endTime: event.end,
+      startTime: toZonedDate(event.start),
+      endTime: toZonedDate(event.end),
       sourceType: 'news',
       sourceId,
       createdAt: now,
@@ -223,8 +232,8 @@ function toDbEvent(
       id,
       type: 'span',
       titleJa: event.title,
-      startTime: event.start,
-      endTime: event.end,
+      startTime: toZonedDateTime(event.start),
+      endTime: toZonedDateTime(event.end),
       sourceType: 'news',
       sourceId,
       createdAt: now,
@@ -234,7 +243,7 @@ function toDbEvent(
       id,
       type: 'allDay',
       titleJa: event.title,
-      startTime: event.date,
+      startTime: toZonedDate(event.date),
       endTime: null,
       sourceType: 'news',
       sourceId,
@@ -246,7 +255,7 @@ function toDbEvent(
       id,
       type: 'mark',
       titleJa: event.title,
-      startTime: event.timestamp,
+      startTime: toZonedDateTime(event.timestamp),
       endTime: null,
       sourceType: 'news',
       sourceId,
@@ -347,7 +356,7 @@ export async function extractAndSaveEvents(
   }
 
   // Convert to database format and insert
-  const now = Math.floor(Date.now() / 1000);
+  const now = Temporal.Now.instant();
   const eventIds: string[] = [];
 
   for (const event of extractedEvents) {
@@ -364,7 +373,7 @@ export async function extractAndSaveEvents(
           titleJa: dbEvent.titleJa,
           startTime: dbEvent.startTime,
           endTime: dbEvent.endTime,
-          createdAt: now,
+          createdAt: Temporal.Now.instant(),
         },
       });
   }

@@ -3,6 +3,7 @@
  */
 
 import { and, desc, eq, isNotNull, lt, sql } from 'drizzle-orm';
+import { Temporal } from 'temporal-polyfill';
 
 import { getNextCheckTime, isDueForCheck, type Category } from '@hiroba/shared';
 
@@ -65,8 +66,8 @@ export async function getNewsItems(
   }
 
   if (options.cursor) {
-    const cursorTime = parseInt(options.cursor, 10);
-    conditions.push(lt(newsItems.publishedAt, cursorTime));
+    const cursorInstant = Temporal.Instant.from(options.cursor);
+    conditions.push(lt(newsItems.publishedAt, cursorInstant));
   }
 
   const query = db
@@ -84,7 +85,7 @@ export async function getNewsItems(
     items,
     hasMore,
     nextCursor: hasMore
-      ? String(items[items.length - 1].publishedAt)
+      ? items[items.length - 1].publishedAt.toString()
       : undefined,
   };
 }
@@ -185,9 +186,9 @@ export async function getRecheckQueue(
     id: string;
     titleJa: string;
     category: string;
-    publishedAt: number;
-    bodyFetchedAt: number;
-    nextCheckAt: number;
+    publishedAt: Temporal.Instant;
+    bodyFetchedAt: Temporal.Instant;
+    nextCheckAt: Temporal.Instant;
   }>
 > {
   const items = await db
@@ -195,6 +196,8 @@ export async function getRecheckQueue(
     .from(newsItems)
     .where(isNotNull(newsItems.bodyFetchedAt))
     .all();
+
+  const now = Temporal.Now.instant();
 
   return items
     .map((item) => ({
@@ -205,8 +208,8 @@ export async function getRecheckQueue(
       bodyFetchedAt: item.bodyFetchedAt!,
       nextCheckAt: getNextCheckTime(item.publishedAt, item.bodyFetchedAt!),
     }))
-    .filter((item) => item.nextCheckAt <= Date.now())
-    .sort((a, b) => a.nextCheckAt - b.nextCheckAt)
+    .filter((item) => Temporal.Instant.compare(item.nextCheckAt, now) <= 0)
+    .sort((a, b) => Temporal.Instant.compare(a.nextCheckAt, b.nextCheckAt))
     .slice(0, limit);
 }
 

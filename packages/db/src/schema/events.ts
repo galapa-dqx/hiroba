@@ -10,9 +10,10 @@
  * Translations are stored in the translations table with itemType="event".
  */
 
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 import { instant } from '../types/instant';
+import { zonedDateTime } from '../types/zoned-date-time';
 
 export const events = sqliteTable('events', {
   // Primary identifier
@@ -24,16 +25,16 @@ export const events = sqliteTable('events', {
   // Japanese title (source for translation)
   titleJa: text('title_ja').notNull(),
 
-  // ISO8601 strings - date only ("2024-01-15") or with time ("2024-01-15T14:00:00+09:00")
-  startTime: instant('start_time').notNull(),
-  endTime: instant('end_time'), // null for allDay and mark
+  // ZonedDateTime strings stored as RFC9557 timestamps
+  startTime: zonedDateTime('start_time').notNull(),
+  endTime: zonedDateTime('end_time'), // null for allDay and mark
 
   // Link to source content (optional)
   sourceType: text('source_type'), // "news" | "topic"
   sourceId: text('source_id'), // FK to news_items.id or topics.id
 
   // Metadata
-  createdAt: instant('created_at').notNull(), // Unix timestamp
+  createdAt: instant('created_at').notNull(), // epoch ms (Temporal.Instant)
 });
 
 // Type exports

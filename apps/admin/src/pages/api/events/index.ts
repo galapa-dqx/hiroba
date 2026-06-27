@@ -55,8 +55,13 @@ export const GET: APIRoute = async ({ locals, url }) => {
       .map((t) => [t.itemId, t.value]),
   );
 
+  // Expose times as UTC instant ISO strings. The event `type` tells the client
+  // whether to render at date or time granularity; JST is reconstructed in-browser.
   const itemsWithTranslations = items.map((item) => ({
     ...item,
+    startTime: item.startTime.toInstant().toString(),
+    endTime: item.endTime?.toInstant().toString() ?? null,
+    createdAt: item.createdAt.toString(),
     titleEn: translationMap.get(item.id) || null,
   }));
 

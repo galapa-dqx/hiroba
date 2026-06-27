@@ -163,7 +163,7 @@ export default function NewsList() {
                   </span>
                 </td>
                 <td>
-                  {new Date(item.publishedAt * 1000).toLocaleDateString()}
+                  {new Date(item.publishedAt).toLocaleDateString()}
                 </td>
                 <td>{item.contentJa ? '✓' : '—'}</td>
                 <td className="actions-cell">

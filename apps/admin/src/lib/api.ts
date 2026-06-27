@@ -33,9 +33,9 @@ export type QueueItem = {
   id: string;
   titleJa: string;
   category: string;
-  publishedAt: number;
-  bodyFetchedAt: number;
-  nextCheckAt: number;
+  publishedAt: string; // ISO-8601 UTC instant
+  bodyFetchedAt: string; // ISO-8601 UTC instant
+  nextCheckAt: string; // ISO-8601 UTC instant
 };
 
 export async function getRecheckQueue(
@@ -59,7 +59,7 @@ export type NewsItem = {
   id: string;
   titleJa: string;
   category: string;
-  publishedAt: number;
+  publishedAt: string; // ISO-8601 UTC instant
   contentJa: string | null;
 };
 
@@ -99,7 +99,7 @@ export type GlossaryEntry = {
   sourceText: string;
   targetLanguage: string;
   translatedText: string;
-  updatedAt: number;
+  updatedAt: string; // ISO-8601 UTC instant
 };
 
 export async function getGlossary(
@@ -166,11 +166,11 @@ export type EventItem = {
   type: 'multiDay' | 'allDay' | 'span' | 'mark';
   titleJa: string;
   titleEn: string | null;
-  startTime: string;
-  endTime: string | null;
+  startTime: string; // ISO-8601 UTC instant
+  endTime: string | null; // ISO-8601 UTC instant
   sourceType: string | null;
   sourceId: string | null;
-  createdAt: number;
+  createdAt: string; // ISO-8601 UTC instant
 };
 
 export async function getEvents(options?: {

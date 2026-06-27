@@ -3,8 +3,10 @@
  */
 
 import { and, eq, sql } from 'drizzle-orm';
+import { Temporal } from 'temporal-polyfill';
 
 import {
+  type GlossaryEntry,
   deleteTranslation,
   getRecheckQueue,
   getStats,
@@ -77,14 +79,7 @@ export async function triggerScrape(
 export async function getGlossaryEntries(
   db: Database,
   lang?: string,
-): Promise<
-  Array<{
-    sourceText: string;
-    targetLanguage: string;
-    translatedText: string;
-    updatedAt: number;
-  }>
-> {
+): Promise<GlossaryEntry[]> {
   const query = db.select().from(glossary).$dynamic();
 
   return lang
@@ -101,7 +96,7 @@ export async function importGlossaryFromCsv(
   targetLanguage: string,
 ): Promise<number> {
   const lines = csvContent.split('\n').filter((line) => line.trim());
-  const now = Math.floor(Date.now() / 1000);
+  const now = Temporal.Now.instant();
 
   let imported = 0;
   for (const line of lines) {
@@ -146,7 +141,7 @@ export async function importGlossaryFromGitHub(
 
   const csv = await response.text();
   const lines = csv.split('\n').filter((line) => line.trim());
-  const now = Math.floor(Date.now() / 1000);
+  const now = Temporal.Now.instant();
 
   // Clear existing glossary
   await db.delete(glossary);

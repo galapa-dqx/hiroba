@@ -11,6 +11,7 @@
 import { parse } from 'csv-parse/sync';
 import { eq, inArray } from 'drizzle-orm';
 import OpenAI from 'openai';
+import { Temporal } from 'temporal-polyfill';
 
 import {
   events,
@@ -242,7 +243,7 @@ export async function translateAndSave(
   const translationMap = await translateWithCsv(rows, glossaryText, apiKey);
 
   // Save translations to D1
-  const now = Math.floor(Date.now() / 1000);
+  const now = Temporal.Now.instant();
   const model = 'gpt-4o';
   let fieldsTranslated = 0;
 

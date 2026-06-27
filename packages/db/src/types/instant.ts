@@ -14,7 +14,7 @@ export const instant = customType<{
   fromDriver(value: number): Temporal.Instant {
     return Temporal.Instant.fromEpochMilliseconds(value);
   },
-  toDriver(value: Temporal.Instant): string {
+  toDriver(value: Temporal.Instant): number {
     return value.epochMilliseconds;
   },
 });

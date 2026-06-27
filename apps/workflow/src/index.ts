@@ -9,6 +9,7 @@
 
 import * as Sentry from '@sentry/cloudflare';
 import { sql } from 'drizzle-orm';
+import { Temporal } from 'temporal-polyfill';
 
 import { createDb, glossary, upsertListItems, type Database } from '@hiroba/db';
 import { fetchGlossary, scrapeNewsList } from '@hiroba/scraper';
@@ -121,7 +122,7 @@ export default Sentry.withSentry(
 async function refreshGlossary(db: Database): Promise<void> {
   try {
     const entries = await fetchGlossary();
-    const now = Math.floor(Date.now() / 1000);
+    const now = Temporal.Now.instant();
 
     // Clear existing glossary and insert new entries
     await db.delete(glossary);

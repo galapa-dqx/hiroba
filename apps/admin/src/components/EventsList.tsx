@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { deleteEvent, getEvents, type EventItem } from '../lib/api';
+import { formatJst, formatJstDate, formatLocal } from '../lib/format-date';
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   multiDay: 'Multi-day',
@@ -9,12 +10,19 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   mark: 'Milestone',
 };
 
-function formatDateTime(iso: string): string {
-  // Check if it's a date-only string (YYYY-MM-DD)
-  if (iso.length === 10) {
-    return new Date(iso + 'T00:00:00').toLocaleDateString();
+/**
+ * Format an event time (UTC instant ISO string) for display.
+ *
+ * Date-granular events (multiDay/allDay) show the JST calendar date only —
+ * converting a date to the viewer's zone could shift the day. Time-granular
+ * events (span/mark) show the viewer's local time annotated with the JST
+ * wall-clock, since those are the times announced officially in JST.
+ */
+function formatEventTime(iso: string, type: string): string {
+  if (type === 'multiDay' || type === 'allDay') {
+    return `${formatJstDate(iso)} JST`;
   }
-  return new Date(iso).toLocaleString();
+  return `${formatLocal(iso)} (${formatJst(iso)} JST)`;
 }
 
 export default function EventsList() {
@@ -114,10 +122,10 @@ export default function EventsList() {
                     {EVENT_TYPE_LABELS[item.type] || item.type}
                   </span>
                 </td>
-                <td>{formatDateTime(item.startTime)}</td>
+                <td>{formatEventTime(item.startTime, item.type)}</td>
                 <td>
                   {item.endTime ? (
-                    formatDateTime(item.endTime)
+                    formatEventTime(item.endTime, item.type)
                   ) : (
                     <span className="muted">—</span>
                   )}
