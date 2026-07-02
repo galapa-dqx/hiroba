@@ -1,0 +1,10 @@
+/**
+ * @hiroba/richtext — content model for rich-text DQX topics.
+ *
+ * Two-tier node tree (Block / Inline) with a strict containment invariant:
+ * inline nodes contain only inline; block nodes may contain either. See ./schema.
+ */
+
+export * from './schema';
+export * from './rtml';
+export * from './image-url';
