@@ -7,6 +7,7 @@ import {
   triggerWorkflow,
   type NewsItem,
 } from '../lib/api';
+import CategoryDot from './CategoryDot';
 
 export default function NewsList() {
   const [items, setItems] = useState<NewsItem[]>([]);
@@ -159,6 +160,7 @@ export default function NewsList() {
                 </td>
                 <td>
                   <span className={`category-badge ${item.category}`}>
+                    <CategoryDot category={item.category} />
                     {item.category}
                   </span>
                 </td>

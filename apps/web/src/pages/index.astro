@@ -1,5 +1,7 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import Gem from "../components/Gem.astro";
+import Ornament from "../components/Ornament.astro";
 import { createDb, getNewsItems } from "@hiroba/db";
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
 
@@ -16,76 +18,71 @@ const newsByCategory = await Promise.all(
 		}
 	})
 );
+
+const dateFmt = (ms: number) =>
+	new Date(ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 ---
 
 <Layout title="Latest News">
-	<h1>DQX News</h1>
-	<p class="subtitle">Dragon Quest X news translated to English</p>
+	<section class="home-hero">
+		<h1>DQX&nbsp;News</h1>
+		<p class="subtitle">Dispatches from Astoltia — Dragon Quest&nbsp;X news, translated to English.</p>
+		<Ornament class="home-hero__rule" />
+	</section>
 
-	{newsByCategory.map(({ category, items }) => (
-		<section class="category-section">
-			<h2>
-				<a href={`/category/${category}`}>{CATEGORY_LABELS[category as Category]}</a>
-			</h2>
-			{items.length > 0 ? (
-				<ul class="news-list">
-					{items.map((item) => (
-						<li>
-							<a href={`/news/${item.id}`}>
-								<span class="title">{item.titleJa}</span>
-								<time datetime={item.publishedAt.toString()}>
-									{new Date(item.publishedAt.epochMilliseconds).toLocaleDateString("en-US", {
-										year: "numeric",
-										month: "short",
-										day: "numeric",
-									})}
-								</time>
-							</a>
-						</li>
-					))}
-				</ul>
-			) : (
-				<p class="no-items">No items available</p>
-			)}
-			<a href={`/category/${category}`} class="view-all">View all {CATEGORY_LABELS[category as Category]} →</a>
-		</section>
-	))}
+	<div class="stack">
+		{
+			newsByCategory.map(({ category, items }) => (
+				<section class="panel" data-cat={category}>
+					<div class="band-heading">
+						<Gem category={category} />
+						<span class="band-heading__title">
+							<a href={`/category/${category}`}>{CATEGORY_LABELS[category as Category]}</a>
+						</span>
+						<a class="band-heading__more" href={`/category/${category}`}>
+							View all <span class="band-heading__chevrons" aria-hidden="true">››</span>
+						</a>
+					</div>
+					<div class="panel__body">
+						{items.length > 0 ? (
+							<ul class="news-list">
+								{items.map((item) => (
+									<li>
+										<a href={`/news/${item.id}`}>
+											<span class="news-list__title">{item.titleJa}</span>
+											<time datetime={item.publishedAt.toString()}>
+												{dateFmt(item.publishedAt.epochMilliseconds)}
+											</time>
+										</a>
+									</li>
+								))}
+							</ul>
+						) : (
+							<p class="empty">No dispatches have arrived yet.</p>
+						)}
+					</div>
+				</section>
+			))
+		}
+	</div>
 </Layout>
 
 <style>
-	h1 {
-		margin-bottom: 0.25rem;
+	.home-hero {
+		text-align: center;
+		margin-bottom: 1.8rem;
 	}
-
-	.subtitle {
-		color: var(--color-muted);
-		margin-bottom: 2rem;
+	.home-hero h1 {
+		font-size: clamp(2rem, 1.4rem + 3vw, 3rem);
 	}
-
-	.category-section {
-		margin-bottom: 2rem;
+	.home-hero .subtitle {
+		max-width: 46ch;
+		margin-inline: auto;
 	}
-
-	.category-section h2 {
-		margin-bottom: 0.5rem;
+	.home-hero__rule {
+		margin-top: 1.3rem;
 	}
-
-	.category-section h2 a {
-		text-decoration: none;
-	}
-
-	.category-section h2 a:hover {
-		text-decoration: underline;
-	}
-
-	.no-items {
-		color: var(--color-muted);
-		font-style: italic;
-	}
-
-	.view-all {
-		display: inline-block;
-		margin-top: 0.5rem;
-		font-size: 0.9rem;
+	.band-heading__more {
+		flex: none;
 	}
 </style>

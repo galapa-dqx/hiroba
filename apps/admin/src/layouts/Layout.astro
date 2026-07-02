@@ -1,9 +1,24 @@
 ---
+import Rosette from "../components/Rosette.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
+
 interface Props {
 	title: string;
 }
 
 const { title } = Astro.props;
+
+const nav = [
+	{ href: "/", label: "Dashboard" },
+	{ href: "/news", label: "News" },
+	{ href: "/events", label: "Events" },
+	{ href: "/recheck-queue", label: "Recheck Queue" },
+	{ href: "/glossary", label: "Glossary" },
+];
+
+const pathname = Astro.url.pathname;
+const isActive = (href: string) =>
+	href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`);
 ---
 
 <!doctype html>
@@ -12,19 +27,40 @@ const { title } = Astro.props;
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<meta name="robots" content="noindex, nofollow" />
+		<meta name="color-scheme" content="light dark" />
 		<title>{title} | DQX Admin</title>
+		<link rel="stylesheet" href="/styles/palette.css" />
 		<link rel="stylesheet" href="/styles/admin.css" />
+		<script is:inline>
+			(() => {
+				try {
+					const t = localStorage.getItem("dqx-theme");
+					if (t === "dark" || t === "light") document.documentElement.dataset.theme = t;
+				} catch (_) {}
+			})();
+		</script>
 	</head>
 	<body>
 		<nav class="sidebar">
-			<h1>DQX Admin</h1>
+			<a href="/" class="brand" aria-label="DQX Admin — dashboard">
+				<Rosette class="brand__mark" />
+				<span class="brand__word">DQX&nbsp;<em>Admin</em></span>
+			</a>
 			<ul>
-				<li><a href="/">Dashboard</a></li>
-				<li><a href="/news">News</a></li>
-				<li><a href="/events">Events</a></li>
-				<li><a href="/recheck-queue">Recheck Queue</a></li>
-				<li><a href="/glossary">Glossary</a></li>
+				{
+					nav.map((item) => (
+						<li>
+							<a href={item.href} aria-current={isActive(item.href) ? "page" : undefined}>
+								{item.label}
+							</a>
+						</li>
+					))
+				}
 			</ul>
+			<div class="sidebar__foot">
+				<span>Keeper's console</span>
+				<ThemeToggle />
+			</div>
 		</nav>
 		<main>
 			<header class="page-header">

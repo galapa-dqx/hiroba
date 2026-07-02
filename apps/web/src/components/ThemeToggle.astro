@@ -1,0 +1,72 @@
+---
+/**
+ * ThemeToggle — flips between light/dark by setting data-theme on <html> and
+ * persisting to localStorage. The no-flash read happens in Layout's <head>.
+ * Shows a sun in dark mode (tap for light) and a moon in light mode.
+ */
+---
+
+<button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle colour theme" title="Toggle light / dark">
+  <svg class="theme-toggle__sun" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="12" cy="12" r="4.2" fill="currentColor"></circle>
+    <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+      <path d="M12 2.4v2.6M12 19v2.6M2.4 12H5M19 12h2.6M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"></path>
+    </g>
+  </svg>
+  <svg class="theme-toggle__moon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M20 14.4A8 8 0 1 1 9.6 4a6.4 6.4 0 0 0 10.4 10.4Z" fill="currentColor"></path>
+  </svg>
+</button>
+
+<style>
+  .theme-toggle {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    color: var(--gold-ink);
+    background: linear-gradient(180deg, var(--surface-panel), var(--surface-panel-2));
+    border: 1px solid var(--border-strong);
+    border-radius: 0;
+    cursor: pointer;
+    box-shadow: var(--inset-top), var(--shadow-sm);
+    transition: color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+  }
+  .theme-toggle:hover {
+    color: var(--gold-edge);
+    border-color: var(--gold-edge);
+    transform: translateY(-1px);
+  }
+  .theme-toggle svg {
+    width: 1.15rem;
+    height: 1.15rem;
+    grid-area: 1 / 1;
+  }
+  /* Show the moon in light mode, the sun in dark mode. */
+  .theme-toggle__sun { display: none; }
+  .theme-toggle__moon { display: block; }
+  :global([data-theme='dark']) .theme-toggle__sun { display: block; }
+  :global([data-theme='dark']) .theme-toggle__moon { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not(.light):not([data-theme='light'])) .theme-toggle__sun { display: block; }
+    :global(:root:not(.light):not([data-theme='light'])) .theme-toggle__moon { display: none; }
+  }
+</style>
+
+<script>
+  const btn = document.getElementById('theme-toggle');
+  btn?.addEventListener('click', () => {
+    const el = document.documentElement;
+    const current =
+      el.dataset.theme ||
+      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    const next = current === 'dark' ? 'light' : 'dark';
+    el.dataset.theme = next;
+    try {
+      localStorage.setItem('dqx-theme', next);
+    } catch {
+      /* storage unavailable — theme still applies for this page */
+    }
+  });
+</script>

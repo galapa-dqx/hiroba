@@ -1,0 +1,151 @@
+---
+/**
+ * Gem — a category-coloured, faceted cut gemstone used as the section marker on
+ * band headings (replacing the uniform gold rosette + colour bar). Each category
+ * gets a distinct silhouette so the sections read apart at a glance:
+ *   news → sapphire round brilliant · event → amethyst pentagon
+ *   update → emerald step-cut · maintenance → ruby marquise
+ * The body is a soft diagonal gradient (light top-left → deep bottom-right) with
+ * thin gold facet lines and a specular glint, so it reads lustrous rather than
+ * blocky. Colour is driven off the palette hue, so it re-tints in dark mode.
+ */
+import type { Category } from "@hiroba/shared";
+
+interface Props {
+  category: Category;
+  class?: string;
+}
+const { category, class: className } = Astro.props;
+
+const HUE: Record<Category, string> = {
+  news: "blue",
+  event: "purple",
+  update: "green",
+  maintenance: "red",
+};
+const hue = HUE[category] ?? "blue";
+
+// Gentle highlight/shade around the category's -9 solid — a narrow range keeps
+// the stone saturated (low contrast) while the gradient still gives it depth.
+const style = [
+  `--g:var(--${hue}-9)`,
+  `--gl:color-mix(in oklch, var(--${hue}-9) 60%, white)`,
+  `--gd:color-mix(in oklch, var(--${hue}-9) 66%, black)`,
+  `--gb:var(--gold-edge)`,
+].join(";");
+
+const uid = Math.random().toString(36).slice(2, 8);
+const cid = `gc-${uid}`;
+const gid = `gg-${uid}`;
+const sheen = "oklch(100% 0 0 / 0.16)";
+const glint = "oklch(100% 0 0 / 0.55)";
+---
+
+{
+  category === "news" && (
+    /* Sapphire — round brilliant */
+    <svg class:list={["gem", className]} viewBox="0 0 32 32" style={style} aria-hidden="true">
+      <defs>
+        <linearGradient id={gid} x1="0.18" y1="0.05" x2="0.72" y2="1">
+          <stop offset="0%" stop-color="var(--gl)" />
+          <stop offset="48%" stop-color="var(--g)" />
+          <stop offset="100%" stop-color="var(--gd)" />
+        </linearGradient>
+        <clipPath id={cid}>
+          <circle cx="16" cy="16" r="13" />
+        </clipPath>
+      </defs>
+      <g clip-path={`url(#${cid})`}>
+        <circle cx="16" cy="16" r="13" fill={`url(#${gid})`} />
+        <path d="M16 9.5 L20.6 11.4 L22.5 16 L20.6 20.6 L16 22.5 L11.4 20.6 L9.5 16 L11.4 11.4 Z" fill={sheen} />
+        <g stroke="var(--gb)" stroke-width="0.5" opacity="0.32" fill="none">
+          <path d="M16 3 L16 9.5 M29 16 L22.5 16 M16 29 L16 22.5 M3 16 L9.5 16 M6.81 6.81 L11.4 11.4 M25.19 6.81 L20.6 11.4 M25.19 25.19 L20.6 20.6 M6.81 25.19 L11.4 20.6" />
+          <path d="M16 9.5 L20.6 11.4 L22.5 16 L20.6 20.6 L16 22.5 L11.4 20.6 L9.5 16 L11.4 11.4 Z" />
+        </g>
+        <ellipse cx="13.2" cy="10.6" rx="2.3" ry="1.3" fill={glint} transform="rotate(-38 13.2 10.6)" />
+      </g>
+      <circle cx="16" cy="16" r="13" fill="none" stroke="var(--gb)" stroke-width="1" />
+    </svg>
+  )
+}
+{
+  category === "event" && (
+    /* Amethyst — pentagon */
+    <svg class:list={["gem", className]} viewBox="0 0 32 32" style={style} aria-hidden="true">
+      <defs>
+        <linearGradient id={gid} x1="0.18" y1="0.05" x2="0.72" y2="1">
+          <stop offset="0%" stop-color="var(--gl)" />
+          <stop offset="48%" stop-color="var(--g)" />
+          <stop offset="100%" stop-color="var(--gd)" />
+        </linearGradient>
+        <clipPath id={cid}>
+          <path d="M16 3 L28.36 11.98 L23.64 26.52 L8.36 26.52 L3.64 11.98 Z" />
+        </clipPath>
+      </defs>
+      <g clip-path={`url(#${cid})`}>
+        <path d="M0 0H32V32H0Z" fill={`url(#${gid})`} />
+        <path d="M16 9.5 L22.18 13.99 L19.82 21.26 L12.18 21.26 L9.82 13.99 Z" fill={sheen} />
+        <g stroke="var(--gb)" stroke-width="0.5" opacity="0.32" fill="none">
+          <path d="M16 3 L16 9.5 M28.36 11.98 L22.18 13.99 M23.64 26.52 L19.82 21.26 M8.36 26.52 L12.18 21.26 M3.64 11.98 L9.82 13.99" />
+          <path d="M16 9.5 L22.18 13.99 L19.82 21.26 L12.18 21.26 L9.82 13.99 Z" />
+        </g>
+        <ellipse cx="13.4" cy="11.6" rx="2.1" ry="1.2" fill={glint} transform="rotate(-36 13.4 11.6)" />
+      </g>
+      <path d="M16 3 L28.36 11.98 L23.64 26.52 L8.36 26.52 L3.64 11.98 Z" fill="none" stroke="var(--gb)" stroke-width="1" stroke-linejoin="round" />
+    </svg>
+  )
+}
+{
+  category === "update" && (
+    /* Emerald — step cut */
+    <svg class:list={["gem", className]} viewBox="0 0 32 32" style={style} aria-hidden="true">
+      <defs>
+        <linearGradient id={gid} x1="0.18" y1="0.05" x2="0.72" y2="1">
+          <stop offset="0%" stop-color="var(--gl)" />
+          <stop offset="48%" stop-color="var(--g)" />
+          <stop offset="100%" stop-color="var(--gd)" />
+        </linearGradient>
+        <clipPath id={cid}>
+          <path d="M10 4 L22 4 L26 8 L26 24 L22 28 L10 28 L6 24 L6 8 Z" />
+        </clipPath>
+      </defs>
+      <g clip-path={`url(#${cid})`}>
+        <path d="M0 0H32V32H0Z" fill={`url(#${gid})`} />
+        <path d="M12.7 9.4 L19.3 9.4 L21.5 11.6 L21.5 20.4 L19.3 22.6 L12.7 22.6 L10.5 20.4 L10.5 11.6 Z" fill={sheen} />
+        <g stroke="var(--gb)" stroke-width="0.5" opacity="0.3" fill="none">
+          <path d="M11.2 6.4 L20.8 6.4 L24 9.6 L24 22.4 L20.8 25.6 L11.2 25.6 L8 22.4 L8 9.6 Z" />
+          <path d="M12.7 9.4 L19.3 9.4 L21.5 11.6 L21.5 20.4 L19.3 22.6 L12.7 22.6 L10.5 20.4 L10.5 11.6 Z" />
+          <path d="M10.5 11.6 L21.5 11.6 M10.5 20.4 L21.5 20.4" />
+        </g>
+        <ellipse cx="13.4" cy="9.6" rx="2.2" ry="1.1" fill={glint} transform="rotate(-32 13.4 9.6)" />
+      </g>
+      <path d="M10 4 L22 4 L26 8 L26 24 L22 28 L10 28 L6 24 L6 8 Z" fill="none" stroke="var(--gb)" stroke-width="1" stroke-linejoin="round" />
+    </svg>
+  )
+}
+{
+  category === "maintenance" && (
+    /* Ruby — marquise (plump navette) */
+    <svg class:list={["gem", className]} viewBox="0 0 32 32" style={style} aria-hidden="true">
+      <defs>
+        <linearGradient id={gid} x1="0.18" y1="0.05" x2="0.72" y2="1">
+          <stop offset="0%" stop-color="var(--gl)" />
+          <stop offset="48%" stop-color="var(--g)" />
+          <stop offset="100%" stop-color="var(--gd)" />
+        </linearGradient>
+        <clipPath id={cid}>
+          <path d="M16 3 Q30 16 16 29 Q2 16 16 3 Z" />
+        </clipPath>
+      </defs>
+      <g clip-path={`url(#${cid})`}>
+        <path d="M16 3 Q30 16 16 29 Q2 16 16 3 Z" fill={`url(#${gid})`} />
+        <path d="M16 8 Q23 16 16 24 Q9 16 16 8 Z" fill={sheen} />
+        <g stroke="var(--gb)" stroke-width="0.5" opacity="0.32" fill="none">
+          <path d="M16 3 L16 29 M16 3 L9 16 L16 29 M16 3 L23 16 L16 29 M9 16 L23 16" />
+        </g>
+        <ellipse cx="13" cy="11" rx="2" ry="1.2" fill={glint} transform="rotate(-40 13 11)" />
+      </g>
+      <path d="M16 3 Q30 16 16 29 Q2 16 16 3 Z" fill="none" stroke="var(--gb)" stroke-width="1" stroke-linejoin="round" />
+    </svg>
+  )
+}

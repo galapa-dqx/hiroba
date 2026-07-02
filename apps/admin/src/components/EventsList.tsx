@@ -157,68 +157,6 @@ export default function EventsList() {
           </tbody>
         </table>
       )}
-
-      <style>{`
-				.events-list-page .filters {
-					display: flex;
-					gap: 1rem;
-					align-items: center;
-					margin-bottom: 1rem;
-					flex-wrap: wrap;
-				}
-
-				.events-list-page .search-form {
-					display: flex;
-					gap: 0.5rem;
-				}
-
-				.events-list-page .search-form input {
-					padding: 0.4rem 0.6rem;
-					border: 1px solid #ccc;
-					border-radius: 4px;
-				}
-
-				.type-badge {
-					display: inline-block;
-					padding: 0.2rem 0.5rem;
-					border-radius: 4px;
-					font-size: 0.8rem;
-					font-weight: 500;
-				}
-
-				.type-badge.multiDay {
-					background: #e3f2fd;
-					color: #1565c0;
-				}
-
-				.type-badge.allDay {
-					background: #f3e5f5;
-					color: #7b1fa2;
-				}
-
-				.type-badge.span {
-					background: #e8f5e9;
-					color: #2e7d32;
-				}
-
-				.type-badge.mark {
-					background: #fff3e0;
-					color: #ef6c00;
-				}
-
-				.muted {
-					color: #999;
-				}
-
-				.source-link {
-					color: #1976d2;
-					text-decoration: none;
-				}
-
-				.source-link:hover {
-					text-decoration: underline;
-				}
-			`}</style>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { getRecheckQueue, invalidateBody, type QueueItem } from '../lib/api';
 import { formatLocal, formatOverdue, formatRelativePast } from '../lib/format-date';
+import CategoryDot from './CategoryDot';
 
 export default function RecheckQueue() {
   const [items, setItems] = useState<QueueItem[]>([]);
@@ -85,6 +86,7 @@ export default function RecheckQueue() {
               <td className="title-cell">{item.titleJa}</td>
               <td>
                 <span className={`category-badge ${item.category}`}>
+                  <CategoryDot category={item.category} />
                   {item.category}
                 </span>
               </td>

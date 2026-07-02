@@ -1,0 +1,53 @@
+---
+/**
+ * Rosette — a gilt 8-point compass emblem used as the heading marker and brand
+ * mark. Pure SVG; the gold ramp and gem colour come from CSS custom properties
+ * so it re-tints in dark mode and can take a category accent via `gem`.
+ */
+interface Props {
+  class?: string;
+  /** CSS colour for the centre gem (defaults to bright gold). */
+  gem?: string;
+  /** Accessible label; omit to keep it decorative (aria-hidden). */
+  label?: string;
+}
+const { class: className, gem, label } = Astro.props;
+// Unique gradient ids so multiple rosettes on a page never collide.
+const uid = Math.random().toString(36).slice(2, 8);
+---
+
+<svg
+  class:list={['ornament-mark', className]}
+  viewBox="0 0 32 32"
+  fill="none"
+  role={label ? 'img' : undefined}
+  aria-label={label}
+  aria-hidden={label ? undefined : 'true'}
+  style={gem ? `--emblem-gem:${gem}` : undefined}
+>
+  <defs>
+    <linearGradient id={`gold-${uid}`} x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="var(--gold-hi)"></stop>
+      <stop offset="48%" stop-color="var(--gold)"></stop>
+      <stop offset="100%" stop-color="var(--gold-edge)"></stop>
+    </linearGradient>
+    <radialGradient id={`gem-${uid}`} cx="38%" cy="34%" r="75%">
+      <stop offset="0%" stop-color="oklch(100% 0.02 90 / 0.9)"></stop>
+      <stop offset="40%" stop-color="var(--emblem-gem, var(--gold-hi))"></stop>
+      <stop offset="100%" stop-color="color-mix(in oklch, var(--emblem-gem, var(--gold-mid)) 70%, black)"></stop>
+    </radialGradient>
+  </defs>
+  <!-- 8-point sunburst -->
+  <path
+    d="M16 1 L18.1 10.9 L26.6 5.4 L21.1 13.9 L31 16 L21.1 18.1 L26.6 26.6 L18.1 21.1 L16 31 L13.9 21.1 L5.4 26.6 L10.9 18.1 L1 16 L10.9 13.9 L5.4 5.4 L13.9 10.9 Z"
+    fill={`url(#gold-${uid})`}
+    stroke="var(--gold-edge)"
+    stroke-width="0.5"
+    stroke-linejoin="round"
+  ></path>
+  <!-- gilt ring -->
+  <circle cx="16" cy="16" r="6.6" fill="none" stroke={`url(#gold-${uid})`} stroke-width="1.6"></circle>
+  <!-- centre gem -->
+  <circle cx="16" cy="16" r="3.7" fill={`url(#gem-${uid})`} stroke="var(--gold-edge)" stroke-width="0.5"></circle>
+  <circle cx="14.7" cy="14.6" r="1" fill="oklch(100% 0.02 90 / 0.85)"></circle>
+</svg>

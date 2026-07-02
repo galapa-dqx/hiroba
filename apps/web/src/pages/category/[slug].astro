@@ -1,5 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
+import Gem from "../../components/Gem.astro";
 import { createDb, getNewsItems, type NewsItem } from "@hiroba/db";
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
 
@@ -20,11 +21,7 @@ let hasMore = false;
 let nextCursor: string | undefined;
 
 try {
-	const result = await getNewsItems(db, {
-		category,
-		limit: 20,
-		cursor,
-	});
+	const result = await getNewsItems(db, { category, limit: 20, cursor });
 	items = result.items;
 	hasMore = result.hasMore;
 	nextCursor = result.nextCursor;
@@ -35,76 +32,55 @@ try {
 const categoryLabel = CATEGORY_LABELS[category];
 ---
 
-<Layout title={categoryLabel}>
-	<h1>{categoryLabel}</h1>
+<Layout title={categoryLabel} category={category}>
+	<div data-cat={category}>
+		<section class="panel">
+			<div class="band-heading">
+				<Gem category={category} />
+				<span class="band-heading__title">{categoryLabel}</span>
+				<span class="band-heading__chevrons" aria-hidden="true">››</span>
+			</div>
+			<div class="panel__body">
+				{
+					items.length > 0 ? (
+						<ul class="news-list">
+							{items.map((item) => (
+								<li>
+									<a href={`/news/${item.id}`}>
+										<span class="news-list__title">{item.titleJa}</span>
+										<time datetime={item.publishedAt.toString()}>
+											{new Date(item.publishedAt.epochMilliseconds).toLocaleDateString("en-US", {
+												year: "numeric",
+												month: "short",
+												day: "numeric",
+											})}
+										</time>
+									</a>
+								</li>
+							))}
+						</ul>
+					) : (
+						<p class="empty">No dispatches have arrived yet.</p>
+					)
+				}
+			</div>
+		</section>
 
-	{items.length > 0 ? (
-		<ul class="news-list">
-			{items.map((item) => (
-				<li>
-					<a href={`/news/${item.id}`}>
-						<span class="title">{item.titleJa}</span>
-						<time datetime={item.publishedAt.toString()}>
-							{new Date(item.publishedAt.epochMilliseconds).toLocaleDateString("en-US", {
-								year: "numeric",
-								month: "short",
-								day: "numeric",
-							})}
-						</time>
-					</a>
-				</li>
-			))}
-		</ul>
-	) : (
-		<p class="no-items">No items available</p>
-	)}
+		<nav class="pagination" aria-label="Pagination">
+			<span>
+				{cursor && (
+					<a href={`/category/${category}`} class="pill pill--ghost">‹ Newest</a>
+				)}
+			</span>
+			<span>
+				{hasMore && nextCursor && (
+					<a href={`/category/${category}?cursor=${nextCursor}`} class="pill">Older ›</a>
+				)}
+			</span>
+		</nav>
 
-	<div class="pagination">
-		{cursor && (
-			<a href={`/category/${category}`} class="prev">← Newest</a>
-		)}
-		{hasMore && nextCursor && (
-			<a href={`/category/${category}?cursor=${nextCursor}`} class="next">
-				Older →
-			</a>
-		)}
+		<nav class="back-link">
+			<a href="/" class="pill pill--ghost">‹ Back to home</a>
+		</nav>
 	</div>
-
-	<nav class="back-link">
-		<a href="/">← Back to home</a>
-	</nav>
 </Layout>
-
-<style>
-	h1 {
-		margin-bottom: 1rem;
-	}
-
-	.no-items {
-		color: var(--color-muted);
-		font-style: italic;
-	}
-
-	.pagination {
-		display: flex;
-		justify-content: space-between;
-		margin-top: 1.5rem;
-		padding-top: 1rem;
-		border-top: 1px solid #eee;
-	}
-
-	.pagination a {
-		padding: 0.5rem 1rem;
-		background: #f5f5f5;
-		border-radius: 4px;
-		text-decoration: none;
-	}
-
-	.pagination a:hover {
-		background: #eee;
-	}
-
-	.back-link {
-		margin-top: 2rem;
-	}
-</style>
