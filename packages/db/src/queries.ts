@@ -7,9 +7,12 @@ import { Temporal } from 'temporal-polyfill';
 
 import { getNextCheckTime, isDueForCheck, type Category } from '@hiroba/shared';
 
+import type { Block } from '@hiroba/richtext';
+
 import type { Database } from './client';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
-import { translations } from './schema/translations';
+import { topics, type NewTopic, type Topic } from './schema/topics';
+import { translations, type TranslationField } from './schema/translations';
 
 /**
  * Upsert news items from list scraping.
@@ -230,4 +233,149 @@ export async function invalidateBody(
     .returning({ id: newsItems.id });
 
   return result.length > 0;
+}
+
+/* ------------------------------------------------------------------ *
+ * Topics
+ * ------------------------------------------------------------------ */
+
+/**
+ * Upsert a topic. On conflict, updates only the columns present on `topic`
+ * (title/publishedAt always; category/blocksJa/bodyFetchedAt when provided) so a
+ * metadata re-upsert never clobbers an already-fetched block tree.
+ */
+export async function upsertTopic(db: Database, topic: NewTopic): Promise<void> {
+  const set: Partial<NewTopic> = {
+    titleJa: topic.titleJa,
+    publishedAt: topic.publishedAt,
+  };
+  if (topic.category !== undefined) set.category = topic.category;
+  if (topic.blocksJa !== undefined) set.blocksJa = topic.blocksJa;
+  if (topic.bodyFetchedAt !== undefined) set.bodyFetchedAt = topic.bodyFetchedAt;
+
+  await db
+    .insert(topics)
+    .values(topic)
+    .onConflictDoUpdate({ target: topics.id, set });
+}
+
+/**
+ * Get a single topic by ID.
+ */
+export async function getTopic(db: Database, id: string): Promise<Topic | null> {
+  const result = await db.select().from(topics).where(eq(topics.id, id)).get();
+  return result ?? null;
+}
+
+/**
+ * Get paginated list of topics (mirrors getNewsItems).
+ */
+export async function getTopics(
+  db: Database,
+  options: {
+    category?: string;
+    limit?: number;
+    cursor?: string;
+  } = {},
+): Promise<{ items: Topic[]; hasMore: boolean; nextCursor?: string }> {
+  const limit = Math.min(options.limit ?? 20, 100);
+
+  const conditions = [];
+  if (options.category) {
+    conditions.push(eq(topics.category, options.category));
+  }
+  if (options.cursor) {
+    conditions.push(lt(topics.publishedAt, Temporal.Instant.from(options.cursor)));
+  }
+
+  const results = await db
+    .select()
+    .from(topics)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(topics.publishedAt))
+    .limit(limit + 1)
+    .all();
+
+  const hasMore = results.length > limit;
+  const items = hasMore ? results.slice(0, -1) : results;
+
+  return {
+    items,
+    hasMore,
+    nextCursor: hasMore ? items[items.length - 1].publishedAt.toString() : undefined,
+  };
+}
+
+/**
+ * Get the localized title + block tree for a topic, if translated.
+ * The `content` translation stores the block tree as a JSON blob.
+ */
+export async function getTopicTranslations(
+  db: Database,
+  id: string,
+  language: string = 'en',
+): Promise<{ title: string | null; blocks: Block[] | null }> {
+  const rows = await db
+    .select()
+    .from(translations)
+    .where(
+      and(
+        eq(translations.itemType, 'topic'),
+        eq(translations.itemId, id),
+        eq(translations.language, language),
+      ),
+    )
+    .all();
+
+  let title: string | null = null;
+  let blocks: Block[] | null = null;
+  for (const row of rows) {
+    if (row.field === 'title') {
+      title = row.value;
+    } else if (row.field === 'content') {
+      try {
+        blocks = JSON.parse(row.value) as Block[];
+      } catch {
+        blocks = null;
+      }
+    }
+  }
+  return { title, blocks };
+}
+
+/**
+ * Upsert a single topic translation row (itemType='topic').
+ * For field='content', pass the block tree pre-serialized to JSON.
+ */
+export async function upsertTopicTranslation(
+  db: Database,
+  params: {
+    itemId: string;
+    language: string;
+    field: TranslationField;
+    value: string;
+    model: string;
+  },
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  await db
+    .insert(translations)
+    .values({
+      itemType: 'topic',
+      itemId: params.itemId,
+      language: params.language,
+      field: params.field,
+      value: params.value,
+      translatedAt: now,
+      model: params.model,
+    })
+    .onConflictDoUpdate({
+      target: [
+        translations.itemType,
+        translations.itemId,
+        translations.language,
+        translations.field,
+      ],
+      set: { value: params.value, translatedAt: now, model: params.model },
+    });
 }

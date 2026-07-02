@@ -5,6 +5,7 @@
  */
 
 export * from './news-items';
+export * from './topics';
 export * from './translations';
 export * from './glossary';
 export * from './events';
