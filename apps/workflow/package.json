@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@hiroba/db": "workspace:*",
+    "@hiroba/richtext": "workspace:*",
     "@hiroba/scraper": "workspace:*",
     "@hiroba/shared": "workspace:*",
     "@sentry/cloudflare": "^10.34.0",

@@ -39,6 +39,7 @@ export type WorkflowBinding<T = unknown> = {
 export type Env = {
   DB: D1Database;
   OPENAI_API_KEY: string;
+  GEMINI_API_KEY: string;
   SENTRY_DSN: string;
   WORKFLOW_MANAGER: DurableObjectNamespace;
   NEWS_WORKFLOW: WorkflowBinding<NewsWorkflowParams>;
