@@ -260,17 +260,35 @@ function parseInlineTag(el: Element): Inline {
 /** Mixed block-or-inline children (container content). */
 function parseContent(nodes: ChildNode[]): ContentNode[] {
   const out: ContentNode[] = [];
-  for (const c of nodes) {
-    // Drop whitespace-only text between elements — it's formatting an LLM may
-    // have inserted, never meaningful container content. Genuine inline text
-    // inside a <p>/<strong>/… is kept by parseInlines (which preserves all text).
+  for (let i = 0; i < nodes.length; i++) {
+    const c = nodes[i];
     if (isText(c)) {
-      if (c.data.trim() !== '') out.push(c.data);
+      if (c.data.trim() !== '') {
+        out.push(c.data);
+        continue;
+      }
+      // Whitespace-only text: keep it when it sits between inline content (a real
+      // inline space, e.g. between two <color> runs or after a <br>); drop it when
+      // it's only formatting between block elements (indentation an LLM may add).
+      const prev = out[out.length - 1];
+      const prevInline = prev !== undefined && isInline(prev);
+      const next = nextSignificant(nodes, i + 1);
+      const nextInline = next !== undefined && (isText(next) || (isTag(next) && INLINE_TAGS.has(next.name)));
+      if (prevInline || nextInline) out.push(c.data);
     } else if (isTag(c)) {
       out.push(INLINE_TAGS.has(c.name) ? parseInlineTag(c) : parseBlock(c));
     }
   }
   return out;
+}
+
+/** The next tag or non-blank text node at or after index `from`. */
+function nextSignificant(nodes: ChildNode[], from: number): ChildNode | undefined {
+  for (let j = from; j < nodes.length; j++) {
+    const n = nodes[j];
+    if (isTag(n) || (isText(n) && n.data.trim() !== '')) return n;
+  }
+  return undefined;
 }
 
 /** Block-only children (interview answers, step bodies, top level). */
