@@ -24,7 +24,7 @@ import type {
   TableCell,
 } from '@hiroba/richtext';
 
-import { parseInline, textOf } from './inline';
+import { absolutize, isInlineIcon, parseInline, textOf } from './inline';
 
 interface Ctx {
   $: CheerioAPI;
@@ -48,6 +48,7 @@ const hasText = (el: Element): boolean => textOf(el).replace(/[\s　]+/g, '') !=
 const BLOCK_TAGS = new Set(['div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'table', 'section', 'article']);
 const INLINE_TAGS = new Set([
   'a', 'b', 'strong', 'em', 'i', 'u', 's', 'small', 'sup', 'sub', 'span', 'font', 'br', 'mark', 'ins', 'del', 'big', 'tt', 'code',
+  'img', // routed inline only when it's a small icon (findBlockExtractor claims content images first)
 ]);
 
 /** True if an inline run carries real content (not just spacing breaks/whitespace). */
@@ -56,6 +57,11 @@ const meaningfulInline = (nodes: Inline[]): boolean =>
 
 const hasBlockChildren = (el: Element): boolean => elChildren(el).some((c) => BLOCK_TAGS.has(nm(c)));
 const hasDirectText = (el: Element): boolean => (el.children ?? []).some((c) => isText(c) && c.data.trim() !== '');
+
+/** A full (non-icon) image, which is block-level even when it sits inside a <p>. */
+const isContentImage = (el: Element): boolean => nm(el) === 'img' && !isInlineIcon(el);
+/** Does the subtree carry block media (a content image or an iframe) needing block extraction? */
+const hasBlockMedia = (el: Element): boolean => hasDescendant(el, (c) => isContentImage(c) || nm(c) === 'iframe');
 
 function shouldSkip(el: Element): boolean {
   const name = nm(el);
@@ -97,7 +103,7 @@ interface Extractor {
 function imageNode(el: Element): Block | null {
   const src = attr(el, 'src');
   if (!src) return null;
-  const node: Block = { type: 'image', src };
+  const node: Block = { type: 'image', src: absolutize(src) };
   const alt = attr(el, 'alt');
   if (alt) node.alt = alt;
   const c = cls(el);
@@ -143,7 +149,7 @@ const button: Extractor = {
       : c.includes('btn_reservation') ? 'reservation'
       : undefined;
     const link = nm(el) === 'a' ? el : (elChildren(el).find((x) => nm(x) === 'a') ?? el);
-    const href = attr(link, 'href') ?? '';
+    const href = absolutize(attr(link, 'href') ?? '');
     const children = parseInline(link.children);
     if (!children.length && !href) return null;
     const block: Block = { type: 'button', href, children };
@@ -154,7 +160,7 @@ const button: Extractor = {
 
 const image: Extractor = {
   name: 'image',
-  canExtract: (el) => nm(el) === 'img' || /img_newspaper|newsImage|img_2nd|img_3rd|img_smt|img_3ds/.test(cls(el)),
+  canExtract: (el) => (nm(el) === 'img' && !isInlineIcon(el)) || /img_newspaper|newsImage/.test(cls(el)),
   extract: (el, ctx) => {
     if (nm(el) === 'img') return imageNode(el);
     const img = q(ctx, el, 'img');
@@ -266,7 +272,7 @@ const table: Extractor = {
 };
 
 function parseCell(cell: Element, ctx: Ctx): TableCell {
-  const isBlockish = hasBlockChildren(cell) || elChildren(cell).some((c) => nm(c) === 'img');
+  const isBlockish = hasBlockChildren(cell) || elChildren(cell).some(isContentImage);
   const out: TableCell = { children: isBlockish ? parseFlow(cell, ctx) : (parseInline(cell.children) as ContentNode[]) };
   if (nm(cell) === 'th') out.header = true;
   const cs = attr(cell, 'colspan');
@@ -348,7 +354,7 @@ const speechBubble: Extractor = {
     }
     if (iconEl) {
       const src = attr(iconEl, 'src');
-      if (src) block.icon = src;
+      if (src) block.icon = absolutize(src);
       markProcessed(ctx, iconEl);
     }
     block.children = parseFlow(textEl, ctx) as ContentNode[];
@@ -493,7 +499,7 @@ function splitByBreak(nodes: AnyNode[]): AnyNode[][] {
 
 /** List-item / simple-container content: inline unless it has block-level children. */
 function parseItemContent(el: Element, ctx: Ctx): ContentNode[] {
-  if (hasBlockChildren(el) || elChildren(el).some((c) => nm(c) === 'img')) return parseFlow(el, ctx);
+  if (hasBlockChildren(el) || elChildren(el).some(isContentImage)) return parseFlow(el, ctx);
   return parseInline(el.children) as ContentNode[];
 }
 
@@ -550,19 +556,10 @@ function processBlockElement(el: Element, out: Block[], ctx: Ctx): void {
 
   const name = nm(el);
 
-  // Image-only paragraph/div → image block(s).
-  if ((name === 'p' || name === 'div') && !hasText(el) && hasDescendant(el, (c) => nm(c) === 'img')) {
-    ctx.processed.add(el);
-    for (const img of qa(ctx, el, 'img')) {
-      const node = imageNode(img);
-      if (node) out.push(node);
-    }
-    return;
-  }
-
-  // p/div wrapping an <iframe> (video/embed media) — recurse so the iframe is
-  // extracted as a block rather than dropped by inline parsing.
-  if ((name === 'p' || name === 'div') && hasDescendant(el, (c) => nm(c) === 'iframe')) {
+  // p/div wrapping block media (a content image or an iframe) — recurse so the
+  // media becomes a block and surrounding text becomes paragraphs. Small inline
+  // icons (ico_*) don't trigger this and stay inline.
+  if ((name === 'p' || name === 'div') && hasBlockMedia(el)) {
     ctx.processed.add(el);
     out.push(...parseFlow(el, ctx));
     return;

@@ -21,6 +21,33 @@ const classOf = (el: Element): string => el.attribs?.class ?? '';
 const styleOf = (el: Element): string => el.attribs?.style ?? '';
 const nameOf = (el: Element): string => el.name?.toLowerCase() ?? '';
 
+const SITE_BASE = 'https://hiroba.dqx.jp';
+
+/**
+ * Resolve a root- or protocol-relative URL against the source site at parse time,
+ * so blocks_ja holds absolute URLs. The renderer rewrites image URLs to our proxy
+ * (rewriteImageSrc); links keep pointing at the source.
+ */
+export function absolutize(url: string): string {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith('//')) return `https:${url}`;
+  if (url.startsWith('/')) return `${SITE_BASE}${url}`;
+  return url; // #anchors, javascript:, mailto:, bare relative — leave as-is
+}
+
+const ICON_SRC_RE = /\/ico_[a-z0-9_]+\.(?:gif|png|jpe?g)/i;
+const ICON_CLASS_RE = /\bimg_(?:2nd|3rd|4th|5th|smt|3ds)\b/;
+
+/**
+ * True for the small ordinal/platform glyph icons that belong inline
+ * (`ico_2nd.gif`, `ico_smt.gif`, class `img_2nd`…). Everything else — TopicsImages,
+ * banners, screenshots — is a block image.
+ */
+export function isInlineIcon(el: Element): boolean {
+  return ICON_SRC_RE.test(el.attribs?.src ?? '') || ICON_CLASS_RE.test(el.attribs?.class ?? '');
+}
+
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 const NAMED_COLORS: Record<string, string> = {
@@ -70,8 +97,8 @@ function isItalic(el: Element): boolean {
   return /font-style\s*:\s*italic/i.test(styleOf(el));
 }
 
-function isExternalLink(el: Element, href: string): boolean {
-  if (el.attribs?.target === '_blank') return true;
+/** Off-site after absolutization: an http(s) URL whose host isn't the source site. */
+function isExternalLink(href: string): boolean {
   return /^https?:\/\//i.test(href) && !/hiroba\.dqx\.jp/i.test(href);
 }
 
@@ -112,7 +139,7 @@ function pushElement(el: Element, out: Inline[]): void {
   if (name === 'img') {
     const src = el.attribs?.src;
     if (src) {
-      const icon: Inline = { type: 'icon', src };
+      const icon: Inline = { type: 'icon', src: absolutize(src) };
       if (el.attribs?.alt) icon.alt = el.attribs.alt;
       out.push(icon);
     }
@@ -124,9 +151,9 @@ function pushElement(el: Element, out: Inline[]): void {
     return;
   }
   if (name === 'a') {
-    const href = el.attribs?.href ?? '';
+    const href = absolutize(el.attribs?.href ?? '');
     const link: Inline = { type: 'link', href, children: parseInline(el.children) };
-    if (isExternalLink(el, href)) link.external = true;
+    if (isExternalLink(href)) link.external = true;
     out.push(link);
     return;
   }

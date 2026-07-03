@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { parseTopicBody } from './index';
 
+const CDN = 'https://hiroba.dqx.jp';
+
 describe('parseTopicBody — inline extraction', () => {
   it('nests bold + color and keeps text runs', () => {
     expect(parseTopicBody('<p>a<b>b</b><span style="color:#c03">c</span></p>')).toEqual([
@@ -12,12 +14,12 @@ describe('parseTopicBody — inline extraction', () => {
     ]);
   });
 
-  it('distinguishes internal vs external links', () => {
+  it('absolutizes hrefs and detects off-site links by host', () => {
     expect(parseTopicBody('<p><a href="/sc/x/">in</a><a href="http://e.com" target="_blank">out</a></p>')).toEqual([
       {
         type: 'paragraph',
         children: [
-          { type: 'link', href: '/sc/x/', children: ['in'] },
+          { type: 'link', href: `${CDN}/sc/x/`, children: ['in'] },
           { type: 'link', href: 'http://e.com', external: true, children: ['out'] },
         ],
       },
@@ -32,6 +34,15 @@ describe('parseTopicBody — inline extraction', () => {
       },
     ]);
   });
+
+  it('keeps a small ordinal/platform icon inline (and absolutizes its src)', () => {
+    expect(parseTopicBody('<p>Rank <img class="img_2nd" src="/dq_resource/img/common/ico_2nd.gif" alt="2nd"></p>')).toEqual([
+      {
+        type: 'paragraph',
+        children: ['Rank ', { type: 'icon', src: `${CDN}/dq_resource/img/common/ico_2nd.gif`, alt: '2nd' }],
+      },
+    ]);
+  });
 });
 
 describe('parseTopicBody — block extraction', () => {
@@ -40,9 +51,16 @@ describe('parseTopicBody — block extraction', () => {
     expect(parseTopicBody('<div class="title01">T</div>')).toEqual([{ type: 'heading', level: 1, children: ['T'] }]);
   });
 
-  it('image-only paragraph → image block (src kept verbatim, not proxied)', () => {
+  it('a full content image is a block image, splitting the paragraph (src absolutized)', () => {
+    expect(parseTopicBody('<p>See this: <img src="/dq_resource/imgs/TopicsImages/x.jpg" alt="cap"></p>')).toEqual([
+      { type: 'paragraph', children: ['See this:'] },
+      { type: 'image', src: `${CDN}/dq_resource/imgs/TopicsImages/x.jpg`, alt: 'cap' },
+    ]);
+  });
+
+  it('image-only paragraph → image block', () => {
     expect(parseTopicBody('<p><img src="/dq_resource/a.jpg" alt="cap"></p>')).toEqual([
-      { type: 'image', src: '/dq_resource/a.jpg', alt: 'cap' },
+      { type: 'image', src: `${CDN}/dq_resource/a.jpg`, alt: 'cap' },
     ]);
   });
 
@@ -52,8 +70,8 @@ describe('parseTopicBody — block extraction', () => {
 
   it('a lone spacing <br> between blocks does not become a paragraph', () => {
     expect(parseTopicBody('<img src="/a.jpg"><br><img src="/b.jpg">')).toEqual([
-      { type: 'image', src: '/a.jpg' },
-      { type: 'image', src: '/b.jpg' },
+      { type: 'image', src: `${CDN}/a.jpg` },
+      { type: 'image', src: `${CDN}/b.jpg` },
     ]);
   });
 
@@ -62,7 +80,7 @@ describe('parseTopicBody — block extraction', () => {
       {
         type: 'list',
         ordered: false,
-        items: [{ children: ['a'] }, { children: [{ type: 'link', href: '/y/', children: ['b'] }] }],
+        items: [{ children: ['a'] }, { children: [{ type: 'link', href: `${CDN}/y/`, children: ['b'] }] }],
       },
     ]);
   });
@@ -73,9 +91,9 @@ describe('parseTopicBody — block extraction', () => {
     ]);
   });
 
-  it('button unwraps its anchor', () => {
+  it('button unwraps its anchor (href absolutized)', () => {
     expect(parseTopicBody('<div class="btn01"><a href="/z/">Go</a></div>')).toEqual([
-      { type: 'button', href: '/z/', children: ['Go'] },
+      { type: 'button', href: `${CDN}/z/`, children: ['Go'] },
     ]);
   });
 
