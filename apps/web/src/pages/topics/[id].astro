@@ -37,8 +37,11 @@ if (!topic || !hasBody || !isTranslated) {
 
 const title = enTitle ?? topic?.titleJa ?? "Loading topic…";
 const blocks: Block[] = enBlocks ?? (topic?.blocksJa as Block[] | null) ?? [];
-// Default to the /img worker route; a bucket custom-domain can be set via IMAGE_BASE.
-const imageBase = runtime.env.IMAGE_BASE ?? "/img";
+// When showing the English translation, prefer localized images — the /img route
+// serves the l10n/en/<key> object and falls back to the original for images that
+// weren't localized. Otherwise serve originals (a bucket custom-domain can be set
+// via IMAGE_BASE for those).
+const imageBase = isTranslated ? "/img/l10n/en" : (runtime.env.IMAGE_BASE ?? "/img");
 const contentHtml = renderBlocks(blocks, { imageSrc: (src: string) => rewriteImageSrc(src, imageBase) });
 ---
 

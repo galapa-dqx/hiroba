@@ -2,6 +2,7 @@
  * Type definitions for the workflow worker.
  */
 
+import type { LocalizeResult } from './steps/localize-images';
 import type { MirrorResult } from './steps/mirror-images';
 
 /**
@@ -114,7 +115,7 @@ export type TranscribeResult = {
 
 /**
  * Overall TopicsWorkflow output. The presence of successive keys drives SSE
- * progress messages (fetch → mirror → transcribe → translate).
+ * progress messages (fetch → mirror → transcribe → translate → localize).
  */
 export type TopicsWorkflowOutput = {
   itemId: string;
@@ -122,6 +123,7 @@ export type TopicsWorkflowOutput = {
   mirror: MirrorResult;
   transcribe: TranscribeResult;
   translate: TranslateResult;
+  localize: LocalizeResult;
 };
 
 /**

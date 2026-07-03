@@ -18,12 +18,14 @@ import type { Env, ItemType, WorkflowBinding } from './types';
 
 function getProgressMessage(output: Record<string, unknown> | undefined, itemType: ItemType): string {
   if (!output) return 'Starting...';
-  if ('translate' in output) return 'Finishing up...';
   if (itemType === 'topic') {
+    if ('localize' in output) return 'Finishing up...';
+    if ('translate' in output) return 'Localizing images...';
     if ('transcribe' in output) return 'Translating...';
     if ('mirror' in output) return 'Reading image text...';
     if ('fetchBody' in output) return 'Saving images...';
   } else {
+    if ('translate' in output) return 'Finishing up...';
     if ('extractEvents' in output) return 'Translating...';
     if ('fetchBody' in output) return 'Extracting events...';
   }

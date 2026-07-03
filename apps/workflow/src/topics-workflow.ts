@@ -6,19 +6,22 @@
  * 2. mirror-images     - copy every referenced image into R2 (self-hosted)
  * 3. transcribe-images - Gemini vision reads baked-in image text → blocks_ja (again)
  * 4. translate         - whole-document JA→EN → translations (title + content)
+ * 5. localize-images   - bake the EN translations back into text-bearing images
  *
  * Mirroring runs before transcription so transcribe reads bytes from R2 (one CDN
  * fetch per image ever). Transcription must land in blocks_ja before translation
- * so the image text is translated in-context (via <figure>).
+ * so the image text is translated in-context (via <figure>). Localization runs
+ * last: it needs the EN spans the translate step produced.
  */
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { Temporal } from 'temporal-polyfill';
 
 import type { Block } from '@hiroba/richtext';
-import { createDb, getTopic, updateTopicBlocks, upsertTopic } from '@hiroba/db';
+import { createDb, getTopic, getTopicTranslations, updateTopicBlocks, upsertTopic } from '@hiroba/db';
 import { fetchTopicBody } from '@hiroba/scraper';
 
+import { localizeImages, type LocalizeResult } from './steps/localize-images';
 import { mirrorImages, type MirrorResult } from './steps/mirror-images';
 import { transcribeImages } from './steps/transcribe-images';
 import { translateTopic } from './steps/translate-topic';
@@ -59,6 +62,7 @@ export class TopicsWorkflow extends WorkflowEntrypoint<Env, TopicsWorkflowParams
         mirror: { mirrored: 0, skipped: 0, failed: 0 },
         transcribe: { imagesTranscribed: 0 },
         translate: { success: false, fieldsTranslated: 0 },
+        localize: { localized: 0, skipped: 0, failed: 0 },
       };
     }
 
@@ -84,6 +88,17 @@ export class TopicsWorkflow extends WorkflowEntrypoint<Env, TopicsWorkflowParams
       return translateTopic(db, this.env.GEMINI_API_KEY, itemId);
     });
 
-    return { itemId, fetchBody, mirror, transcribe, translate };
+    // Step 5: bake the EN translations back into text-bearing images (Nano Banana
+    // Pro). Needs the EN spans from the translate step, so it runs last.
+    const localize = await step.do('localize-images', async (): Promise<LocalizeResult> => {
+      if (!translate.success) return { localized: 0, skipped: 0, failed: 0 };
+      const topic = await getTopic(db, itemId);
+      const blocksJa = (topic?.blocksJa ?? []) as Block[];
+      const { blocks: blocksEn } = await getTopicTranslations(db, itemId, 'en');
+      if (!blocksEn) return { localized: 0, skipped: 0, failed: 0 };
+      return localizeImages(this.env.IMAGES, this.env.GEMINI_API_KEY, blocksJa, blocksEn);
+    });
+
+    return { itemId, fetchBody, mirror, transcribe, translate, localize };
   }
 }

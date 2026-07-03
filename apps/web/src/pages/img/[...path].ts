@@ -1,14 +1,13 @@
 /**
- * Image serving — `/img/<host>/<path>` → the R2 mirror, self-healing on miss.
+ * Image serving — R2-backed, self-healing.
  *
- * `rewriteImageSrc` encodes the upstream host as the first path segment; that
- * `<host>/<path>` is exactly the R2 object key the pipeline's mirror-images step
- * writes. We serve from R2 first; on a miss (a topic viewed before its pipeline
- * ran, or an off-pipeline image) we fetch the DQX CDN once, store it, and serve
- * it — so the second view is a pure R2 read. Host is allowlisted to `*.dqx.jp`.
+ *   /img/<host>/<path>            → the mirrored original (R2 key `<host>/<path>`)
+ *   /img/l10n/<lang>/<host>/<path> → the localized image (R2 key `l10n/<lang>/…`),
+ *                                    falling back to the original when a given
+ *                                    image was never localized.
  *
- * A bucket custom-domain can later serve these keys directly (set the image base
- * so `rewriteImageSrc` points at it) — no worker hop — without changing storage.
+ * On a total miss we fetch the DQX CDN once, store the original, and serve it —
+ * so the second view is a pure R2 read. Host is allowlisted to `*.dqx.jp`.
  */
 
 import type { APIRoute } from 'astro';
@@ -20,24 +19,30 @@ const FETCH_HEADERS = {
   Referer: 'https://hiroba.dqx.jp/',
 };
 
-/** Served to the browser — a week is plenty; the object is immutable in R2. */
 const CACHE_CONTROL = 'public, max-age=604800, immutable';
 
 export const GET: APIRoute = async ({ params, locals }) => {
   const path = params.path ?? '';
-  const slash = path.indexOf('/');
-  const host = slash === -1 ? path : path.slice(0, slash);
-  const rest = slash === -1 ? '' : path.slice(slash + 1);
+
+  // A localized request carries an `l10n/<lang>/` prefix; the rest is the
+  // original `<host>/<path>`. Non-localized requests are just `<host>/<path>`.
+  const localized = path.startsWith('l10n/');
+  const rel = localized ? path.split('/').slice(2).join('/') : path;
+
+  const slash = rel.indexOf('/');
+  const host = slash === -1 ? rel : rel.slice(0, slash);
+  const rest = slash === -1 ? '' : rel.slice(slash + 1);
 
   if (!host || !rest || !isAllowedHost(host)) {
     return new Response('Forbidden', { status: 403 });
   }
 
   const bucket = locals.runtime.env.IMAGES;
-  const key = `${host}/${rest}`;
+  const originalKey = `${host}/${rest}`;
 
-  // 1. Serve from the R2 mirror when present.
-  const hit = await bucket.get(key);
+  // 1. Preferred object: the localized one if this is an l10n request, else the
+  //    original. 2. Fall back to the original (an image that was never localized).
+  const hit = (localized ? await bucket.get(path) : null) ?? (await bucket.get(originalKey));
   if (hit) {
     return new Response(hit.body, {
       headers: {
@@ -48,15 +53,15 @@ export const GET: APIRoute = async ({ params, locals }) => {
     });
   }
 
-  // 2. Miss → fetch the CDN once, store, and serve.
-  const res = await fetch(`https://${key}`, { headers: FETCH_HEADERS });
+  // 3. Miss → fetch the CDN original once, store it, serve it.
+  const res = await fetch(`https://${originalKey}`, { headers: FETCH_HEADERS });
   if (!res.ok) {
     return new Response('Upstream error', { status: res.status });
   }
   const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
   const body = await res.arrayBuffer();
 
-  await bucket.put(key, body, {
+  await bucket.put(originalKey, body, {
     httpMetadata: { contentType, cacheControl: 'public, max-age=31536000, immutable' },
   });
 
