@@ -1,0 +1,628 @@
+/**
+ * Topics body parser — ports prescraper's transformer.js + extractors to Cheerio,
+ * targeting the @hiroba/richtext nested Block/Inline model.
+ *
+ * The old parser flattened inline formatting to strings; this one keeps it (see
+ * ./inline). The extractor selectors and priority order (compound boxes first,
+ * generic paragraph/image last) are preserved — that's the real domain knowledge
+ * about the 2005-era source markup. `parseFlow` is the shared recursion: it groups
+ * runs of inline content into paragraphs and dispatches block elements to the
+ * priority-ordered extractor registry.
+ */
+
+import { load, type CheerioAPI } from 'cheerio';
+import { isTag, isText, type AnyNode, type Element } from 'domhandler';
+
+import type {
+  Align,
+  Block,
+  ContentNode,
+  Inline,
+  InfoBoxVariant,
+  RankingItem,
+  StepItem,
+  TableCell,
+} from '@hiroba/richtext';
+
+import { parseInline, textOf } from './inline';
+
+interface Ctx {
+  $: CheerioAPI;
+  processed: Set<Element>;
+}
+
+/* ------------------------------------------------------------------ *
+ * DOM helpers
+ * ------------------------------------------------------------------ */
+
+const cls = (el: Element): string => el.attribs?.class ?? '';
+const nm = (el: Element): string => el.name?.toLowerCase() ?? '';
+const attr = (el: Element, n: string): string | undefined => el.attribs?.[n];
+const elChildren = (el: Element): Element[] => (el.children ?? []).filter(isTag);
+const q = (ctx: Ctx, el: Element, sel: string): Element | undefined =>
+  ctx.$(el).find(sel).first()[0] as Element | undefined;
+const qa = (ctx: Ctx, el: Element, sel: string): Element[] => ctx.$(el).find(sel).toArray() as Element[];
+const textTrim = (el: Element): string => textOf(el).trim();
+const hasText = (el: Element): boolean => textOf(el).replace(/[\s　]+/g, '') !== '';
+
+const BLOCK_TAGS = new Set(['div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'table', 'section', 'article']);
+const INLINE_TAGS = new Set([
+  'a', 'b', 'strong', 'em', 'i', 'u', 's', 'small', 'sup', 'sub', 'span', 'font', 'br', 'mark', 'ins', 'del', 'big', 'tt', 'code',
+]);
+
+/** True if an inline run carries real content (not just spacing breaks/whitespace). */
+const meaningfulInline = (nodes: Inline[]): boolean =>
+  nodes.some((n) => (typeof n === 'string' ? n.trim() !== '' : n.type !== 'break'));
+
+const hasBlockChildren = (el: Element): boolean => elChildren(el).some((c) => BLOCK_TAGS.has(nm(c)));
+const hasDirectText = (el: Element): boolean => (el.children ?? []).some((c) => isText(c) && c.data.trim() !== '');
+
+function shouldSkip(el: Element): boolean {
+  const name = nm(el);
+  if (['br', 'hr', 'script', 'style', 'link', 'meta'].includes(name)) return true;
+  if (name === 'img' || name === 'iframe') return false;
+  // Empty: no text, no media.
+  if (!hasText(el) && !el.children?.some((c) => isTag(c) && (nm(c) === 'img' || nm(c) === 'iframe'))) {
+    return ((el.children ?? []).filter(isTag).length === 0) || !containsMedia(el, undefined);
+  }
+  return false;
+}
+const containsMedia = (el: Element, _: unknown): boolean => hasDescendant(el, (c) => nm(c) === 'img' || nm(c) === 'iframe');
+function hasDescendant(el: Element, pred: (c: Element) => boolean): boolean {
+  for (const c of elChildren(el)) {
+    if (pred(c) || hasDescendant(c, pred)) return true;
+  }
+  return false;
+}
+
+function alignOf(el: Element): Align {
+  const c = cls(el);
+  const style = attr(el, 'style') ?? '';
+  const a = attr(el, 'align') ?? '';
+  if (c.includes('txt_center') || a === 'center' || /text-align\s*:\s*center/i.test(style)) return 'center';
+  if (a === 'right' || /text-align\s*:\s*right/i.test(style)) return 'right';
+  return 'left';
+}
+
+/* ------------------------------------------------------------------ *
+ * Block extractors — { canExtract, extract }, priority order below.
+ * ------------------------------------------------------------------ */
+
+interface Extractor {
+  name: string;
+  canExtract: (el: Element) => boolean;
+  extract: (el: Element, ctx: Ctx) => Block | Block[] | null;
+}
+
+function imageNode(el: Element): Block | null {
+  const src = attr(el, 'src');
+  if (!src) return null;
+  const node: Block = { type: 'image', src };
+  const alt = attr(el, 'alt');
+  if (alt) node.alt = alt;
+  const c = cls(el);
+  const variant = c.includes('img_newspaper') || c.includes('newsImage')
+    ? 'newspaper'
+    : c.includes('img_2nd') ? '2nd'
+    : c.includes('img_3rd') ? '3rd'
+    : c.includes('img_smt') ? 'smt'
+    : c.includes('img_3ds') ? '3ds'
+    : undefined;
+  if (variant) node.variant = variant;
+  return node;
+}
+
+const heading: Extractor = {
+  name: 'heading',
+  canExtract: (el) => ['h1', 'h2', 'h3', 'h4'].includes(nm(el)) || /title0[1-4]|title_icon0[1-2]|iconTitle|title_quest/.test(cls(el)),
+  extract: (el) => {
+    const name = nm(el);
+    const c = cls(el);
+    let level: 1 | 2 | 3 | 4 = 2;
+    if (name === 'h1' || c.includes('title01')) level = 1;
+    else if (name === 'h3' || c.includes('title03')) level = 3;
+    else if (name === 'h4' || c.includes('title04')) level = 4;
+    else if (name === 'h2' || c.includes('title02')) level = 2;
+    const children = parseInline(el.children);
+    if (!children.length) return null;
+    const block: Block = { type: 'heading', level, children };
+    if (c.includes('title_icon') || c.includes('iconTitle')) block.variant = 'icon';
+    else if (c.includes('title_quest')) block.variant = 'quest';
+    return block;
+  },
+};
+
+const button: Extractor = {
+  name: 'button',
+  canExtract: (el) => /btn01|btn_square|btn_vt2013|btn_estore|btn_reservation/.test(cls(el)),
+  extract: (el) => {
+    const c = cls(el);
+    const variant = c.includes('btn_square') ? 'square'
+      : c.includes('btn_vt2013') ? 'vt2013'
+      : c.includes('btn_estore') ? 'estore'
+      : c.includes('btn_reservation') ? 'reservation'
+      : undefined;
+    const link = nm(el) === 'a' ? el : (elChildren(el).find((x) => nm(x) === 'a') ?? el);
+    const href = attr(link, 'href') ?? '';
+    const children = parseInline(link.children);
+    if (!children.length && !href) return null;
+    const block: Block = { type: 'button', href, children };
+    if (variant) block.variant = variant;
+    return block;
+  },
+};
+
+const image: Extractor = {
+  name: 'image',
+  canExtract: (el) => nm(el) === 'img' || /img_newspaper|newsImage|img_2nd|img_3rd|img_smt|img_3ds/.test(cls(el)),
+  extract: (el, ctx) => {
+    if (nm(el) === 'img') return imageNode(el);
+    const img = q(ctx, el, 'img');
+    if (!img) return null;
+    // carry the container class onto the image for the variant
+    const node = imageNode(img);
+    if (node && node.type === 'image' && !node.variant) {
+      const c = cls(el);
+      if (c.includes('img_newspaper') || c.includes('newsImage')) node.variant = 'newspaper';
+    }
+    return node;
+  },
+};
+
+const divider: Extractor = {
+  name: 'divider',
+  canExtract: (el) => /lineType1/.test(cls(el)),
+  extract: () => ({ type: 'divider' }),
+};
+
+const video: Extractor = {
+  name: 'video',
+  canExtract: (el) => nm(el) === 'iframe' && /youtube|youtu\.be/.test(attr(el, 'src') ?? ''),
+  extract: (el) => {
+    const src = attr(el, 'src');
+    if (!src) return null;
+    return { type: 'video', provider: 'youtube', src };
+  },
+};
+
+const embed: Extractor = {
+  name: 'embed',
+  canExtract: (el) => /twitter-tweet|twitter-timeline|twitter-.*-button|hashtag/.test(cls(el)),
+  extract: (el) => {
+    const c = cls(el);
+    const variant = c.includes('twitter-timeline') ? 'timeline'
+      : c.includes('button') ? 'button'
+      : c.includes('hashtag') ? 'hashtag'
+      : 'tweet';
+    const block: Block = { type: 'embed', provider: 'twitter', variant };
+    const content = textTrim(el) || attr(el, 'href');
+    if (content) block.content = content;
+    return block;
+  },
+};
+
+const list: Extractor = {
+  name: 'list',
+  canExtract: (el) => nm(el) === 'ul' || nm(el) === 'ol',
+  extract: (el, ctx) => {
+    const items = elChildren(el)
+      .filter((li) => nm(li) === 'li')
+      .map((li) => ({ children: parseItemContent(li, ctx) }))
+      .filter((it) => it.children.length > 0);
+    if (!items.length) return null;
+    return { type: 'list', ordered: nm(el) === 'ol', items };
+  },
+};
+
+const cautionList: Extractor = {
+  name: 'cautionList',
+  canExtract: (el) => /tp_caution|tp_list/.test(cls(el)),
+  extract: (el, ctx) => {
+    const variant = cls(el).includes('tp_caution') ? 'caution' : 'default';
+    const lis = qa(ctx, el, 'li');
+    let items: { children: ContentNode[] }[];
+    if (lis.length > 0) {
+      items = lis.map((li) => ({ children: parseItemContent(li, ctx) }));
+    } else {
+      items = splitByBreak(el.children).map((group) => ({ children: parseInline(group) as ContentNode[] }));
+    }
+    items = items.filter((it) => it.children.length > 0);
+    if (!items.length) return null;
+    const block: Block = { type: 'list', ordered: false, items };
+    if (variant === 'caution') block.variant = 'caution';
+    return block;
+  },
+};
+
+const table: Extractor = {
+  name: 'table',
+  canExtract: (el) => nm(el) === 'table',
+  extract: (el, ctx) => {
+    const c = cls(el);
+    const variant = c.includes('contentsTable1') ? 'contents' : c.includes('tp_table') ? 'tp' : undefined;
+
+    const block: Block = { type: 'table', rows: [] };
+    if (variant) block.variant = variant;
+
+    const thead = q(ctx, el, 'thead');
+    if (thead) {
+      const hr = q(ctx, thead, 'tr');
+      if (hr) {
+        const headers = elChildren(hr).filter((c2) => nm(c2) === 'th' || nm(c2) === 'td').map((cell) => parseCell(cell, ctx));
+        if (headers.length) block.headers = headers;
+      }
+    }
+
+    const body = q(ctx, el, 'tbody') ?? el;
+    for (const tr of qa(ctx, body, 'tr')) {
+      if (ctx.$(tr).closest('thead').length) continue;
+      const cells = elChildren(tr).filter((c2) => nm(c2) === 'th' || nm(c2) === 'td').map((cell) => parseCell(cell, ctx));
+      if (cells.length) block.rows.push(cells);
+    }
+
+    if (!block.rows.length && !block.headers) return null;
+    return block;
+  },
+};
+
+function parseCell(cell: Element, ctx: Ctx): TableCell {
+  const isBlockish = hasBlockChildren(cell) || elChildren(cell).some((c) => nm(c) === 'img');
+  const out: TableCell = { children: isBlockish ? parseFlow(cell, ctx) : (parseInline(cell.children) as ContentNode[]) };
+  if (nm(cell) === 'th') out.header = true;
+  const cs = attr(cell, 'colspan');
+  const rs = attr(cell, 'rowspan');
+  if (cs && Number(cs) > 1) out.colSpan = Number(cs);
+  if (rs && Number(rs) > 1) out.rowSpan = Number(rs);
+  return out;
+}
+
+const infoBox: Extractor = {
+  name: 'infoBox',
+  canExtract: (el) => /brownroundBox|box01|box_quest(?!_set)|box_terms(?!_set)|box_cork(?!_set)|box_mi|box_ss/.test(cls(el)),
+  extract: (el, ctx) => {
+    const c = cls(el);
+    const variant: InfoBoxVariant = c.includes('box_quest') ? 'quest'
+      : c.includes('box_terms') ? 'terms'
+      : c.includes('box_cork') ? 'cork'
+      : c.includes('box01') ? 'statistics'
+      : c.includes('box_mi') ? 'mini'
+      : c.includes('box_ss') ? 'screenshot'
+      : 'highlight';
+    const container =
+      q(ctx, el, '.box_quest_set2, .box_terms_set2, .box_cork_set2, .brb_f') ??
+      q(ctx, el, '.box_quest_set1, .box_terms_set1, .box_cork_set1, .brb_h') ??
+      el;
+    return { type: 'infoBox', variant, children: parseFlow(container, ctx) as ContentNode[] };
+  },
+};
+
+const section: Extractor = {
+  name: 'section',
+  canExtract: (el) => /newspaper/.test(cls(el)) && !/newspaper_[hf]/.test(cls(el)),
+  extract: (el, ctx) => {
+    const variant = /tit_newspaper_report/.test(cls(el)) ? 'report' : 'newspaper';
+    const container = q(ctx, el, '.newspaper_f') ?? q(ctx, el, '.newspaper_h') ?? el;
+
+    const block: Block = { type: 'section', variant, children: [] };
+    const titleEl = q(ctx, el, '.tit_newspaper, .tit_newspaper_report');
+    if (titleEl) {
+      block.title = parseInline(titleEl.children);
+      markProcessed(ctx, titleEl);
+    }
+    const dateEl = q(ctx, el, '.news_date');
+    if (dateEl) {
+      block.dateline = parseInline(dateEl.children);
+      markProcessed(ctx, dateEl);
+    }
+    block.children = parseFlow(container, ctx) as ContentNode[];
+    return block;
+  },
+};
+
+const accordion: Extractor = {
+  name: 'accordion',
+  canExtract: (el) => /ad_menu/.test(cls(el)),
+  extract: (el, ctx) => {
+    const btn = q(ctx, el, '.btn_ad_menu');
+    const summary: Inline[] = btn ? parseInline(btn.children) : [];
+    if (btn) markProcessed(ctx, btn);
+    const wrap = q(ctx, el, '.wrap_table');
+    const children = wrap ? (parseFlow(wrap, ctx) as ContentNode[]) : [];
+    if (!summary.length && !children.length) return null;
+    return { type: 'accordion', summary, children };
+  },
+};
+
+const speechBubble: Extractor = {
+  name: 'speechBubble',
+  canExtract: (el) => /hukiBox/.test(cls(el)),
+  extract: (el, ctx) => {
+    const iconEl = q(ctx, el, '.huki_icon img') ?? q(ctx, el, 'img');
+    const speakerEl = q(ctx, el, '.huki_name, .speaker');
+    const textEl = q(ctx, el, '.huki_f') ?? q(ctx, el, '.huki_h') ?? q(ctx, el, '.huki') ?? el;
+
+    const block: Block = { type: 'speechBubble', children: [] };
+    if (speakerEl) {
+      block.speaker = textTrim(speakerEl);
+      markProcessed(ctx, speakerEl);
+    }
+    if (iconEl) {
+      const src = attr(iconEl, 'src');
+      if (src) block.icon = src;
+      markProcessed(ctx, iconEl);
+    }
+    block.children = parseFlow(textEl, ctx) as ContentNode[];
+    return block;
+  },
+};
+
+const messageBox: Extractor = {
+  name: 'messageBox',
+  canExtract: (el) => /msg030802_msgBox|inbox/.test(cls(el)),
+  extract: (el, ctx) => {
+    const nameEl = q(ctx, el, '.msg030802_name, .name');
+    const jobEl = q(ctx, el, '.msg030802_job, .job');
+    const contentEl = q(ctx, el, '.msg030802_content, .content') ?? el;
+
+    const block: Block = { type: 'messageBox', children: [] };
+    if (nameEl) {
+      block.name = textTrim(nameEl);
+      markProcessed(ctx, nameEl);
+    }
+    if (jobEl) {
+      block.role = textTrim(jobEl);
+      markProcessed(ctx, jobEl);
+    }
+    block.children = parseFlow(contentEl, ctx) as ContentNode[];
+    return block;
+  },
+};
+
+const interview: Extractor = {
+  name: 'interview',
+  canExtract: (el) => /box_interview/.test(cls(el)),
+  extract: (el, ctx) => {
+    const block: Block = { type: 'interview', exchanges: [] };
+    const titleEl = q(ctx, el, '.tit_interview');
+    if (titleEl) block.title = textTrim(titleEl);
+    const writerEl = q(ctx, el, '.txt_itv_writer');
+    if (writerEl) block.writer = textTrim(writerEl);
+
+    // Walk .tit_q / .tit_a / .txt_itv_main in document order, pairing Q with following A(s).
+    const parts = qa(ctx, el, '.tit_q, .tit_a, .txt_itv_main');
+    let current: { question: Inline[]; answer: Block[] } | null = null;
+    for (const p of parts) {
+      if (/tit_q/.test(cls(p))) {
+        if (current && current.question.length) block.exchanges.push(current);
+        current = { question: parseInline(p.children), answer: [] };
+      } else if (current) {
+        current.answer.push(...(parseFlow(p, ctx) as Block[]));
+      }
+    }
+    if (current && current.question.length) block.exchanges.push(current);
+    if (!block.exchanges.length) return null;
+    return block;
+  },
+};
+
+const ranking: Extractor = {
+  name: 'ranking',
+  canExtract: (el) => /rankbox|ranking_area0[1-2]/.test(cls(el)),
+  extract: (el, ctx) => {
+    const variant = /ranking_area/.test(cls(el)) ? 'area' : undefined;
+    const titleEls = qa(ctx, el, '.mst, .title');
+    const items: RankingItem[] = [];
+    titleEls.forEach((t, i) => {
+      const parent = (t.parent as Element | null) ?? el;
+      const rankEl = q(ctx, parent, '.rank, .num_count');
+      const countEl = q(ctx, parent, '.count');
+      const rank = rankEl ? parseInt(textTrim(rankEl), 10) || i + 1 : i + 1;
+      const item: RankingItem = { rank, title: parseInline(t.children) };
+      if (countEl && textTrim(countEl)) item.count = textTrim(countEl);
+      if (item.title.length) items.push(item);
+    });
+    if (!items.length) {
+      const t = parseInline(el.children);
+      if (t.length) items.push({ rank: 1, title: t });
+    }
+    if (!items.length) return null;
+    const block: Block = { type: 'ranking', items };
+    if (variant) block.variant = variant;
+    return block;
+  },
+};
+
+const steps: Extractor = {
+  name: 'steps',
+  canExtract: (el) => /step[1-5]|howto/.test(cls(el)),
+  extract: (el, ctx) => {
+    const variant = /howto/.test(cls(el)) ? 'howto' : 'numbered';
+    // Group sibling step1..5 under a single steps block; dedup via processed set.
+    const parent = (el.parent as Element | null) ?? el;
+    let stepEls = qa(ctx, parent, '.step1, .step2, .step3, .step4, .step5');
+    if (!stepEls.length) stepEls = [el];
+    if (stepEls[0] !== el && stepEls.includes(el)) return null; // a later sibling — first one emitted the block
+    const items: StepItem[] = stepEls.map((s) => {
+      const m = cls(s).match(/step([1-5])/);
+      const item: StepItem = { children: parseFlow(s, ctx) as Block[] };
+      if (m) item.n = Number(m[1]);
+      if (s !== el) markProcessed(ctx, s);
+      return item;
+    });
+    const block: Block = { type: 'steps', items };
+    if (variant === 'howto') block.variant = 'howto';
+    return block;
+  },
+};
+
+// Priority order (compound/container first, generic last). Excludes paragraph
+// (handled as the fallback in processBlockElement).
+const BLOCK_EXTRACTORS: Extractor[] = [
+  section, infoBox, accordion, interview, speechBubble, messageBox, ranking, steps,
+  table, cautionList, list,
+  heading, button, divider, video, embed,
+  image,
+];
+
+const findBlockExtractor = (el: Element): Extractor | undefined => BLOCK_EXTRACTORS.find((e) => e.canExtract(el));
+
+/* ------------------------------------------------------------------ *
+ * Orchestration
+ * ------------------------------------------------------------------ */
+
+function markProcessed(ctx: Ctx, el: Element): void {
+  ctx.processed.add(el);
+  for (const c of elChildren(el)) markProcessed(ctx, c);
+}
+
+/** Split a node list at <br> boundaries into groups (for br-delimited lists). */
+function splitByBreak(nodes: AnyNode[]): AnyNode[][] {
+  const groups: AnyNode[][] = [];
+  let cur: AnyNode[] = [];
+  for (const n of nodes) {
+    if (isTag(n) && nm(n) === 'br') {
+      groups.push(cur);
+      cur = [];
+    } else {
+      cur.push(n);
+    }
+  }
+  groups.push(cur);
+  return groups;
+}
+
+/** List-item / simple-container content: inline unless it has block-level children. */
+function parseItemContent(el: Element, ctx: Ctx): ContentNode[] {
+  if (hasBlockChildren(el) || elChildren(el).some((c) => nm(c) === 'img')) return parseFlow(el, ctx);
+  return parseInline(el.children) as ContentNode[];
+}
+
+/**
+ * The shared recursion: iterate a container's child nodes, accumulating inline
+ * runs into paragraphs and dispatching block elements to their extractor.
+ */
+function parseFlow(el: Element, ctx: Ctx): Block[] {
+  const out: Block[] = [];
+  let inlineRun: AnyNode[] = [];
+
+  const flush = () => {
+    if (inlineRun.length === 0) return;
+    const inl = parseInline(inlineRun);
+    inlineRun = [];
+    if (meaningfulInline(inl)) out.push({ type: 'paragraph', children: inl });
+  };
+
+  for (const node of el.children ?? []) {
+    if (isText(node)) {
+      inlineRun.push(node);
+      continue;
+    }
+    if (!isTag(node)) continue;
+    if (ctx.processed.has(node)) continue;
+
+    if (findBlockExtractor(node)) {
+      flush();
+      processBlockElement(node, out, ctx);
+    } else if (INLINE_TAGS.has(nm(node))) {
+      inlineRun.push(node);
+    } else {
+      flush();
+      processBlockElement(node, out, ctx);
+    }
+  }
+  flush();
+  return out;
+}
+
+function processBlockElement(el: Element, out: Block[], ctx: Ctx): void {
+  if (ctx.processed.has(el)) return;
+
+  // A matched extractor wins over shouldSkip (e.g. an empty lineType1 divider).
+  const ex = findBlockExtractor(el);
+  if (ex) {
+    ctx.processed.add(el);
+    const res = ex.extract(el, ctx);
+    if (res) out.push(...(Array.isArray(res) ? res : [res]));
+    return;
+  }
+
+  if (shouldSkip(el)) return;
+
+  const name = nm(el);
+
+  // Image-only paragraph/div → image block(s).
+  if ((name === 'p' || name === 'div') && !hasText(el) && hasDescendant(el, (c) => nm(c) === 'img')) {
+    ctx.processed.add(el);
+    for (const img of qa(ctx, el, 'img')) {
+      const node = imageNode(img);
+      if (node) out.push(node);
+    }
+    return;
+  }
+
+  // p/div wrapping an <iframe> (video/embed media) — recurse so the iframe is
+  // extracted as a block rather than dropped by inline parsing.
+  if ((name === 'p' || name === 'div') && hasDescendant(el, (c) => nm(c) === 'iframe')) {
+    ctx.processed.add(el);
+    out.push(...parseFlow(el, ctx));
+    return;
+  }
+
+  // Leaf text paragraph.
+  if (name === 'p' && !hasBlockChildren(el)) {
+    ctx.processed.add(el);
+    const children = parseInline(el.children);
+    if (meaningfulInline(children)) {
+      const p: Block = { type: 'paragraph', children };
+      const align = alignOf(el);
+      if (align !== 'left') p.align = align;
+      out.push(p);
+    }
+    return;
+  }
+
+  // Leaf text div/span (direct text, no block children).
+  if ((name === 'div' || name === 'span') && hasDirectText(el) && !hasBlockChildren(el)) {
+    ctx.processed.add(el);
+    const children = parseInline(el.children);
+    if (meaningfulInline(children)) {
+      const p: Block = { type: 'paragraph', children };
+      const align = alignOf(el);
+      if (align !== 'left') p.align = align;
+      out.push(p);
+    }
+    return;
+  }
+
+  // Container: recurse.
+  if (BLOCK_TAGS.has(name)) {
+    out.push(...parseFlow(el, ctx));
+    return;
+  }
+
+  // Anything else with inline content → paragraph.
+  const children = parseInline([el]);
+  if (meaningfulInline(children)) out.push({ type: 'paragraph', children });
+}
+
+/* ------------------------------------------------------------------ *
+ * Public API
+ * ------------------------------------------------------------------ */
+
+/** Parse a content-root element into blocks. */
+export function parseTopicContent($: CheerioAPI, root: Element): Block[] {
+  return parseFlow(root, { $, processed: new Set() });
+}
+
+/** Parse a full or partial topic HTML document into blocks. */
+export function parseTopicBody(html: string): Block[] {
+  const $ = load(html);
+  const root =
+    ($('.newsContent > div')[0] as Element | undefined) ??
+    ($('.newsContent')[0] as Element | undefined) ??
+    ($('#contentArea .cttBox')[0] as Element | undefined) ??
+    ($('#contentArea')[0] as Element | undefined) ??
+    ($('body')[0] as Element | undefined);
+  if (!root) return [];
+  return parseTopicContent($, root);
+}

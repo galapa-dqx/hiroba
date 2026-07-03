@@ -20,3 +20,6 @@ export {
   GLOSSARY_URL,
   type GlossaryEntry,
 } from './glossary-fetcher';
+
+// Topics body parser (HTML → @hiroba/richtext block tree)
+export { parseTopicBody, parseTopicContent } from './topics-parser';

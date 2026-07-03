@@ -232,6 +232,9 @@ importers:
       '@hiroba/db':
         specifier: workspace:*
         version: link:../db
+      '@hiroba/richtext':
+        specifier: workspace:*
+        version: link:../richtext
       '@hiroba/shared':
         specifier: workspace:*
         version: link:../shared
