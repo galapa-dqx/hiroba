@@ -7,4 +7,5 @@
 
 export * from './schema';
 export * from './rtml';
+export * from './render';
 export * from './image-url';

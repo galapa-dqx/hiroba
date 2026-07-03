@@ -110,10 +110,14 @@ function serializeBlock(node: Block): string {
       return `<button${attr('href', node.href)}${attr('variant', node.variant)}>${inlines(node.children)}</button>`;
     case 'divider':
       return '<hr>';
-    case 'image':
-      return `<img${attr('src', node.src)}${attr('alt', node.alt)}${attr('variant', node.variant)}${
+    case 'image': {
+      const imgAttrs = `${attr('src', node.src)}${attr('alt', node.alt)}${attr('variant', node.variant)}${
         node.sources ? attr('sources', JSON.stringify(node.sources)) : ''
-      }>`;
+      }`;
+      // An image with baked-in text serializes as a non-void <figure> (which can
+      // hold that text as translatable content); a plain image is a void <img>.
+      return node.text !== undefined ? `<figure${imgAttrs}>${escText(node.text)}</figure>` : `<img${imgAttrs}>`;
+    }
     case 'video':
       return `<video${attr('provider', node.provider)}${attr('src', node.src)}></video>`;
     case 'embed':
@@ -194,6 +198,16 @@ function serializeInterview(node: InterviewNode): string {
 /** Serialize a topic document (title + block tree) to RTML. */
 export function serializeToRtml(doc: RtmlDocument): string {
   return `<doctitle>${escText(doc.title)}</doctitle>${doc.blocks.map(serializeBlock).join('')}`;
+}
+
+/**
+ * Serialize a topic for the translation LLM: the title and body together, so the
+ * model has full context and can adjust the title's translation once it has seen
+ * the body. The title is RCDATA `<title>`; the body blocks live in `<article>`
+ * (see docs/plan.md §5). Pair with {@link parseTranslation}.
+ */
+export function serializeForTranslation(doc: RtmlDocument): string {
+  return `<title>${escText(doc.title)}</title><article>${doc.blocks.map(serializeBlock).join('')}</article>`;
 }
 
 /* ------------------------------------------------------------------ *
@@ -325,11 +339,13 @@ function parseBlock(el: Element): Block {
     }
     case 'hr':
       return { type: 'divider' };
-    case 'img': {
+    case 'img':
+    case 'figure': {
       const n: ImageNode = { type: 'image', src: a.src };
       if (a.alt !== undefined) n.alt = a.alt;
       if (a.variant !== undefined) n.variant = a.variant;
       if (a.sources !== undefined) n.sources = JSON.parse(a.sources) as ImageSource[];
+      if (el.name === 'figure') n.text = textOf(el);
       return n;
     }
     case 'video':
@@ -501,4 +517,25 @@ export function parseRtml(markup: string): RtmlDocument {
     else if (isTag(c)) blockNodes.push(c);
   }
   return { title, blocks: blockNodes.map(parseBlock) };
+}
+
+/**
+ * Parse the translated `<title>`/`<article>` document (the output of the
+ * translation LLM) back into a topic document. Inverse of
+ * {@link serializeForTranslation}.
+ */
+export function parseTranslation(markup: string): RtmlDocument {
+  const root = parseDocument(markup, {
+    lowerCaseTags: true,
+    lowerCaseAttributeNames: true,
+    decodeEntities: true,
+    recognizeSelfClosing: true,
+  });
+  let title = '';
+  let blocks: Block[] = [];
+  for (const c of root.children) {
+    if (isTag(c) && c.name === 'title') title = textOf(c);
+    else if (isTag(c) && c.name === 'article') blocks = parseBlocks(c.children);
+  }
+  return { title, blocks };
 }

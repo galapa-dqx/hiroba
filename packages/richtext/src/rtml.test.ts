@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseRtml, serializeToRtml, type RtmlDocument } from './rtml';
+import { parseRtml, parseTranslation, serializeForTranslation, serializeToRtml, type RtmlDocument } from './rtml';
 import type { Block } from './schema';
 
 /**
@@ -97,6 +97,10 @@ describe('media blocks', () => {
         ],
       },
     ]),
+  );
+  roundTrips(
+    'image with baked-in text serializes as <figure>',
+    doc([{ type: 'image', src: '/dq_resource/banner.jpg', variant: 'newsImage', text: '夏の大型アップデート\n開催決定！' }]),
   );
   roundTrips('video', doc([{ type: 'video', provider: 'youtube', src: 'https://youtube.com/embed/x' }]));
   roundTrips(
@@ -284,6 +288,37 @@ describe('full document', () => {
 describe('parse robustness', () => {
   it('empty document', () => {
     expect(parseRtml(serializeToRtml({ title: '', blocks: [] }))).toEqual({ title: '', blocks: [] });
+  });
+});
+
+/**
+ * Translation wire format — `<title>…</title><article>…</article>` sent to the
+ * LLM so it sees title + body together. Round-trips like the core RTML format.
+ */
+describe('translation wire format', () => {
+  const trips = (label: string, d: RtmlDocument) =>
+    it(label, () => expect(parseTranslation(serializeForTranslation(d))).toEqual(d));
+
+  trips(
+    'title + body with inline formatting',
+    doc(
+      [
+        { type: 'heading', level: 2, children: ['見出し'] },
+        {
+          type: 'paragraph',
+          children: ['本文 ', { type: 'strong', children: [{ type: 'color', value: '#CC0033', children: ['赤字'] }] }],
+        },
+        { type: 'list', ordered: false, variant: 'caution', items: [{ children: ['※ 注意'] }] },
+      ],
+      'お知らせ',
+    ),
+  );
+  trips('title with special characters', doc([{ type: 'paragraph', children: ['x'] }], 'A & B <tag> "q"'));
+  trips('empty body', doc([], 'Just a title'));
+
+  it('emits the title as <title> and the body inside <article>', () => {
+    const markup = serializeForTranslation(doc([{ type: 'paragraph', children: ['hi'] }], 'T'));
+    expect(markup).toBe('<title>T</title><article><p>hi</p></article>');
   });
 });
 

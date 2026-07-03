@@ -1,0 +1,63 @@
+import { describe, expect, it } from 'vitest';
+
+import { renderBlocks } from './render';
+import type { Block } from './schema';
+
+describe('renderBlocks', () => {
+  it('renders paragraphs with nested inline formatting, escaping text', () => {
+    const blocks: Block[] = [
+      {
+        type: 'paragraph',
+        children: [
+          'a < b & ',
+          { type: 'strong', children: [{ type: 'color', value: '#C03', children: ['red'] }] },
+          { type: 'break' },
+          { type: 'link', href: 'https://x/?a=1&b=2', external: true, children: ['go'] },
+        ],
+      },
+    ];
+    expect(renderBlocks(blocks)).toBe(
+      '<p>a &lt; b &amp; <strong><span style="color:#C03">red</span></strong><br>' +
+        '<a href="https://x/?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">go</a></p>',
+    );
+  });
+
+  it('renders headings, dividers, and images (src left as-is by default)', () => {
+    expect(renderBlocks([{ type: 'heading', level: 2, children: ['H'], variant: 'quest' }])).toBe('<h2 class="rt-h-quest">H</h2>');
+    expect(renderBlocks([{ type: 'divider' }])).toBe('<hr>');
+    expect(renderBlocks([{ type: 'image', src: 'https://cache.hiroba.dqx.jp/a.jpg', alt: 'x' }])).toBe(
+      '<img class="rt-image" src="https://cache.hiroba.dqx.jp/a.jpg" alt="x">',
+    );
+  });
+
+  it('applies the imageSrc transform when provided', () => {
+    const out = renderBlocks([{ type: 'image', src: 'https://cache.hiroba.dqx.jp/a.jpg' }], {
+      imageSrc: (s) => s.replace('https://cache.hiroba.dqx.jp', '/img/cache.hiroba.dqx.jp'),
+    });
+    expect(out).toBe('<img class="rt-image" src="/img/cache.hiroba.dqx.jp/a.jpg" alt="">');
+  });
+
+  it('renders lists and tables', () => {
+    expect(renderBlocks([{ type: 'list', ordered: false, items: [{ children: ['a'] }, { children: ['b'] }] }])).toBe(
+      '<ul><li>a</li><li>b</li></ul>',
+    );
+    expect(
+      renderBlocks([
+        {
+          type: 'table',
+          headers: [{ children: ['H'], header: true }],
+          rows: [[{ children: ['c'], colSpan: 2 }]],
+        },
+      ]),
+    ).toBe('<table class="rt-table"><thead><tr><th>H</th></tr></thead><tbody><tr><td colspan="2">c</td></tr></tbody></table>');
+  });
+
+  it('renders infoBox and accordion containers', () => {
+    expect(
+      renderBlocks([{ type: 'infoBox', variant: 'highlight', children: [{ type: 'paragraph', children: ['hi'] }] }]),
+    ).toBe('<div class="rt-infobox" data-variant="highlight"><p>hi</p></div>');
+    expect(
+      renderBlocks([{ type: 'accordion', summary: ['open'], children: [{ type: 'paragraph', children: ['x'] }] }]),
+    ).toBe('<details class="rt-accordion"><summary>open</summary><p>x</p></details>');
+  });
+});
