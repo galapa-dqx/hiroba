@@ -125,7 +125,7 @@ export async function transcribeImages(blocks: Block[], apiKey: string): Promise
     if (!dataUrl) continue;
     const spans = await transcribeOne(client, dataUrl);
     if (spans.length) {
-      img.text = spans.join('\n');
+      img.text = spans;
       updated++;
     }
   }

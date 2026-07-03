@@ -75,7 +75,7 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
         // later refinement); newlines separate transcribed spans.
         const fig = node.text === undefined
           ? img
-          : `<figure class="rt-image-fig">${img}<figcaption class="rt-image-text">${esc(node.text).replace(/\n/g, '<br>')}</figcaption></figure>`;
+          : `<figure class="rt-image-fig">${img}<figcaption class="rt-image-text">${node.text.map(esc).join('<br>')}</figcaption></figure>`;
         if (!node.href) return fig;
         const rel = node.external ? ' target="_blank" rel="noopener noreferrer"' : '';
         return `<a class="rt-image-link" href="${escAttr(node.href)}"${rel}>${fig}</a>`;

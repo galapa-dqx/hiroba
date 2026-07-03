@@ -210,12 +210,14 @@ export type ImageNode = {
   /** responsive variants (size1920/1280/… in source) */
   sources?: ImageSource[];
   /**
-   * Text baked into the image (event banners, decorative headings), extracted by
-   * the transcription pass and translated in-context with the surrounding body.
-   * Spans are joined by newlines. In RTML an image with `text` serializes as
-   * `<figure>` (which can hold content) rather than a void `<img>`.
+   * Text baked into the image (event banners, decorative headings), one entry per
+   * transcribed span. Extracted by the transcription pass and translated
+   * in-context with the body. Serializes as `<figure><line>…</line>…</figure>` —
+   * one `<line>` per span — so translation keeps the spans 1:1 and
+   * `blocks_ja.text[i]` pairs with `blocks_en.text[i]` (for compositing the EN
+   * text back onto the image later).
    */
-  text?: string;
+  text?: string[];
 }
 /**
  * YouTube embed — source `<iframe src="youtube.com/embed/…">` (135 blocks).
