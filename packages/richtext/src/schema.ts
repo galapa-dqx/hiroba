@@ -203,6 +203,10 @@ export type ImageNode = {
   src: string;
   alt?: string;
   variant?: string;
+  /** When the image is wrapped in a link (a banner/thumbnail linking somewhere). */
+  href?: string;
+  /** true when {@link href} is off-site (renderer adds target/rel). */
+  external?: boolean;
   /** responsive variants (size1920/1280/… in source) */
   sources?: ImageSource[];
   /**

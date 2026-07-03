@@ -111,9 +111,9 @@ function serializeBlock(node: Block): string {
     case 'divider':
       return '<hr>';
     case 'image': {
-      const imgAttrs = `${attr('src', node.src)}${attr('alt', node.alt)}${attr('variant', node.variant)}${
-        node.sources ? attr('sources', JSON.stringify(node.sources)) : ''
-      }`;
+      const imgAttrs = `${attr('src', node.src)}${attr('alt', node.alt)}${attr('variant', node.variant)}${attr('href', node.href)}${
+        node.external ? ' external' : ''
+      }${node.sources ? attr('sources', JSON.stringify(node.sources)) : ''}`;
       // An image with baked-in text serializes as a non-void <figure> (which can
       // hold that text as translatable content); a plain image is a void <img>.
       return node.text !== undefined ? `<figure${imgAttrs}>${escText(node.text)}</figure>` : `<img${imgAttrs}>`;
@@ -344,6 +344,8 @@ function parseBlock(el: Element): Block {
       const n: ImageNode = { type: 'image', src: a.src };
       if (a.alt !== undefined) n.alt = a.alt;
       if (a.variant !== undefined) n.variant = a.variant;
+      if (a.href !== undefined) n.href = a.href;
+      if ('external' in a) n.external = true;
       if (a.sources !== undefined) n.sources = JSON.parse(a.sources) as ImageSource[];
       if (el.name === 'figure') n.text = textOf(el);
       return n;

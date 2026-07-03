@@ -30,6 +30,13 @@ describe('renderBlocks', () => {
     );
   });
 
+  it('wraps a linked image in an anchor (external adds target/rel)', () => {
+    expect(renderBlocks([{ type: 'image', src: '/a.jpg', href: 'https://example.com/', external: true }])).toBe(
+      '<a class="rt-image-link" href="https://example.com/" target="_blank" rel="noopener noreferrer">' +
+        '<img class="rt-image" src="/a.jpg" alt=""></a>',
+    );
+  });
+
   it('applies the imageSrc transform when provided', () => {
     const out = renderBlocks([{ type: 'image', src: 'https://cache.hiroba.dqx.jp/a.jpg' }], {
       imageSrc: (s) => s.replace('https://cache.hiroba.dqx.jp', '/img/cache.hiroba.dqx.jp'),

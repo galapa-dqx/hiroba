@@ -102,6 +102,11 @@ describe('media blocks', () => {
     'image with baked-in text serializes as <figure>',
     doc([{ type: 'image', src: '/dq_resource/banner.jpg', variant: 'newsImage', text: '夏の大型アップデート\n開催決定！' }]),
   );
+  roundTrips('linked image (internal)', doc([{ type: 'image', src: '/a.jpg', href: 'https://hiroba.dqx.jp/sc/x/' }]));
+  roundTrips(
+    'linked external image with baked-in text',
+    doc([{ type: 'image', src: '/a.jpg', href: 'https://example.com/', external: true, text: 'Click!' }]),
+  );
   roundTrips('video', doc([{ type: 'video', provider: 'youtube', src: 'https://youtube.com/embed/x' }]));
   roundTrips(
     'embed variants',

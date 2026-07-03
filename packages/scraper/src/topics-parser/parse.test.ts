@@ -68,6 +68,16 @@ describe('parseTopicBody — block extraction', () => {
     ]);
   });
 
+  it('a link wrapping a full image → block image carrying the href', () => {
+    expect(parseTopicBody('<a href="/sc/campaign/"><img src="/dq_resource/imgs/TopicsImages/y.jpg"></a>')).toEqual([
+      { type: 'image', src: `${CDN}/dq_resource/imgs/TopicsImages/y.jpg`, href: `${CDN}/sc/campaign/` },
+    ]);
+    // off-site link marks the image external
+    expect(parseTopicBody('<a href="https://x.com/"><img src="/dq_resource/imgs/TopicsImages/z.jpg"></a>')).toEqual([
+      { type: 'image', src: `${CDN}/dq_resource/imgs/TopicsImages/z.jpg`, href: 'https://x.com/', external: true },
+    ]);
+  });
+
   it('image-only paragraph → image block', () => {
     expect(parseTopicBody('<p><img src="/dq_resource/a.jpg" alt="cap"></p>')).toEqual([
       { type: 'image', src: `${CDN}/dq_resource/a.jpg`, alt: 'cap' },

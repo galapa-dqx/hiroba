@@ -71,10 +71,14 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
         return '<hr>';
       case 'image': {
         const img = `<img class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} src="${escAttr(src(node.src))}" alt="${escAttr(node.alt ?? '')}">`;
-        if (node.text === undefined) return img;
         // Show the translated in-image text as a caption (overlay/compositing is a
         // later refinement); newlines separate transcribed spans.
-        return `<figure class="rt-image-fig">${img}<figcaption class="rt-image-text">${esc(node.text).replace(/\n/g, '<br>')}</figcaption></figure>`;
+        const fig = node.text === undefined
+          ? img
+          : `<figure class="rt-image-fig">${img}<figcaption class="rt-image-text">${esc(node.text).replace(/\n/g, '<br>')}</figcaption></figure>`;
+        if (!node.href) return fig;
+        const rel = node.external ? ' target="_blank" rel="noopener noreferrer"' : '';
+        return `<a class="rt-image-link" href="${escAttr(node.href)}"${rel}>${fig}</a>`;
       }
       case 'video':
         return `<div class="rt-video"><iframe src="${escAttr(node.src)}" allowfullscreen loading="lazy"></iframe></div>`;

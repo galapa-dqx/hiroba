@@ -175,6 +175,28 @@ const image: Extractor = {
   },
 };
 
+// A link wrapping a full (content) image — a banner/thumbnail. Emit block
+// image(s) carrying the link, rather than a tiny inline icon inside a link.
+const linkedImage: Extractor = {
+  name: 'linkedImage',
+  canExtract: (el) => nm(el) === 'a' && hasDescendant(el, isContentImage),
+  extract: (el, ctx) => {
+    const href = absolutize(attr(el, 'href') ?? '');
+    const external = /^https?:\/\//i.test(href) && !/hiroba\.dqx\.jp/i.test(href);
+    const blocks: Block[] = [];
+    for (const img of qa(ctx, el, 'img')) {
+      if (!isContentImage(img)) continue;
+      const node = imageNode(img);
+      if (node && node.type === 'image') {
+        if (href) node.href = href;
+        if (external) node.external = true;
+        blocks.push(node);
+      }
+    }
+    return blocks.length ? blocks : null;
+  },
+};
+
 const divider: Extractor = {
   name: 'divider',
   canExtract: (el) => /lineType1/.test(cls(el)),
@@ -466,7 +488,7 @@ const steps: Extractor = {
 const BLOCK_EXTRACTORS: Extractor[] = [
   section, infoBox, accordion, interview, speechBubble, messageBox, ranking, steps,
   table, cautionList, list,
-  heading, button, divider, video, embed,
+  heading, button, linkedImage, divider, video, embed,
   image,
 ];
 
@@ -529,7 +551,7 @@ function parseFlow(el: Element, ctx: Ctx): Block[] {
     if (findBlockExtractor(node)) {
       flush();
       processBlockElement(node, out, ctx);
-    } else if (INLINE_TAGS.has(nm(node))) {
+    } else if (INLINE_TAGS.has(nm(node)) && !hasBlockMedia(node)) {
       inlineRun.push(node);
     } else {
       flush();
