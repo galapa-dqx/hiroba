@@ -1,51 +1,78 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import { createDb, getTopics } from "@hiroba/db";
+import { createDb, getTopics, type Topic } from "@hiroba/db";
+
+const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
 
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
 
-const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
-const { items, hasMore, nextCursor } = await getTopics(db, { cursor, limit: 30 });
+let items: Topic[] = [];
+let hasMore = false;
+let nextCursor: string | undefined;
+
+try {
+	const result = await getTopics(db, { limit: 20, cursor });
+	items = result.items;
+	hasMore = result.hasMore;
+	nextCursor = result.nextCursor;
+} catch {
+	// Show empty list on error
+}
+
+const dateFmt = (ms: number) =>
+	new Date(ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 ---
 
 <Layout title="Topics">
-	<h1>Topics</h1>
+	{/* Gilt identity, distinct from the four news categories. */}
+	<div
+		class="topics"
+		style="--cat: var(--gold-mid); --cat-ink: var(--gold-ink);"
+	>
+		<section class="panel">
+			<div class="band-heading">
+				<span class="band-heading__title">Topics</span>
+				<span class="band-heading__chevrons" aria-hidden="true">››</span>
+			</div>
+			<div class="panel__body">
+				{
+					items.length > 0 ? (
+						<ul class="news-list">
+							{items.map((t) => (
+								<li>
+									<a href={`/topics/${t.id}`}>
+										<span class="news-list__title">{t.titleJa}</span>
+										<time datetime={t.publishedAt.toString()}>
+											{dateFmt(t.publishedAt.epochMilliseconds)}
+										</time>
+									</a>
+								</li>
+							))}
+						</ul>
+					) : (
+						<p class="empty">
+							No topics yet. Open a topic URL like <code>/topics/&lt;id&gt;</code> to fetch,
+							transcribe and translate it — or seed them from the admin.
+						</p>
+					)
+				}
+			</div>
+		</section>
 
-	{items.length === 0 && (
-		<p class="empty">
-			No topics yet. Open a topic URL like <code>/topics/&lt;id&gt;</code> to fetch, transcribe and translate it.
-		</p>
-	)}
+		<nav class="pagination" aria-label="Pagination">
+			<span>
+				{cursor && <a href="/topics" class="pill pill--ghost">‹ Newest</a>}
+			</span>
+			<span>
+				{hasMore && nextCursor && (
+					<a href={`/topics?cursor=${encodeURIComponent(nextCursor)}`} class="pill">Older ›</a>
+				)}
+			</span>
+		</nav>
 
-	<ul class="topic-list">
-		{items.map((t) => (
-			<li>
-				<a href={`/topics/${t.id}`}>{t.titleJa}</a>
-				<time class="ts" datetime={t.publishedAt.toString()} data-ms={t.publishedAt.epochMilliseconds} />
-			</li>
-		))}
-	</ul>
-
-	{hasMore && nextCursor && (
-		<a class="more" href={`/topics?cursor=${encodeURIComponent(nextCursor)}`}>Older topics →</a>
-	)}
+		<nav class="back-link">
+			<a href="/" class="pill pill--ghost">‹ Back to home</a>
+		</nav>
+	</div>
 </Layout>
-
-<style>
-	h1 { margin-bottom: 1.5rem; }
-	.empty { color: var(--color-muted); }
-	.topic-list { list-style: none; padding: 0; margin: 0; }
-	.topic-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; padding: 0.75rem 0; border-bottom: 1px solid #eee; }
-	.topic-list a { text-decoration: none; color: var(--color-text); font-weight: 500; }
-	.topic-list a:hover { color: var(--color-link); }
-	.topic-list time { color: var(--color-muted); font-size: 0.85rem; white-space: nowrap; }
-	.more { display: inline-block; margin-top: 1.5rem; color: var(--color-link); }
-</style>
-
-<script>
-	for (const el of document.querySelectorAll("time.ts")) {
-		const ms = Number((el as HTMLElement).dataset.ms);
-		if (ms) el.textContent = new Date(ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-	}
-</script>
