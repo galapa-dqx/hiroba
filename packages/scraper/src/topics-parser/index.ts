@@ -556,10 +556,11 @@ function processBlockElement(el: Element, out: Block[], ctx: Ctx): void {
 
   const name = nm(el);
 
-  // p/div wrapping block media (a content image or an iframe) — recurse so the
-  // media becomes a block and surrounding text becomes paragraphs. Small inline
-  // icons (ico_*) don't trigger this and stay inline.
-  if ((name === 'p' || name === 'div') && hasBlockMedia(el)) {
+  // Recurse into any element carrying block media (a content image / iframe) or
+  // block-level children, so the media becomes a block and surrounding text
+  // becomes paragraphs. Catches <p>, <div>, <center>, <blockquote>, and other
+  // wrappers; small inline icons (ico_*) aren't block media and stay inline.
+  if (hasBlockMedia(el) || hasBlockChildren(el)) {
     ctx.processed.add(el);
     out.push(...parseFlow(el, ctx));
     return;

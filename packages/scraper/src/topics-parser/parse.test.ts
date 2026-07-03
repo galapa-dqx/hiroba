@@ -58,6 +58,16 @@ describe('parseTopicBody — block extraction', () => {
     ]);
   });
 
+  it('content image inside a <center>/<div> wrapper becomes a block image', () => {
+    // Mirrors the real markup: brownroundBox > <center> > text + <div align><img>.
+    expect(
+      parseTopicBody('<center>Hello <b>there</b><div align="center"><img src="/dq_resource/imgs/TopicsImages/x.jpg"></div></center>'),
+    ).toEqual([
+      { type: 'paragraph', children: ['Hello ', { type: 'strong', children: ['there'] }] },
+      { type: 'image', src: `${CDN}/dq_resource/imgs/TopicsImages/x.jpg` },
+    ]);
+  });
+
   it('image-only paragraph → image block', () => {
     expect(parseTopicBody('<p><img src="/dq_resource/a.jpg" alt="cap"></p>')).toEqual([
       { type: 'image', src: `${CDN}/dq_resource/a.jpg`, alt: 'cap' },
