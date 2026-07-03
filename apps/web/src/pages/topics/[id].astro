@@ -12,17 +12,14 @@ const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
 
 const topic = await getTopic(db, id);
-if (!topic) {
-	return new Response("Not found", { status: 404 });
-}
-
 const { title: enTitle, blocks: enBlocks } = await getTopicTranslations(db, id, "en");
 
-const hasBody = !!topic.blocksJa;
+const hasBody = !!topic?.blocksJa;
 const isTranslated = !!enBlocks;
 
-// Fire the topics pipeline if we're missing the body or its translation.
-if (!hasBody || !isTranslated) {
+// Fire the topics pipeline if the topic is new to us, or missing body/translation.
+// (fetch-body creates the row, so a never-seen id is valid — no 404.)
+if (!topic || !hasBody || !isTranslated) {
 	try {
 		const doId = runtime.env.WORKFLOW_MANAGER.idFromName(`topic:${id}`);
 		const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
@@ -36,8 +33,8 @@ if (!hasBody || !isTranslated) {
 	}
 }
 
-const title = enTitle ?? topic.titleJa;
-const blocks: Block[] = enBlocks ?? (topic.blocksJa as Block[] | null) ?? [];
+const title = enTitle ?? topic?.titleJa ?? "Loading topic…";
+const blocks: Block[] = enBlocks ?? (topic?.blocksJa as Block[] | null) ?? [];
 const contentHtml = renderBlocks(blocks, { imageSrc: rewriteImageSrc });
 ---
 
@@ -45,17 +42,19 @@ const contentHtml = renderBlocks(blocks, { imageSrc: rewriteImageSrc });
 	<article>
 		<header>
 			<div class="meta">
-				<time datetime={topic.publishedAt.toString()}>
-					<script define:vars={{ publishedAt: topic.publishedAt.epochMilliseconds }}>
-						const timeEl = document.currentScript.parentElement;
-						timeEl.textContent = new Date(publishedAt).toLocaleDateString("en-US", {
-							year: "numeric",
-							month: "long",
-							day: "numeric",
-						});
-					</script>
-				</time>
-				{!isTranslated && <span class="badge-ja">JA</span>}
+				{topic && (
+					<time datetime={topic.publishedAt.toString()}>
+						<script define:vars={{ publishedAt: topic.publishedAt.epochMilliseconds }}>
+							const timeEl = document.currentScript.parentElement;
+							timeEl.textContent = new Date(publishedAt).toLocaleDateString("en-US", {
+								year: "numeric",
+								month: "long",
+								day: "numeric",
+							});
+						</script>
+					</time>
+				)}
+				{topic && !isTranslated && <span class="badge-ja">JA</span>}
 			</div>
 			<h1>{title}</h1>
 		</header>
