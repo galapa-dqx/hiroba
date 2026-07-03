@@ -10,7 +10,7 @@
 import { and, eq } from 'drizzle-orm';
 import { primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
-import { Temporal } from 'temporal-polyfill';
+import { type Temporal } from 'temporal-polyfill';
 
 import { instant } from '../types/instant';
 import type { Database } from '../client';

@@ -7,6 +7,8 @@ type RuntimeEnv = {
 };
 
 declare namespace App {
+  // Must be an interface — Astro's App.Locals is an interface and this merges into it.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface Locals {
     runtime: { env: RuntimeEnv };
   }

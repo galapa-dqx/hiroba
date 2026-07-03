@@ -9,10 +9,9 @@
  * inspection).
  */
 
-import { isInline } from './schema';
-import type { Block, ContentNode, Inline, TableCell } from './schema';
+import { isInline, type Block, type ContentNode, type Inline, type TableCell  } from './schema';
 
-export interface RenderOptions {
+export type RenderOptions = {
   imageSrc?: (src: string) => string;
 }
 

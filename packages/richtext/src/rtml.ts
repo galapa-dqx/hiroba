@@ -25,38 +25,36 @@
 import { parseDocument } from 'htmlparser2';
 import { isTag, isText, type ChildNode, type Document, type Element } from 'domhandler';
 
-import { isInline } from './schema';
-import type {
-  Align,
-  Block,
-  ContentNode,
-  ImageSource,
-  Inline,
-  InfoBoxVariant,
-  ParagraphNode,
-  HeadingNode,
-  ButtonNode,
-  ImageNode,
-  VideoNode,
-  EmbedNode,
-  InfoBoxNode,
-  SectionNode,
-  AccordionNode,
-  SpeechBubbleNode,
-  MessageBoxNode,
-  ListNode,
-  TableNode,
-  TableCell,
-  InterviewNode,
-  InterviewExchange,
-  StepsNode,
-  StepItem,
-  RankingNode,
-  RankingItem,
-} from './schema';
+import { isInline,
+  type Align,
+  type Block,
+  type ContentNode,
+  type ImageSource,
+  type Inline,
+  type InfoBoxVariant,
+  type ParagraphNode,
+  type HeadingNode,
+  type ButtonNode,
+  type ImageNode,
+  type VideoNode,
+  type EmbedNode,
+  type InfoBoxNode,
+  type SectionNode,
+  type AccordionNode,
+  type SpeechBubbleNode,
+  type MessageBoxNode,
+  type ListNode,
+  type TableNode,
+  type TableCell,
+  type InterviewNode,
+  type InterviewExchange,
+  type StepsNode,
+  type StepItem,
+  type RankingNode,
+  type RankingItem } from './schema';
 
 /** A translatable document: the topic title plus its block tree. */
-export interface RtmlDocument {
+export type RtmlDocument = {
   title: string;
   blocks: Block[];
 }

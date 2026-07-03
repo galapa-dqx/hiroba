@@ -12,6 +12,7 @@ import type { Block } from './schema';
  */
 
 const roundTrips = (label: string, doc: RtmlDocument) =>
+  // eslint-disable-next-line vitest/valid-title -- label is a typed string param
   it(label, () => {
     const markup = serializeToRtml(doc);
     expect(parseRtml(markup)).toEqual(doc);
@@ -308,6 +309,7 @@ describe('parse robustness', () => {
  */
 describe('translation wire format', () => {
   const trips = (label: string, d: RtmlDocument) =>
+    // eslint-disable-next-line vitest/valid-title -- label is a typed string param
     it(label, () => expect(parseTranslation(serializeForTranslation(d))).toEqual(d));
 
   trips(
@@ -340,6 +342,7 @@ describe('translation wire format', () => {
  */
 describe('print (exact serialization)', () => {
   const golden = (label: string, doc: RtmlDocument, expected: string) =>
+    // eslint-disable-next-line vitest/valid-title -- label is a typed string param
     it(label, () => expect(serializeToRtml(doc)).toBe(expected));
 
   golden('paragraph', doc([{ type: 'paragraph', children: ['Hi'] }], 'T'), '<doctitle>T</doctitle><p>Hi</p>');

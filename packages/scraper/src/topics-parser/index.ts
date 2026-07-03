@@ -26,7 +26,7 @@ import type {
 
 import { absolutize, isInlineIcon, parseInline, textOf } from './inline';
 
-interface Ctx {
+type Ctx = {
   $: CheerioAPI;
   processed: Set<Element>;
 }
@@ -43,7 +43,7 @@ const q = (ctx: Ctx, el: Element, sel: string): Element | undefined =>
   ctx.$(el).find(sel).first()[0] as Element | undefined;
 const qa = (ctx: Ctx, el: Element, sel: string): Element[] => ctx.$(el).find(sel).toArray() as Element[];
 const textTrim = (el: Element): string => textOf(el).trim();
-const hasText = (el: Element): boolean => textOf(el).replace(/[\s　]+/g, '') !== '';
+const hasText = (el: Element): boolean => textOf(el).replace(/[\s\u3000]+/g, '') !== '';
 
 const BLOCK_TAGS = new Set(['div', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'table', 'section', 'article']);
 const INLINE_TAGS = new Set([
@@ -94,7 +94,7 @@ function alignOf(el: Element): Align {
  * Block extractors — { canExtract, extract }, priority order below.
  * ------------------------------------------------------------------ */
 
-interface Extractor {
+type Extractor = {
   name: string;
   canExtract: (el: Element) => boolean;
   extract: (el: Element, ctx: Ctx) => Block | Block[] | null;
