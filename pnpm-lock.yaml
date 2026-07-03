@@ -114,6 +114,9 @@ importers:
       '@hiroba/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@hiroba/richtext':
+        specifier: workspace:*
+        version: link:../../packages/richtext
       '@hiroba/scraper':
         specifier: workspace:*
         version: link:../../packages/scraper

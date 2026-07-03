@@ -1,0 +1,139 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { createDb, getTopic, getTopicTranslations } from "@hiroba/db";
+import { renderBlocks, rewriteImageSrc, type Block } from "@hiroba/richtext";
+
+const { id } = Astro.params;
+if (!id) {
+	return Astro.redirect("/topics");
+}
+
+const runtime = Astro.locals.runtime;
+const db = createDb(runtime.env.DB);
+
+const topic = await getTopic(db, id);
+if (!topic) {
+	return new Response("Not found", { status: 404 });
+}
+
+const { title: enTitle, blocks: enBlocks } = await getTopicTranslations(db, id, "en");
+
+const hasBody = !!topic.blocksJa;
+const isTranslated = !!enBlocks;
+
+// Fire the topics pipeline if we're missing the body or its translation.
+if (!hasBody || !isTranslated) {
+	try {
+		const doId = runtime.env.WORKFLOW_MANAGER.idFromName(`topic:${id}`);
+		const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
+		stub.fetch("http://internal/trigger", {
+			method: "POST",
+			body: JSON.stringify({ itemId: id, itemType: "topic" }),
+			headers: { "Content-Type": "application/json" },
+		});
+	} catch (error) {
+		console.error(`Topics workflow trigger failed for ${id}:`, error);
+	}
+}
+
+const title = enTitle ?? topic.titleJa;
+const blocks: Block[] = enBlocks ?? (topic.blocksJa as Block[] | null) ?? [];
+const contentHtml = renderBlocks(blocks, { imageSrc: rewriteImageSrc });
+---
+
+<Layout title={title}>
+	<article>
+		<header>
+			<div class="meta">
+				<time datetime={topic.publishedAt.toString()}>
+					<script define:vars={{ publishedAt: topic.publishedAt.epochMilliseconds }}>
+						const timeEl = document.currentScript.parentElement;
+						timeEl.textContent = new Date(publishedAt).toLocaleDateString("en-US", {
+							year: "numeric",
+							month: "long",
+							day: "numeric",
+						});
+					</script>
+				</time>
+				{!isTranslated && <span class="badge-ja">JA</span>}
+			</div>
+			<h1>{title}</h1>
+		</header>
+
+		{(!hasBody || !isTranslated) && (
+			<div class="processing-notice" id="processing-notice" data-item-id={id}>
+				<p id="processing-status">{!hasBody ? "Fetching content…" : "Translating…"}</p>
+			</div>
+		)}
+
+		<div class="topic-content" set:html={contentHtml} />
+
+		<footer class="translation-info">
+			<a href={`https://hiroba.dqx.jp/sc/topics/detail/${id}/`} target="_blank" rel="noopener noreferrer">View original topic</a>
+		</footer>
+
+		<nav class="back-link">
+			<a href="/topics">← Back to topics</a>
+		</nav>
+	</article>
+</Layout>
+
+<style>
+	article { max-width: 100%; }
+	header { margin-bottom: 1.5rem; }
+	.meta { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; color: var(--color-muted); font-size: 0.9rem; }
+	.badge-ja { background: #b23a2e; color: #fff; font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 3px; }
+	h1 { font-size: 1.75rem; line-height: 1.3; }
+	.processing-notice { background: #fff3cd; border: 1px solid #ffc107; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; }
+	.processing-notice p { margin: 0; color: #856404; }
+	.processing-notice.complete { background: #d4edda; border-color: #28a745; }
+	.processing-notice.complete p { color: #155724; }
+	.processing-notice.error { background: #f8d7da; border-color: #dc3545; }
+	.processing-notice.error p { color: #721c24; }
+	.translation-info { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #eee; color: var(--color-muted); font-size: 0.9rem; }
+	.back-link { margin-top: 2rem; }
+</style>
+
+<!-- Minimal, unstyled renderer output; the fantasy theme comes later. set:html
+     content is not scoped, so these are global. -->
+<style is:global>
+	.topic-content { line-height: 1.8; margin-bottom: 2rem; }
+	.topic-content img { max-width: 100%; height: auto; }
+	.topic-content .rt-infobox { background: #f6f1e3; border: 1px solid #d8c9a0; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+	.topic-content .rt-table { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+	.topic-content .rt-table td, .topic-content .rt-table th { border: 1px solid #ccc; padding: 0.4rem 0.6rem; }
+	.topic-content .rt-button { display: inline-block; background: #3f6b3a; color: #fff; padding: 0.4rem 0.9rem; border-radius: 6px; text-decoration: none; margin: 0.4rem 0; }
+	.topic-content .rt-badge { background: #b23a2e; color: #fff; font-size: 0.7em; padding: 0.05em 0.4em; border-radius: 4px; margin-left: 0.3em; }
+	.topic-content .rt-icon { display: inline; height: 1em; vertical-align: middle; }
+	.topic-content .rt-video iframe { width: 100%; aspect-ratio: 16 / 9; border: 0; }
+	.topic-content .rt-image-fig { margin: 0.5rem 0; }
+	.topic-content .rt-image-text { font-size: 0.85em; color: #8a6d3b; background: #fbf7e9; padding: 0.3rem 0.5rem; border-radius: 4px; }
+	.topic-content .rt-interview .rt-q { font-weight: 600; margin-top: 1rem; }
+	.topic-content .rt-speech, .topic-content .rt-message { border-left: 3px solid #d8c9a0; padding-left: 0.8rem; margin: 1rem 0; }
+</style>
+
+<script>
+	const notice = document.getElementById("processing-notice");
+	if (notice) {
+		const itemId = notice.dataset.itemId;
+		const statusEl = document.getElementById("processing-status");
+		const evtSource = new EventSource(`/api/topics/${itemId}/sse`);
+
+		evtSource.onmessage = (event) => {
+			const data = JSON.parse(event.data);
+			if (data.type === "progress" && statusEl) statusEl.textContent = data.message;
+			if (data.type === "complete") {
+				evtSource.close();
+				notice.classList.add("complete");
+				if (statusEl) statusEl.textContent = "Done! Reloading…";
+				setTimeout(() => location.reload(), 500);
+			}
+			if (data.type === "error") {
+				evtSource.close();
+				notice.classList.add("error");
+				if (statusEl) statusEl.textContent = `Error: ${data.error || "Unknown error"}`;
+			}
+		};
+		evtSource.onerror = () => evtSource.close();
+	}
+</script>
