@@ -16,6 +16,12 @@ database_name = "dqx-tools--news-db"
 database_id = "local"
 migrations_dir = "migrations"
 
+# R2 bucket mirroring topic images (the pipeline's mirror-images step writes here;
+# the web worker's /img route reads from it).
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "dqx-tools--images"
+
 # Durable Object for coordinating workflow operations and WebSocket connections
 [durable_objects]
 bindings = [

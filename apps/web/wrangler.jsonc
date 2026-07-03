@@ -11,6 +11,12 @@
 			"database_id": "local"
 		}
 	],
+	"r2_buckets": [
+		{
+			"binding": "IMAGES",
+			"bucket_name": "dqx-tools--images"
+		}
+	],
 	"durable_objects": {
 		"bindings": [
 			{

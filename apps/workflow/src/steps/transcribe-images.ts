@@ -11,7 +11,7 @@
 
 import type OpenAI from 'openai';
 
-import { isBlock, type Block, type ImageNode, type Inline } from '@hiroba/richtext';
+import { imageKey, isBlock, type Block, type ImageNode, type Inline } from '@hiroba/richtext';
 
 import { createGemini, GEMINI_MODEL } from '../gemini';
 
@@ -71,16 +71,36 @@ export function collectImages(blocks: Block[]): ImageNode[] {
   return out;
 }
 
-/** Fetch an image and inline it as a base64 data URL (the CDN needs a browser UA/Referer). */
-async function fetchAsDataUrl(src: string): Promise<string | null> {
+/** Encode raw image bytes as a base64 data URL (what the vision API wants). */
+function toDataUrl(type: string, buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return `data:${type};base64,${btoa(binary)}`;
+}
+
+/**
+ * Load an image as a base64 data URL. Prefers the R2 mirror (the mirror-images
+ * step runs first), so we don't re-hit the CDN; falls back to a direct fetch
+ * (browser UA/Referer) for anything not mirrored.
+ */
+async function loadAsDataUrl(src: string, bucket?: R2Bucket): Promise<string | null> {
+  const key = bucket ? imageKey(src) : null;
+  if (bucket && key) {
+    try {
+      const obj = await bucket.get(key);
+      if (obj) {
+        return toDataUrl(obj.httpMetadata?.contentType ?? 'image/jpeg', await obj.arrayBuffer());
+      }
+    } catch {
+      // fall through to a direct fetch
+    }
+  }
+
   try {
     const res = await fetch(src, { headers: IMAGE_FETCH_HEADERS });
     if (!res.ok) return null;
-    const type = res.headers.get('content-type') ?? 'image/jpeg';
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return `data:${type};base64,${btoa(binary)}`;
+    return toDataUrl(res.headers.get('content-type') ?? 'image/jpeg', await res.arrayBuffer());
   } catch {
     return null;
   }
@@ -114,14 +134,19 @@ async function transcribeOne(client: OpenAI, imageUrl: string): Promise<string[]
 
 /**
  * Transcribe every not-yet-transcribed image in `blocks`, setting `image.text`
- * (spans joined by newline). Returns the count of images updated.
+ * (one entry per span). Returns the count of images updated. Reads image bytes
+ * from `bucket` (the R2 mirror) when provided, else fetches the CDN directly.
  */
-export async function transcribeImages(blocks: Block[], apiKey: string): Promise<number> {
+export async function transcribeImages(
+  blocks: Block[],
+  apiKey: string,
+  bucket?: R2Bucket,
+): Promise<number> {
   const client = createGemini(apiKey);
   const images = collectImages(blocks).filter((img) => img.text === undefined);
   let updated = 0;
   for (const img of images) {
-    const dataUrl = await fetchAsDataUrl(img.src);
+    const dataUrl = await loadAsDataUrl(img.src, bucket);
     if (!dataUrl) continue;
     const spans = await transcribeOne(client, dataUrl);
     if (spans.length) {

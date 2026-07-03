@@ -21,7 +21,8 @@ function getProgressMessage(output: Record<string, unknown> | undefined, itemTyp
   if ('translate' in output) return 'Finishing up...';
   if (itemType === 'topic') {
     if ('transcribe' in output) return 'Translating...';
-    if ('fetchBody' in output) return 'Reading image text...';
+    if ('mirror' in output) return 'Reading image text...';
+    if ('fetchBody' in output) return 'Saving images...';
   } else {
     if ('extractEvents' in output) return 'Translating...';
     if ('fetchBody' in output) return 'Extracting events...';

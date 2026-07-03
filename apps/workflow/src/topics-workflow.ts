@@ -2,12 +2,14 @@
  * TopicsWorkflow - Multi-step processing pipeline for rich-text topics.
  *
  * Steps (each reads/writes D1, returns minimal state):
- * 1. fetch-body       - scrape + parse the detail page → blocks_ja
- * 2. transcribe-images - Gemini vision reads baked-in image text → blocks_ja (again)
- * 3. translate         - whole-document JA→EN → translations (title + content)
+ * 1. fetch-body        - scrape + parse the detail page → blocks_ja
+ * 2. mirror-images     - copy every referenced image into R2 (self-hosted)
+ * 3. transcribe-images - Gemini vision reads baked-in image text → blocks_ja (again)
+ * 4. translate         - whole-document JA→EN → translations (title + content)
  *
- * Transcription must land in blocks_ja before translation so the image text is
- * translated in-context (via <figure>).
+ * Mirroring runs before transcription so transcribe reads bytes from R2 (one CDN
+ * fetch per image ever). Transcription must land in blocks_ja before translation
+ * so the image text is translated in-context (via <figure>).
  */
 
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
@@ -17,6 +19,7 @@ import type { Block } from '@hiroba/richtext';
 import { createDb, getTopic, updateTopicBlocks, upsertTopic } from '@hiroba/db';
 import { fetchTopicBody } from '@hiroba/scraper';
 
+import { mirrorImages, type MirrorResult } from './steps/mirror-images';
 import { transcribeImages } from './steps/transcribe-images';
 import { translateTopic } from './steps/translate-topic';
 import type {
@@ -53,25 +56,34 @@ export class TopicsWorkflow extends WorkflowEntrypoint<Env, TopicsWorkflowParams
       return {
         itemId,
         fetchBody,
+        mirror: { mirrored: 0, skipped: 0, failed: 0 },
         transcribe: { imagesTranscribed: 0 },
         translate: { success: false, fieldsTranslated: 0 },
       };
     }
 
-    // Step 2: transcribe baked-in image text → blocks_ja (saved again)
+    // Step 2: mirror every referenced image into R2 (self-hosted, cheap to serve)
+    const mirror = await step.do('mirror-images', async (): Promise<MirrorResult> => {
+      const topic = await getTopic(db, itemId);
+      const blocks = (topic?.blocksJa ?? []) as Block[];
+      return mirrorImages(this.env.IMAGES, blocks);
+    });
+
+    // Step 3: transcribe baked-in image text → blocks_ja (saved again). Reads
+    // bytes from the R2 mirror, so it doesn't re-hit the CDN.
     const transcribe = await step.do('transcribe-images', async (): Promise<TranscribeResult> => {
       const topic = await getTopic(db, itemId);
       const blocks = (topic?.blocksJa ?? []) as Block[];
-      const imagesTranscribed = await transcribeImages(blocks, this.env.GEMINI_API_KEY);
+      const imagesTranscribed = await transcribeImages(blocks, this.env.GEMINI_API_KEY, this.env.IMAGES);
       if (imagesTranscribed > 0) await updateTopicBlocks(db, itemId, blocks);
       return { imagesTranscribed };
     });
 
-    // Step 3: translate the (now transcribed) document → translations
+    // Step 4: translate the (now transcribed) document → translations
     const translate = await step.do('translate', async (): Promise<TranslateResult> => {
       return translateTopic(db, this.env.GEMINI_API_KEY, itemId);
     });
 
-    return { itemId, fetchBody, transcribe, translate };
+    return { itemId, fetchBody, mirror, transcribe, translate };
   }
 }

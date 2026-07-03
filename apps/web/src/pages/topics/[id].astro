@@ -37,7 +37,9 @@ if (!topic || !hasBody || !isTranslated) {
 
 const title = enTitle ?? topic?.titleJa ?? "Loading topic…";
 const blocks: Block[] = enBlocks ?? (topic?.blocksJa as Block[] | null) ?? [];
-const contentHtml = renderBlocks(blocks, { imageSrc: rewriteImageSrc });
+// Default to the /img worker route; a bucket custom-domain can be set via IMAGE_BASE.
+const imageBase = runtime.env.IMAGE_BASE ?? "/img";
+const contentHtml = renderBlocks(blocks, { imageSrc: (src: string) => rewriteImageSrc(src, imageBase) });
 ---
 
 <Layout title={title}>

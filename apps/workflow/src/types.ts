@@ -2,6 +2,8 @@
  * Type definitions for the workflow worker.
  */
 
+import type { MirrorResult } from './steps/mirror-images';
+
 /**
  * Workflow instance type for type safety.
  */
@@ -38,6 +40,7 @@ export type WorkflowBinding<T = unknown> = {
  */
 export type Env = {
   DB: D1Database;
+  IMAGES: R2Bucket;
   OPENAI_API_KEY: string;
   GEMINI_API_KEY: string;
   SENTRY_DSN: string;
@@ -111,11 +114,12 @@ export type TranscribeResult = {
 
 /**
  * Overall TopicsWorkflow output. The presence of successive keys drives SSE
- * progress messages (fetch → transcribe → translate).
+ * progress messages (fetch → mirror → transcribe → translate).
  */
 export type TopicsWorkflowOutput = {
   itemId: string;
   fetchBody: FetchTopicResult;
+  mirror: MirrorResult;
   transcribe: TranscribeResult;
   translate: TranslateResult;
 };
