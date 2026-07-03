@@ -95,6 +95,77 @@ export async function deleteTranslation(
   return adminFetch(`/api/news/${id}/${lang}`, { method: 'DELETE' });
 }
 
+// Topics API
+
+export type TopicStats = {
+  total: number;
+  withBody: number;
+  translated: number;
+};
+
+export async function getTopicStats(): Promise<TopicStats> {
+  return adminFetch('/api/topics/stats');
+}
+
+export type TopicItem = {
+  id: string;
+  titleJa: string;
+  publishedAt: string; // ISO-8601 UTC instant
+  hasBody: boolean;
+  translated: boolean;
+};
+
+export async function getTopicsList(options?: {
+  limit?: number;
+  cursor?: string;
+}): Promise<{ items: TopicItem[]; hasMore: boolean; nextCursor?: string }> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.cursor) params.set('cursor', options.cursor);
+  const url = `/api/topics${params.toString() ? `?${params}` : ''}`;
+  return adminFetch(url);
+}
+
+export type TopicsScrapeResult = {
+  processed: number;
+  newItems: number;
+  totalScraped: number;
+  cursor: number;
+  nextCursor: number;
+  total: number;
+  done: boolean;
+};
+
+export async function scrapeTopics(options?: {
+  cursor?: number;
+  batch?: number;
+}): Promise<TopicsScrapeResult> {
+  const params = new URLSearchParams();
+  if (options?.cursor != null) params.set('cursor', String(options.cursor));
+  if (options?.batch != null) params.set('batch', String(options.batch));
+  const url = `/api/topics/scrape${params.toString() ? `?${params}` : ''}`;
+  return adminFetch(url, { method: 'POST' });
+}
+
+export async function triggerTopicWorkflow(
+  id: string,
+): Promise<{ success: boolean }> {
+  return adminFetch(`/api/topics/${id}/workflow`, { method: 'POST' });
+}
+
+export async function invalidateTopicBody(
+  id: string,
+): Promise<{ success: boolean }> {
+  return adminFetch(`/api/topics/${id}/body`, { method: 'DELETE' });
+}
+
+export async function deleteTopicTranslation(
+  id: string,
+  lang: string,
+): Promise<{ success: boolean }> {
+  return adminFetch(`/api/topics/${id}/${lang}`, { method: 'DELETE' });
+}
+
 export type GlossaryEntry = {
   sourceText: string;
   targetLanguage: string;

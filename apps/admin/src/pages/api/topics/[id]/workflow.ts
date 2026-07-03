@@ -1,0 +1,25 @@
+import type { APIRoute } from 'astro';
+
+export const POST: APIRoute = async ({ locals, params }) => {
+  const runtime = locals.runtime as {
+    env: { WORKFLOW_MANAGER: DurableObjectNamespace };
+  };
+
+  const id = params.id!;
+  // Namespaced by type so news/topic ids (both 32-char hex) don't collide.
+  const doId = runtime.env.WORKFLOW_MANAGER.idFromName(`topic:${id}`);
+  const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
+
+  const res = await stub.fetch('http://internal/trigger', {
+    method: 'POST',
+    body: JSON.stringify({ itemId: id, itemType: 'topic' }),
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const data = await res.json();
+
+  return new Response(JSON.stringify(data), {
+    status: res.status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+};

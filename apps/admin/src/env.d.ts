@@ -3,6 +3,7 @@
 
 type RuntimeEnv = {
   DB: D1Database;
+  WORKFLOW_MANAGER: DurableObjectNamespace;
 };
 
 declare namespace App {

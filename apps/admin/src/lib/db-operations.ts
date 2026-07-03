@@ -10,22 +10,79 @@ import {
   deleteTranslation,
   getRecheckQueue,
   getStats,
+  getTopicStats,
   glossary,
   invalidateBody,
+  invalidateTopicBody,
+  listTopicsAdmin,
   upsertListItems,
+  upsertTopicListItems,
   type Database,
 } from '@hiroba/db';
-import { scrapeNewsList } from '@hiroba/scraper';
+import {
+  fetchTopicsListPage,
+  listTopicsSources,
+  scrapeNewsList,
+} from '@hiroba/scraper';
 import { CATEGORIES, type Category } from '@hiroba/shared';
 
 // Re-export db functions
 export {
   getStats,
+  getTopicStats,
   getRecheckQueue,
   invalidateBody,
+  invalidateTopicBody,
+  listTopicsAdmin,
   deleteTranslation,
   upsertListItems,
 };
+
+/**
+ * Scrape one batch of topic listing sources (the current page + backnumber
+ * months, newest first), seeding Phase-1 metadata. Batched + cursor-driven so
+ * a full backfill of the ~168 sources stays within a Worker's limits — the
+ * admin client loops until `done`. Only seeds metadata; it does NOT trigger the
+ * (Gemini-billed) body/translate pipeline.
+ */
+export async function scrapeTopicsBatch(
+  db: Database,
+  options: { cursor?: number; batch?: number } = {},
+): Promise<{
+  processed: number;
+  newItems: number;
+  totalScraped: number;
+  cursor: number;
+  nextCursor: number;
+  total: number;
+  done: boolean;
+}> {
+  const cursor = Math.max(0, options.cursor ?? 0);
+  const batch = Math.max(1, options.batch ?? 12);
+
+  const sources = await listTopicsSources();
+  const slice = sources.slice(cursor, cursor + batch);
+
+  let newItems = 0;
+  let totalScraped = 0;
+  for (const source of slice) {
+    const items = await fetchTopicsListPage(source.url, source.fallback);
+    totalScraped += items.length;
+    const inserted = await upsertTopicListItems(db, items);
+    newItems += inserted.length;
+  }
+
+  const nextCursor = cursor + slice.length;
+  return {
+    processed: slice.length,
+    newItems,
+    totalScraped,
+    cursor,
+    nextCursor,
+    total: sources.length,
+    done: nextCursor >= sources.length,
+  };
+}
 
 /**
  * Trigger a scrape for all categories.

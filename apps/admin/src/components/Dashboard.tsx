@@ -1,9 +1,16 @@
 import { useEffect, useState } from 'react';
 
-import { getStats, triggerScrape, type Stats } from '../lib/api';
+import {
+  getStats,
+  getTopicStats,
+  triggerScrape,
+  type Stats,
+  type TopicStats,
+} from '../lib/api';
 
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
+  const [topicStats, setTopicStats] = useState<TopicStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [scraping, setScraping] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -16,8 +23,9 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getStats();
+      const [data, topics] = await Promise.all([getStats(), getTopicStats()]);
       setStats(data);
+      setTopicStats(topics);
     } catch (err) {
       setError('Failed to load stats.');
       console.error(err);
@@ -77,6 +85,26 @@ export default function Dashboard() {
         <div className="stat-card">
           <h3>Pending Recheck</h3>
           <p className="stat-value">{stats.itemsPendingRecheck}</p>
+        </div>
+      </div>
+
+      <div className="topics-summary">
+        <h3>
+          Topics <a href="/topics">Manage →</a>
+        </h3>
+        <div className="stats-grid">
+          <div className="stat-card">
+            <h3>Total Topics</h3>
+            <p className="stat-value">{topicStats?.total ?? '—'}</p>
+          </div>
+          <div className="stat-card">
+            <h3>With Body</h3>
+            <p className="stat-value">{topicStats?.withBody ?? '—'}</p>
+          </div>
+          <div className="stat-card">
+            <h3>Translated</h3>
+            <p className="stat-value">{topicStats?.translated ?? '—'}</p>
+          </div>
         </div>
       </div>
 
