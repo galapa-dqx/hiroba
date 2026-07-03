@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { rewriteImageSrc } from './image-url';
+import type { Block } from './schema';
+import { collectImageUrls, imageKey, imageUpstreamUrl, rewriteImageSrc } from './image-url';
 
 describe('rewriteImageSrc', () => {
   it('proxies the CDN host, preserving the host in the path', () => {
@@ -31,8 +32,18 @@ describe('rewriteImageSrc', () => {
     );
   });
 
-  it('preserves query strings', () => {
-    expect(rewriteImageSrc('https://cache.hiroba.dqx.jp/a.jpg?v=2')).toBe('/img/cache.hiroba.dqx.jp/a.jpg?v=2');
+  it('drops query strings (not part of the R2 key)', () => {
+    // A `?` in the key would read as a query on a custom-domain direct-serve.
+    expect(rewriteImageSrc('https://cache.hiroba.dqx.jp/a.jpg?v=2')).toBe('/img/cache.hiroba.dqx.jp/a.jpg');
+  });
+
+  it('accepts a custom base for serving straight from a bucket domain', () => {
+    expect(rewriteImageSrc('https://cache.hiroba.dqx.jp/a.jpg', 'https://img.example.com')).toBe(
+      'https://img.example.com/cache.hiroba.dqx.jp/a.jpg',
+    );
+    expect(rewriteImageSrc('/dq_resource/a.jpg', 'https://img.example.com')).toBe(
+      'https://img.example.com/cache.hiroba.dqx.jp/dq_resource/a.jpg',
+    );
   });
 
   it('proxies protocol-relative CDN URLs', () => {
@@ -63,5 +74,66 @@ describe('rewriteImageSrc', () => {
 
   it('handles empty input', () => {
     expect(rewriteImageSrc('')).toBe('');
+  });
+});
+
+describe('imageKey', () => {
+  it('keys mirrorable DQX images (query-less), canonicalizing aliases', () => {
+    expect(imageKey('https://cache.hiroba.dqx.jp/dq_resource/a.jpg')).toBe('cache.hiroba.dqx.jp/dq_resource/a.jpg');
+    expect(imageKey('https://hiroba.dqx.jp/dq_resource/a.jpg')).toBe('cache.hiroba.dqx.jp/dq_resource/a.jpg');
+    expect(imageKey('/dq_resource/a.jpg?v=2')).toBe('cache.hiroba.dqx.jp/dq_resource/a.jpg');
+    expect(imageKey('https://faceicon.dqx.jp/i/x.jpg')).toBe('faceicon.dqx.jp/i/x.jpg');
+  });
+
+  it('returns null for non-mirrorable srcs', () => {
+    expect(imageKey('https://www.ganganonline.com/x.jpg')).toBeNull();
+    expect(imageKey('/img/cache.hiroba.dqx.jp/a.jpg')).toBeNull();
+    expect(imageKey('data:image/png;base64,AAAA')).toBeNull();
+    expect(imageKey('/assets/local.png')).toBeNull();
+    expect(imageKey('')).toBeNull();
+  });
+
+  it('round-trips to the upstream URL', () => {
+    const key = imageKey('https://hiroba.dqx.jp/dq_resource/a.jpg');
+    expect(key).not.toBeNull();
+    expect(imageUpstreamUrl(key!)).toBe('https://cache.hiroba.dqx.jp/dq_resource/a.jpg');
+  });
+});
+
+describe('collectImageUrls', () => {
+  it('gathers block images (+ sources), inline icons, and portraits; deduped', () => {
+    const blocks: Block[] = [
+      {
+        type: 'image',
+        src: 'https://cache.hiroba.dqx.jp/a.jpg',
+        sources: [{ src: 'https://cache.hiroba.dqx.jp/a@2x.jpg' }],
+      },
+      {
+        type: 'paragraph',
+        children: [
+          'see ',
+          { type: 'icon', src: '/dq_resource/ico_2nd.gif' },
+          { type: 'link', href: '#', children: [{ type: 'icon', src: '/dq_resource/ico_3rd.gif' }] },
+        ],
+      },
+      {
+        type: 'speechBubble',
+        icon: 'https://faceicon.dqx.jp/p.jpg',
+        children: [{ type: 'image', src: 'https://cache.hiroba.dqx.jp/a.jpg' }], // dupe
+      },
+    ];
+
+    const urls = collectImageUrls(blocks);
+    expect(new Set(urls)).toEqual(
+      new Set([
+        'https://cache.hiroba.dqx.jp/a.jpg',
+        'https://cache.hiroba.dqx.jp/a@2x.jpg',
+        '/dq_resource/ico_2nd.gif',
+        '/dq_resource/ico_3rd.gif',
+        'https://faceicon.dqx.jp/p.jpg',
+      ]),
+    );
+    // 'a.jpg' appeared twice in the tree but is collected once.
+    expect(urls.filter((u) => u === 'https://cache.hiroba.dqx.jp/a.jpg')).toHaveLength(1);
   });
 });
