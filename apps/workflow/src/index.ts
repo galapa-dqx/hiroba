@@ -11,8 +11,14 @@ import * as Sentry from '@sentry/cloudflare';
 import { sql } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
-import { createDb, glossary, upsertListItems, type Database } from '@hiroba/db';
-import { fetchGlossary, scrapeNewsList } from '@hiroba/scraper';
+import {
+  createDb,
+  glossary,
+  upsertListItems,
+  upsertTopicListItems,
+  type Database,
+} from '@hiroba/db';
+import { fetchGlossary, scrapeNewsList, scrapeTopicsList } from '@hiroba/scraper';
 import { CATEGORIES } from '@hiroba/shared';
 
 import type { Env } from './types';
@@ -115,6 +121,7 @@ export default Sentry.withSentry(
         await refreshGlossary(db);
       } else {
         await refreshNews(db, env);
+        await refreshTopics(db, env);
       }
     },
   },
@@ -210,5 +217,49 @@ async function refreshNews(db: Database, env: Env): Promise<void> {
 
   console.log(
     `Scheduled refresh complete: ${totalNew} new items, ${workflowsTriggered} workflows triggered, ${errors} errors`,
+  );
+}
+
+/**
+ * Refresh topics by scraping the current (not-yet-archived) listing page.
+ * Seeds Phase-1 metadata and triggers the TopicsWorkflow for each new topic.
+ *
+ * Note: the first run after deploy (empty topics table) will treat the whole
+ * current month as new and trigger a small burst of pipelines; steady state is
+ * a couple per day. A full historical backfill is admin-triggered, not here.
+ */
+async function refreshTopics(db: Database, env: Env): Promise<void> {
+  let totalNew = 0;
+  let workflowsTriggered = 0;
+
+  try {
+    for await (const items of scrapeTopicsList({ incremental: true })) {
+      const inserted = await upsertTopicListItems(db, items);
+      totalNew += inserted.length;
+
+      for (const item of inserted) {
+        try {
+          // Namespaced by type so news/topic ids (both 32-char hex) don't collide.
+          const doId = env.WORKFLOW_MANAGER.idFromName(`topic:${item.id}`);
+          const stub = env.WORKFLOW_MANAGER.get(doId);
+
+          await stub.fetch('http://internal/trigger', {
+            method: 'POST',
+            body: JSON.stringify({ itemId: item.id, itemType: 'topic' }),
+            headers: { 'Content-Type': 'application/json' },
+          });
+
+          workflowsTriggered++;
+        } catch (error) {
+          console.error(`Failed to trigger topics workflow for ${item.id}:`, error);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Failed to scrape topics:', error);
+  }
+
+  console.log(
+    `Topics refresh complete: ${totalNew} new topics, ${workflowsTriggered} workflows triggered`,
   );
 }

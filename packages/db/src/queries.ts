@@ -2,7 +2,7 @@
  * Database queries for news items.
  */
 
-import { and, desc, eq, isNotNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import { getNextCheckTime, isDueForCheck, type Category } from '@hiroba/shared';
@@ -240,6 +240,91 @@ export async function invalidateBody(
  * ------------------------------------------------------------------ */
 
 /**
+ * Upsert Phase-1 (list scraping) metadata for topics. Sets only title +
+ * publishedAt on conflict, so it never clobbers an already-fetched block tree
+ * and it corrects the placeholder date stamped by a fetch-on-view.
+ * Returns the items that were newly inserted (for triggering the pipeline).
+ */
+export async function upsertTopicListItems(
+  db: Database,
+  items: Array<{ id: string; titleJa: string; publishedAt: Temporal.Instant }>,
+): Promise<Array<{ id: string; titleJa: string; publishedAt: Temporal.Instant }>> {
+  const newlyInserted: typeof items = [];
+
+  for (const item of items) {
+    const existing = await db
+      .select({ id: topics.id })
+      .from(topics)
+      .where(eq(topics.id, item.id))
+      .get();
+
+    await db
+      .insert(topics)
+      .values({
+        id: item.id,
+        titleJa: item.titleJa,
+        publishedAt: item.publishedAt,
+      })
+      .onConflictDoUpdate({
+        target: topics.id,
+        set: { titleJa: item.titleJa, publishedAt: item.publishedAt },
+      });
+
+    if (!existing) newlyInserted.push(item);
+  }
+
+  return newlyInserted;
+}
+
+/**
+ * Stats for the admin Topics dashboard.
+ */
+export async function getTopicStats(db: Database): Promise<{
+  total: number;
+  withBody: number;
+  translated: number;
+}> {
+  const [totalResult, withBodyResult, translatedResult] = await Promise.all([
+    db.select({ count: sql<number>`count(*)` }).from(topics).get(),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(topics)
+      .where(isNotNull(topics.blocksJa))
+      .get(),
+    db
+      .select({ count: sql<number>`count(DISTINCT item_id)` })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'topic'),
+          eq(translations.language, 'en'),
+          eq(translations.field, 'content'),
+        ),
+      )
+      .get(),
+  ]);
+
+  return {
+    total: totalResult?.count ?? 0,
+    withBody: withBodyResult?.count ?? 0,
+    translated: translatedResult?.count ?? 0,
+  };
+}
+
+/**
+ * Invalidate a topic's cached block tree (re-fetched on next view / re-run).
+ */
+export async function invalidateTopicBody(db: Database, id: string): Promise<boolean> {
+  const result = await db
+    .update(topics)
+    .set({ blocksJa: null, bodyFetchedAt: null })
+    .where(eq(topics.id, id))
+    .returning({ id: topics.id });
+
+  return result.length > 0;
+}
+
+/**
  * Upsert a topic. On conflict, updates only the columns present on `topic`
  * (title/publishedAt always; category/blocksJa/bodyFetchedAt when provided) so a
  * metadata re-upsert never clobbers an already-fetched block tree.
@@ -311,6 +396,77 @@ export async function getTopics(
     items,
     hasMore,
     nextCursor: hasMore ? items[items.length - 1].publishedAt.toString() : undefined,
+  };
+}
+
+/**
+ * Lightweight paginated topic list for the admin UI. Avoids pulling the full
+ * block tree — derives a `hasBody` flag and joins per-item translation status.
+ */
+export async function listTopicsAdmin(
+  db: Database,
+  options: { limit?: number; cursor?: string } = {},
+): Promise<{
+  items: Array<{
+    id: string;
+    titleJa: string;
+    publishedAt: Temporal.Instant;
+    hasBody: boolean;
+    translated: boolean;
+  }>;
+  hasMore: boolean;
+  nextCursor?: string;
+}> {
+  const limit = Math.min(options.limit ?? 50, 100);
+
+  const conditions = [];
+  if (options.cursor) {
+    conditions.push(lt(topics.publishedAt, Temporal.Instant.from(options.cursor)));
+  }
+
+  const rows = await db
+    .select({
+      id: topics.id,
+      titleJa: topics.titleJa,
+      publishedAt: topics.publishedAt,
+      hasBody: sql<number>`(${topics.blocksJa} IS NOT NULL)`,
+    })
+    .from(topics)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(topics.publishedAt))
+    .limit(limit + 1)
+    .all();
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, -1) : rows;
+
+  const ids = page.map((r) => r.id);
+  const translatedRows = ids.length
+    ? await db
+        .select({ itemId: translations.itemId })
+        .from(translations)
+        .where(
+          and(
+            eq(translations.itemType, 'topic'),
+            eq(translations.language, 'en'),
+            eq(translations.field, 'content'),
+            inArray(translations.itemId, ids),
+          ),
+        )
+        .all()
+    : [];
+  const translated = new Set(translatedRows.map((r) => r.itemId));
+
+  return {
+    items: page.map((r) => ({
+      id: r.id,
+      titleJa: r.titleJa,
+      publishedAt: r.publishedAt,
+      hasBody: !!r.hasBody,
+      translated: translated.has(r.id),
+    })),
+    hasMore,
+    nextCursor: hasMore ? page[page.length - 1].publishedAt.toString() : undefined,
   };
 }
 

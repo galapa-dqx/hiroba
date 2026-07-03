@@ -26,3 +26,18 @@ export { parseTopicBody, parseTopicContent } from './topics-parser';
 
 // Topics body scraper (fetch + parse a topic detail page)
 export { fetchTopicBody, parseTopicPage, type TopicBody } from './topics-body-scraper';
+
+// Topics list scraper (backnumber enumeration → Phase 1 metadata)
+export {
+  scrapeTopicsList,
+  scrapeAllTopics,
+  parseTopicsListPage,
+  fetchTopicsListPage,
+  listBacknumberMonths,
+  listTopicsSources,
+  TOPICS_LIST_URL,
+  TOPICS_BACKNUMBER_URL,
+  type TopicListItem,
+  type TopicsMonth,
+  type TopicsSource,
+} from './topics-list-scraper';
