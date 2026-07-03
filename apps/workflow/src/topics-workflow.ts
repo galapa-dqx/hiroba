@@ -1,0 +1,77 @@
+/**
+ * TopicsWorkflow - Multi-step processing pipeline for rich-text topics.
+ *
+ * Steps (each reads/writes D1, returns minimal state):
+ * 1. fetch-body       - scrape + parse the detail page → blocks_ja
+ * 2. transcribe-images - Gemini vision reads baked-in image text → blocks_ja (again)
+ * 3. translate         - whole-document JA→EN → translations (title + content)
+ *
+ * Transcription must land in blocks_ja before translation so the image text is
+ * translated in-context (via <figure>).
+ */
+
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import { Temporal } from 'temporal-polyfill';
+
+import type { Block } from '@hiroba/richtext';
+import { createDb, getTopic, updateTopicBlocks, upsertTopic } from '@hiroba/db';
+import { fetchTopicBody } from '@hiroba/scraper';
+
+import { transcribeImages } from './steps/transcribe-images';
+import { translateTopic } from './steps/translate-topic';
+import type {
+  Env,
+  FetchTopicResult,
+  TopicsWorkflowOutput,
+  TopicsWorkflowParams,
+  TranscribeResult,
+  TranslateResult,
+} from './types';
+
+export class TopicsWorkflow extends WorkflowEntrypoint<Env, TopicsWorkflowParams> {
+  async run(event: WorkflowEvent<TopicsWorkflowParams>, step: WorkflowStep): Promise<TopicsWorkflowOutput> {
+    const { itemId } = event.payload;
+    const db = createDb(this.env.DB);
+
+    // Step 1: fetch + parse the detail page → blocks_ja
+    const fetchBody = await step.do('fetch-body', async (): Promise<FetchTopicResult> => {
+      const { titleJa, blocks } = await fetchTopicBody(itemId);
+      const existing = await getTopic(db, itemId);
+      await upsertTopic(db, {
+        id: itemId,
+        titleJa,
+        // Keep an accurate date if the row was seeded by list scraping; otherwise
+        // stamp now (the topics list scraper can backfill real dates later).
+        publishedAt: existing?.publishedAt ?? Temporal.Now.instant(),
+        blocksJa: blocks,
+        bodyFetchedAt: Temporal.Now.instant(),
+      });
+      return { success: blocks.length > 0, blockCount: blocks.length };
+    });
+
+    if (!fetchBody.success) {
+      return {
+        itemId,
+        fetchBody,
+        transcribe: { imagesTranscribed: 0 },
+        translate: { success: false, fieldsTranslated: 0 },
+      };
+    }
+
+    // Step 2: transcribe baked-in image text → blocks_ja (saved again)
+    const transcribe = await step.do('transcribe-images', async (): Promise<TranscribeResult> => {
+      const topic = await getTopic(db, itemId);
+      const blocks = (topic?.blocksJa ?? []) as Block[];
+      const imagesTranscribed = await transcribeImages(blocks, this.env.GEMINI_API_KEY);
+      if (imagesTranscribed > 0) await updateTopicBlocks(db, itemId, blocks);
+      return { imagesTranscribed };
+    });
+
+    // Step 3: translate the (now transcribed) document → translations
+    const translate = await step.do('translate', async (): Promise<TranslateResult> => {
+      return translateTopic(db, this.env.GEMINI_API_KEY, itemId);
+    });
+
+    return { itemId, fetchBody, transcribe, translate };
+  }
+}

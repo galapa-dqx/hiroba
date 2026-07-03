@@ -260,6 +260,14 @@ export async function upsertTopic(db: Database, topic: NewTopic): Promise<void> 
 }
 
 /**
+ * Replace a topic's block tree (used by the transcribe step, which mutates
+ * blocks_ja in place to add image text, then saves).
+ */
+export async function updateTopicBlocks(db: Database, id: string, blocks: Block[]): Promise<void> {
+  await db.update(topics).set({ blocksJa: blocks }).where(eq(topics.id, id));
+}
+
+/**
  * Get a single topic by ID.
  */
 export async function getTopic(db: Database, id: string): Promise<Topic | null> {

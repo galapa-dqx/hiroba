@@ -20,6 +20,7 @@ import type { Env } from './types';
 // Export the Durable Object and Workflow classes
 export { WorkflowManager } from './workflow-manager';
 export { NewsWorkflow } from './news-workflow';
+export { TopicsWorkflow } from './topics-workflow';
 
 export default Sentry.withSentry(
   (env: Env) => ({
@@ -62,22 +63,25 @@ export default Sentry.withSentry(
         return stub.fetch(doUrl.toString(), request);
       }
 
-      // Trigger workflow for a specific item
+      // Trigger workflow for a specific item (news by default, or topics)
       if (url.pathname === '/trigger' && request.method === 'POST') {
-        const body = (await request.json()) as { itemId: string };
+        const body = (await request.json()) as { itemId: string; itemType?: 'news' | 'topic' };
         const { itemId } = body;
+        const itemType = body.itemType ?? 'news';
 
         if (!itemId) {
           return Response.json({ error: 'itemId required' }, { status: 400 });
         }
 
-        // Route to the DO for this item
-        const doId = env.WORKFLOW_MANAGER.idFromName(itemId);
+        // Route to the DO for this item, namespaced by type so news/topic ids
+        // (both 32-char hex) don't collide.
+        const doName = itemType === 'topic' ? `topic:${itemId}` : itemId;
+        const doId = env.WORKFLOW_MANAGER.idFromName(doName);
         const stub = env.WORKFLOW_MANAGER.get(doId);
 
         return stub.fetch('http://internal/trigger', {
           method: 'POST',
-          body: JSON.stringify({ itemId }),
+          body: JSON.stringify({ itemId, itemType }),
           headers: { 'Content-Type': 'application/json' },
         });
       }

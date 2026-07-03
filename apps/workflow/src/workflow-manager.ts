@@ -1,6 +1,11 @@
 /**
  * WorkflowManager - Durable Object for coordinating workflow operations.
  *
+ * Handles both the news and topics pipelines: the trigger payload carries an
+ * `itemType` ('news' | 'topic') selecting which workflow binding to drive. The
+ * DO is namespaced per (itemType, itemId) by the caller, so news and topic ids
+ * (both 32-char hex) never collide.
+ *
  * Responsibilities:
  * - Stream SSE progress updates to connected clients
  * - Create/track workflow instances
@@ -9,48 +14,49 @@
 
 import { DurableObject } from 'cloudflare:workers';
 
-import type { Env, NewsWorkflowOutput } from './types';
+import type { Env, ItemType, WorkflowBinding } from './types';
 
-function getProgressMessage(output: Partial<NewsWorkflowOutput> | undefined): string {
+function getProgressMessage(output: Record<string, unknown> | undefined, itemType: ItemType): string {
   if (!output) return 'Starting...';
   if ('translate' in output) return 'Finishing up...';
-  if ('extractEvents' in output) return 'Translating...';
-  if ('fetchBody' in output) return 'Extracting events...';
+  if (itemType === 'topic') {
+    if ('transcribe' in output) return 'Translating...';
+    if ('fetchBody' in output) return 'Reading image text...';
+  } else {
+    if ('extractEvents' in output) return 'Translating...';
+    if ('fetchBody' in output) return 'Extracting events...';
+  }
   return 'Fetching content...';
 }
 
-export class WorkflowManager extends DurableObject<Env> {
-  /** Track active workflow instance IDs by news item ID */
-  private activeWorkflows = new Map<string, string>();
+type Active = { instanceId: string; itemType: ItemType };
 
-  /**
-   * Handle incoming requests.
-   */
+export class WorkflowManager extends DurableObject<Env> {
+  /** Track active workflow instances by item ID. */
+  private activeWorkflows = new Map<string, Active>();
+
+  private workflowFor(itemType: ItemType): WorkflowBinding<{ itemId: string }> {
+    return itemType === 'topic' ? this.env.TOPICS_WORKFLOW : this.env.NEWS_WORKFLOW;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === '/sse') {
       return this.handleSSE(url);
     }
-
     if (url.pathname === '/trigger' && request.method === 'POST') {
       return this.handleTrigger(request);
     }
-
     if (url.pathname === '/status') {
       const itemId = url.searchParams.get('itemId');
-      if (!itemId) {
-        return Response.json({ error: 'itemId required' }, { status: 400 });
-      }
+      if (!itemId) return Response.json({ error: 'itemId required' }, { status: 400 });
       return this.handleStatus(itemId);
     }
-
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
 
-  /**
-   * Handle SSE connection — streams workflow progress as server-sent events.
-   */
+  /** Handle SSE connection — streams workflow progress as server-sent events. */
   private handleSSE(url: URL): Response {
     const itemId = url.searchParams.get('itemId');
     if (!itemId) {
@@ -64,13 +70,14 @@ export class WorkflowManager extends DurableObject<Env> {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
         };
 
-        const instanceId = this.activeWorkflows.get(itemId);
-        if (!instanceId) {
+        const active = this.activeWorkflows.get(itemId);
+        if (!active) {
           send({ type: 'error', error: 'No active workflow' });
           controller.close();
           return;
         }
 
+        const workflow = this.workflowFor(active.itemType);
         const pollInterval = 1000;
         const maxPolls = 300; // 5 minutes
 
@@ -78,7 +85,7 @@ export class WorkflowManager extends DurableObject<Env> {
           await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
           try {
-            const instance = await this.env.NEWS_WORKFLOW.get(instanceId);
+            const instance = await workflow.get(active.instanceId);
             const status = await instance.status();
 
             if (status.status === 'complete') {
@@ -96,10 +103,10 @@ export class WorkflowManager extends DurableObject<Env> {
               return;
             }
 
-            const message = getProgressMessage(
-              status.output as Partial<NewsWorkflowOutput> | undefined,
-            );
-            send({ type: 'progress', message });
+            send({
+              type: 'progress',
+              message: getProgressMessage(status.output as Record<string, unknown> | undefined, active.itemType),
+            });
           } catch (error) {
             console.error('Error polling workflow status:', error);
             send({ type: 'error', error: 'Polling failed' });
@@ -108,7 +115,6 @@ export class WorkflowManager extends DurableObject<Env> {
           }
         }
 
-        // Timeout
         this.activeWorkflows.delete(itemId);
         send({ type: 'error', error: 'Workflow timeout' });
         controller.close();
@@ -124,61 +130,42 @@ export class WorkflowManager extends DurableObject<Env> {
     });
   }
 
-  /**
-   * Handle workflow trigger request.
-   */
+  /** Handle workflow trigger request. */
   private async handleTrigger(request: Request): Promise<Response> {
-    const body = (await request.json()) as { itemId: string };
+    const body = (await request.json()) as { itemId: string; itemType?: ItemType };
     const { itemId } = body;
+    const itemType: ItemType = body.itemType ?? 'news';
 
     if (!itemId) {
       return Response.json({ error: 'itemId required' }, { status: 400 });
     }
 
-    // Check if already processing
-    const existingInstanceId = this.activeWorkflows.get(itemId);
-    if (existingInstanceId) {
-      const instance = await this.env.NEWS_WORKFLOW.get(existingInstanceId);
-      const status = await instance.status();
+    const workflow = this.workflowFor(itemType);
 
+    // Skip if already processing.
+    const existing = this.activeWorkflows.get(itemId);
+    if (existing) {
+      const instance = await workflow.get(existing.instanceId);
+      const status = await instance.status();
       if (status.status === 'running' || status.status === 'queued') {
-        return Response.json({
-          status: 'already_processing',
-          instanceId: existingInstanceId,
-        });
+        return Response.json({ status: 'already_processing', instanceId: existing.instanceId });
       }
     }
 
-    // Create new workflow instance
-    const instance = await this.env.NEWS_WORKFLOW.create({
-      params: { itemId },
-    });
-
-    this.activeWorkflows.set(itemId, instance.id);
-
+    const instance = await workflow.create({ params: { itemId } });
+    this.activeWorkflows.set(itemId, { instanceId: instance.id, itemType });
     return Response.json({ status: 'started', instanceId: instance.id });
   }
 
-  /**
-   * Handle status request.
-   */
+  /** Handle status request. */
   private async handleStatus(itemId: string): Promise<Response> {
-    const instanceId = this.activeWorkflows.get(itemId);
-
-    if (!instanceId) {
-      return Response.json({ status: 'idle' });
-    }
+    const active = this.activeWorkflows.get(itemId);
+    if (!active) return Response.json({ status: 'idle' });
 
     try {
-      const instance = await this.env.NEWS_WORKFLOW.get(instanceId);
+      const instance = await this.workflowFor(active.itemType).get(active.instanceId);
       const status = await instance.status();
-
-      return Response.json({
-        status: status.status,
-        instanceId,
-        output: status.output,
-        error: status.error,
-      });
+      return Response.json({ status: status.status, instanceId: active.instanceId, output: status.output, error: status.error });
     } catch {
       this.activeWorkflows.delete(itemId);
       return Response.json({ status: 'idle' });

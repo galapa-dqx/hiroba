@@ -23,3 +23,6 @@ export {
 
 // Topics body parser (HTML → @hiroba/richtext block tree)
 export { parseTopicBody, parseTopicContent } from './topics-parser';
+
+// Topics body scraper (fetch + parse a topic detail page)
+export { fetchTopicBody, parseTopicPage, type TopicBody } from './topics-body-scraper';

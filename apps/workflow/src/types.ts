@@ -43,8 +43,12 @@ export type Env = {
   SENTRY_DSN: string;
   WORKFLOW_MANAGER: DurableObjectNamespace;
   NEWS_WORKFLOW: WorkflowBinding<NewsWorkflowParams>;
+  TOPICS_WORKFLOW: WorkflowBinding<TopicsWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
 };
+
+/** Which pipeline a WorkflowManager DO coordinates. */
+export type ItemType = 'news' | 'topic';
 
 /**
  * Parameters passed to the NewsWorkflow.
@@ -84,6 +88,35 @@ export type NewsWorkflowOutput = {
   itemId: string;
   fetchBody: FetchBodyResult;
   extractEvents: ExtractEventsResult;
+  translate: TranslateResult;
+};
+
+/**
+ * Parameters passed to the TopicsWorkflow.
+ */
+export type TopicsWorkflowParams = {
+  itemId: string;
+};
+
+/** Result of the topics fetch-body step (scrape + parse → blocks_ja). */
+export type FetchTopicResult = {
+  success: boolean;
+  blockCount: number;
+};
+
+/** Result of the transcribe-images step. */
+export type TranscribeResult = {
+  imagesTranscribed: number;
+};
+
+/**
+ * Overall TopicsWorkflow output. The presence of successive keys drives SSE
+ * progress messages (fetch → transcribe → translate).
+ */
+export type TopicsWorkflowOutput = {
+  itemId: string;
+  fetchBody: FetchTopicResult;
+  transcribe: TranscribeResult;
   translate: TranslateResult;
 };
 

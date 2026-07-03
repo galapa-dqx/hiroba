@@ -32,6 +32,12 @@ name = "news-workflow"
 binding = "NEWS_WORKFLOW"
 class_name = "NewsWorkflow"
 
+# Cloudflare Workflow for topics processing (parse → transcribe → translate)
+[[workflows]]
+name = "topics-workflow"
+binding = "TOPICS_WORKFLOW"
+class_name = "TopicsWorkflow"
+
 # Scheduled triggers:
 # - Hourly news refresh (first page of each category)
 # - Daily glossary refresh (midnight JST = 15:00 UTC)
