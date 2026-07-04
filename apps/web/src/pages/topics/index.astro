@@ -1,6 +1,7 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import { createDb, getTopics, type Topic } from "@hiroba/db";
+import { formatShortDate } from "@hiroba/ui";
 
 const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
 
@@ -20,8 +21,6 @@ try {
 	// Show empty list on error
 }
 
-const dateFmt = (ms: number) =>
-	new Date(ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 ---
 
 <Layout title="Topics">
@@ -44,7 +43,7 @@ const dateFmt = (ms: number) =>
 									<a href={`/topics/${t.id}`}>
 										<span class="news-list__title">{t.titleJa}</span>
 										<time datetime={t.publishedAt.toString()}>
-											{dateFmt(t.publishedAt.epochMilliseconds)}
+											{formatShortDate(t.publishedAt.epochMilliseconds)}
 										</time>
 									</a>
 								</li>

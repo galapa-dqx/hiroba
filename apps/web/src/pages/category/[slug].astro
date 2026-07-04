@@ -3,6 +3,7 @@ import Layout from "../../layouts/Layout.astro";
 import Gem from "../../components/Gem.astro";
 import { createDb, getNewsItems, type NewsItem } from "@hiroba/db";
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
+import { formatShortDate } from "@hiroba/ui";
 
 const { slug } = Astro.params;
 
@@ -49,11 +50,7 @@ const categoryLabel = CATEGORY_LABELS[category];
 									<a href={`/news/${item.id}`}>
 										<span class="news-list__title">{item.titleJa}</span>
 										<time datetime={item.publishedAt.toString()}>
-											{new Date(item.publishedAt.epochMilliseconds).toLocaleDateString("en-US", {
-												year: "numeric",
-												month: "short",
-												day: "numeric",
-											})}
+											{formatShortDate(item.publishedAt.epochMilliseconds)}
 										</time>
 									</a>
 								</li>

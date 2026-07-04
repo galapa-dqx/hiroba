@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 
+import CategoryDot from '@hiroba/ui/CategoryDot';
+import { formatLocalDate } from '@hiroba/ui/format-date';
+
 import {
   deleteTranslation,
   getNewsList,
@@ -7,7 +10,6 @@ import {
   triggerWorkflow,
   type NewsItem,
 } from '../lib/api';
-import CategoryDot from './CategoryDot';
 
 export default function NewsList() {
   const [items, setItems] = useState<NewsItem[]>([]);
@@ -84,9 +86,7 @@ export default function NewsList() {
 
       evtSource.onerror = () => {
         evtSource.close();
-        setWorkflowStatus((prev) =>
-          new Map(prev).set(id, 'Connection lost'),
-        );
+        setWorkflowStatus((prev) => new Map(prev).set(id, 'Connection lost'));
       };
     } catch (err) {
       alert('Failed to trigger workflow');
@@ -164,9 +164,7 @@ export default function NewsList() {
                     {item.category}
                   </span>
                 </td>
-                <td>
-                  {new Date(item.publishedAt).toLocaleDateString()}
-                </td>
+                <td>{formatLocalDate(item.publishedAt)}</td>
                 <td>{item.contentJa ? '✓' : '—'}</td>
                 <td className="actions-cell">
                   <button

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 
+import { formatLocalDate } from '@hiroba/ui/format-date';
+
 import {
   deleteGlossaryEntry,
   getGlossary,
@@ -79,7 +81,7 @@ export default function GlossaryList() {
               <tr key={`${entry.sourceText}-${entry.targetLanguage}`}>
                 <td className="jp-text">{entry.sourceText}</td>
                 <td>{entry.translatedText}</td>
-                <td>{new Date(entry.updatedAt).toLocaleDateString()}</td>
+                <td>{formatLocalDate(entry.updatedAt)}</td>
                 <td>
                   <button
                     onClick={() =>

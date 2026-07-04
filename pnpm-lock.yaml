@@ -74,6 +74,9 @@ importers:
       '@hiroba/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@hiroba/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       astro:
         specifier: ^5.1.0
         version: 5.16.8(@azure/identity@4.13.0)(@types/node@24.10.4)(rollup@4.55.1)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
@@ -123,6 +126,9 @@ importers:
       '@hiroba/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@hiroba/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       astro:
         specifier: ^5.1.0
         version: 5.16.8(@azure/identity@4.13.0)(@types/node@24.10.4)(rollup@4.55.1)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
@@ -273,6 +279,25 @@ importers:
         specifier: ^0.3.0
         version: 0.3.0
     devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/ui:
+    dependencies:
+      astro:
+        specifier: ^5.1.0
+        version: 5.16.8(@azure/identity@4.13.0)(@types/node@24.10.4)(rollup@4.55.1)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.2)
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.3(react@19.2.3)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.7
+      react:
+        specifier: ^19.0.0
+        version: 19.2.3
       typescript:
         specifier: ^5.9.3
         version: 5.9.3

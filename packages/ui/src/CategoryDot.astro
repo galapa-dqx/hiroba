@@ -1,0 +1,46 @@
+---
+/**
+ * CategoryDot (Astro) — the category gem beside a `.chip`. Geometry lives in
+ * `./category-shape`; see that module for the design notes. `.cat-dot` sets
+ * `color: var(--cat)` so the dot stays theme-adaptive with no baked-in colours.
+ */
+import {
+  CATEGORY_DOT_CIRCLE_RADIUS,
+  CATEGORY_DOT_STROKE_OPACITY,
+  CATEGORY_DOT_STROKE_WIDTH,
+  CATEGORY_PATHS,
+} from "./category-shape";
+
+interface Props {
+  category: string;
+  class?: string;
+}
+const { category, class: className } = Astro.props;
+---
+
+<svg class:list={["cat-dot", className]} viewBox="0 0 32 32" aria-hidden="true">
+  {
+    category === "news" ? (
+      <circle
+        cx="16"
+        cy="16"
+        r={CATEGORY_DOT_CIRCLE_RADIUS}
+        fill="currentColor"
+        stroke="currentColor"
+        stroke-opacity={CATEGORY_DOT_STROKE_OPACITY}
+        stroke-width={CATEGORY_DOT_STROKE_WIDTH}
+        paint-order="stroke"
+      />
+    ) : (
+      <path
+        d={CATEGORY_PATHS[category] ?? CATEGORY_PATHS.event}
+        fill="currentColor"
+        stroke="currentColor"
+        stroke-opacity={CATEGORY_DOT_STROKE_OPACITY}
+        stroke-width={CATEGORY_DOT_STROKE_WIDTH}
+        stroke-linejoin="round"
+        paint-order="stroke"
+      />
+    )
+  }
+</svg>

@@ -1,0 +1,39 @@
+{
+  "name": "@hiroba/ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./format-date": "./src/format-date.ts",
+    "./category-shape": "./src/category-shape.ts",
+    "./CategoryDot": "./src/CategoryDot.tsx",
+    "./Ornament.astro": "./src/Ornament.astro",
+    "./Rosette.astro": "./src/Rosette.astro",
+    "./ThemeToggle.astro": "./src/ThemeToggle.astro",
+    "./CategoryDot.astro": "./src/CategoryDot.astro"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "peerDependencies": {
+    "astro": "^5.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "typescript": "^5.9.3"
+  }
+}

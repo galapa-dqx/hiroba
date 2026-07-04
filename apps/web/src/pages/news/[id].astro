@@ -1,8 +1,8 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import Rosette from "../../components/Rosette.astro";
-import Ornament from "../../components/Ornament.astro";
-import CategoryDot from "../../components/CategoryDot.astro";
+import Rosette from "@hiroba/ui/Rosette.astro";
+import Ornament from "@hiroba/ui/Ornament.astro";
+import CategoryDot from "@hiroba/ui/CategoryDot.astro";
 import { createDb, getNewsItem, translations as translationsTable } from "@hiroba/db";
 import { CATEGORY_LABELS, type Category } from "@hiroba/shared";
 import { and, eq } from "drizzle-orm";

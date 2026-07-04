@@ -1,7 +1,8 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import Gem from "../components/Gem.astro";
-import Ornament from "../components/Ornament.astro";
+import Ornament from "@hiroba/ui/Ornament.astro";
+import { formatShortDate } from "@hiroba/ui";
 import { createDb, getNewsItems } from "@hiroba/db";
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
 
@@ -19,8 +20,6 @@ const newsByCategory = await Promise.all(
 	})
 );
 
-const dateFmt = (ms: number) =>
-	new Date(ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 ---
 
 <Layout title="Latest News">
@@ -51,7 +50,7 @@ const dateFmt = (ms: number) =>
 										<a href={`/news/${item.id}`}>
 											<span class="news-list__title">{item.titleJa}</span>
 											<time datetime={item.publishedAt.toString()}>
-												{dateFmt(item.publishedAt.epochMilliseconds)}
+												{formatShortDate(item.publishedAt.epochMilliseconds)}
 											</time>
 										</a>
 									</li>

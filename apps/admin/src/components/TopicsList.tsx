@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 
+import { formatLocalDate } from '@hiroba/ui/format-date';
+
 import {
   deleteTopicTranslation,
-  getTopicStats,
   getTopicsList,
+  getTopicStats,
   invalidateTopicBody,
   scrapeTopics,
   triggerTopicWorkflow,
@@ -207,13 +209,17 @@ export default function TopicsList() {
         <button onClick={loadItems} disabled={loading || scraping}>
           Refresh
         </button>
-        {scrapeProgress && <span className="workflow-status">{scrapeProgress}</span>}
+        {scrapeProgress && (
+          <span className="workflow-status">{scrapeProgress}</span>
+        )}
       </div>
 
       {loading ? (
         <p className="loading">Loading...</p>
       ) : items.length === 0 ? (
-        <p>No topics yet. Use “Scrape Latest” or “Backfill All” to seed them.</p>
+        <p>
+          No topics yet. Use “Scrape Latest” or “Backfill All” to seed them.
+        </p>
       ) : (
         <>
           <table className="data-table">
@@ -238,7 +244,7 @@ export default function TopicsList() {
                       {item.titleJa}
                     </a>
                   </td>
-                  <td>{new Date(item.publishedAt).toLocaleDateString()}</td>
+                  <td>{formatLocalDate(item.publishedAt)}</td>
                   <td>{item.hasBody ? '✓' : '—'}</td>
                   <td>{item.translated ? '✓' : '—'}</td>
                   <td className="actions-cell">
