@@ -1,18 +1,25 @@
 /**
- * Translate step - Bulk translate news content and event titles.
+ * Translate step — JA→EN translation of a news item and its event titles.
  *
- * Uses CSV-based bulk translation for efficiency:
- * - Loads glossary terms matching the content
- * - Builds CSV input with all texts to translate
- * - Calls LLM for bulk translation
- * - Parses CSV output and saves to translations table
+ * The news body translates as a whole document via the RTML round-trip
+ * (serializeForTranslation → Gemini → parseTranslation), the same path topics
+ * use: the title and block tree translate together and the EN block tree is
+ * stored as the news `content` translation (JSON). Event titles are short
+ * strings, translated one at a time.
+ *
+ * This retires the old gpt-4o CSV batch, whose row-misalignment failure mode
+ * silently swapped translations; a bad RTML round-trip instead fails loudly and
+ * leaves the item in Japanese (the renderer falls back to blocks_ja).
  */
 
-import { parse } from 'csv-parse/sync';
 import { eq, inArray } from 'drizzle-orm';
-import OpenAI from 'openai';
 import { Temporal } from 'temporal-polyfill';
 
+import {
+  parseTranslation,
+  serializeForTranslation,
+  type Block,
+} from '@hiroba/richtext';
 import {
   events,
   findMatchingGlossaryEntries,
@@ -21,134 +28,65 @@ import {
   type Database,
 } from '@hiroba/db';
 
+import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import type { TranslateResult } from '../types';
 
 const TARGET_LANGUAGE = 'en';
 
-const TRANSLATION_SYSTEM_PROMPT = `You are a professional translator specializing in Japanese video game content, particularly Dragon Quest X (DQX) online game.
+const BODY_SYSTEM_PROMPT =
+  'Translate the provided article from Japanese to natural English, maintaining formatting and matching the original tone, while strictly adhering to the translation glossary. Retain all HTML tags in the output.';
 
-Your task is to translate Japanese text to natural English. You will receive a CSV with texts to translate.
+const TITLE_SYSTEM_PROMPT =
+  'Translate the Japanese text to natural English, keeping Dragon Quest X game-specific terms recognizable and strictly adhering to the translation glossary. Respond with ONLY the translated text — no quotes, labels, or explanations.';
 
-Guidelines:
-- Keep game-specific terms, item names, location names, and character names that players would recognize
-- Preserve any formatting like bullet points, numbered lists, dates, and times
-- Convert Japanese date/time formats to be internationally readable while keeping original values
-- Keep URLs and technical identifiers unchanged
-- Maintain the original tone (official announcements should sound official)
-- If there are instructions or steps, ensure they remain clear and actionable
-
-Input CSV format:
-id,type,text
-1,title,"Japanese title here"
-2,content,"Japanese content here"
-3,event_title,"Event name in Japanese"
-
-Output CSV format (respond ONLY with CSV, no explanations):
-id,translatedText
-1,"Translated title"
-2,"Translated content"
-3,"Translated event name"
-
-IMPORTANT: Respond with ONLY the CSV output, no markdown code blocks or explanations.`;
-
-type TranslationRow = {
-  id: string;
-  type: 'title' | 'content' | 'event_title';
-  itemType: 'news' | 'event';
-  itemId: string;
-  text: string;
-};
-
-/**
- * Escape a value for CSV format.
- */
-function escapeCsvValue(value: string): string {
-  // Always quote and escape internal quotes
-  const escaped = value.replace(/"/g, '""');
-  return `"${escaped}"`;
+/** Render matching glossary entries as a prompt section (empty when none match). */
+function glossarySection(
+  entries: ReadonlyArray<{ sourceText: string; translatedText: string }>,
+): string {
+  if (entries.length === 0) return '';
+  return `\n\nTranslation glossary (use these exact translations):\n${entries
+    .map((g) => `- ${g.sourceText} → ${g.translatedText}`)
+    .join('\n')}`;
 }
 
-/**
- * Parse a CSV response using csv-parse.
- */
-function parseCsvResponse(csv: string): Map<string, string> {
-  const result = new Map<string, string>();
-
-  const records = parse(csv.trim(), {
-    columns: true,
-    skip_empty_lines: true,
-    relax_quotes: true,
-  }) as Array<{ id: string; translatedText: string }>;
-
-  for (const record of records) {
-    if (record.id && record.translatedText) {
-      result.set(record.id, record.translatedText);
-    }
-  }
-
-  return result;
-}
-
-/**
- * Build CSV input for translation.
- */
-function buildCsvInput(rows: TranslationRow[]): string {
-  const lines = ['id,type,text'];
-
-  for (const row of rows) {
-    lines.push(`${row.id},${row.type},${escapeCsvValue(row.text)}`);
-  }
-
-  return lines.join('\n');
-}
-
-/**
- * Translate texts using OpenAI with CSV format.
- */
-async function translateWithCsv(
-  rows: TranslationRow[],
-  glossaryText: string,
-  apiKey: string,
-): Promise<Map<string, string>> {
-  const client = new OpenAI({ apiKey });
-
-  const csvInput = buildCsvInput(rows);
-
-  const glossarySection =
-    glossaryText.length > 0
-      ? `\n\nGlossary (use these exact translations):\n${glossaryText}`
-      : '';
-
-  const response = await client.chat.completions.create({
-    model: 'gpt-4o',
-    temperature: 0.3,
-    messages: [
-      { role: 'system', content: TRANSLATION_SYSTEM_PROMPT + glossarySection },
-      { role: 'user', content: csvInput },
-    ],
-  });
-
-  const responseText = response.choices[0]?.message?.content ?? '';
-
-  // Strip any markdown code blocks if present
-  let csvText = responseText.trim();
-  if (csvText.startsWith('```')) {
-    const lines = csvText.split('\n');
-    lines.shift(); // Remove opening ```
-    if (lines[lines.length - 1]?.trim() === '```') {
-      lines.pop();
-    }
-    csvText = lines.join('\n').trim();
-  }
-
-  return parseCsvResponse(csvText);
+/** Upsert a single news/event translation row (item_type='news'|'event'). */
+async function upsertTranslation(
+  db: Database,
+  params: {
+    itemType: 'news' | 'event';
+    itemId: string;
+    field: 'title' | 'content';
+    value: string;
+  },
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  await db
+    .insert(translations)
+    .values({
+      itemType: params.itemType,
+      itemId: params.itemId,
+      language: TARGET_LANGUAGE,
+      field: params.field,
+      value: params.value,
+      translatedAt: now,
+      model: GEMINI_MODEL,
+    })
+    .onConflictDoUpdate({
+      target: [
+        translations.itemType,
+        translations.itemId,
+        translations.language,
+        translations.field,
+      ],
+      set: { value: params.value, translatedAt: now, model: GEMINI_MODEL },
+    });
 }
 
 /**
  * Translate and save translations for a news item and its events.
  *
  * @param db - Database client
- * @param apiKey - OpenAI API key
+ * @param apiKey - Gemini API key
  * @param itemId - News item ID
  * @param eventIds - IDs of events to translate
  * @returns Result with success status and count of fields translated
@@ -159,11 +97,10 @@ export async function translateAndSave(
   itemId: string,
   eventIds: string[],
 ): Promise<TranslateResult> {
-  // Get news item
   const item = await db
     .select({
       titleJa: newsItems.titleJa,
-      contentJa: newsItems.contentJa,
+      blocksJa: newsItems.blocksJa,
     })
     .from(newsItems)
     .where(eq(newsItems.id, itemId))
@@ -174,113 +111,93 @@ export async function translateAndSave(
     return { success: false, fieldsTranslated: 0 };
   }
 
-  // Get events
+  const client = createGemini(apiKey);
+  let fieldsTranslated = 0;
+
+  // 1. Translate the news document (title + body) via the RTML whole-doc path.
+  const blocks = (item.blocksJa ?? []) as Block[];
+  if (blocks.length > 0) {
+    const markup = serializeForTranslation({ title: item.titleJa, blocks });
+    const glossary = await findMatchingGlossaryEntries(
+      db,
+      `${item.titleJa}\n${markup}`,
+      TARGET_LANGUAGE,
+    );
+
+    const response = await client.chat.completions.create({
+      model: GEMINI_MODEL,
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: BODY_SYSTEM_PROMPT + glossarySection(glossary) },
+        { role: 'user', content: markup },
+      ],
+    });
+
+    const raw = response.choices[0]?.message?.content ?? '';
+    let result: { title: string; blocks: Block[] } | null = null;
+    try {
+      result = parseTranslation(stripCodeFence(raw));
+    } catch (err) {
+      console.error(`News ${itemId}: failed to parse translated markup`, err);
+    }
+
+    // A mangled response that parses to an empty body → keep JA.
+    if (result && result.blocks.length > 0) {
+      await upsertTranslation(db, {
+        itemType: 'news',
+        itemId,
+        field: 'title',
+        value: result.title || item.titleJa,
+      });
+      await upsertTranslation(db, {
+        itemType: 'news',
+        itemId,
+        field: 'content',
+        value: JSON.stringify(result.blocks),
+      });
+      fieldsTranslated += 2;
+    } else if (result) {
+      console.error(`News ${itemId}: translated body was empty, keeping JA`);
+    }
+  }
+
+  // 2. Translate event titles (short strings; one call each keeps them aligned).
   const eventRows =
     eventIds.length > 0
       ? await db
-          .select({
-            id: events.id,
-            titleJa: events.titleJa,
-          })
+          .select({ id: events.id, titleJa: events.titleJa })
           .from(events)
           .where(inArray(events.id, eventIds))
           .all()
       : [];
 
-  // Build translation rows
-  const rows: TranslationRow[] = [];
-  let rowId = 1;
-
-  // Add title
-  rows.push({
-    id: String(rowId++),
-    type: 'title',
-    itemType: 'news',
-    itemId,
-    text: item.titleJa,
-  });
-
-  // Add content if exists
-  if (item.contentJa) {
-    rows.push({
-      id: String(rowId++),
-      type: 'content',
-      itemType: 'news',
-      itemId,
-      text: item.contentJa,
-    });
-  }
-
-  // Add event titles
   for (const event of eventRows) {
-    rows.push({
-      id: String(rowId++),
-      type: 'event_title',
-      itemType: 'event',
-      itemId: event.id,
-      text: event.titleJa,
+    const glossary = await findMatchingGlossaryEntries(
+      db,
+      event.titleJa,
+      TARGET_LANGUAGE,
+    );
+    const response = await client.chat.completions.create({
+      model: GEMINI_MODEL,
+      temperature: 0.3,
+      messages: [
+        { role: 'system', content: TITLE_SYSTEM_PROMPT + glossarySection(glossary) },
+        { role: 'user', content: event.titleJa },
+      ],
     });
-  }
-
-  if (rows.length === 0) {
-    return { success: true, fieldsTranslated: 0 };
-  }
-
-  // Combine all texts for glossary matching
-  const combinedText = rows.map((r) => r.text).join(' ');
-  const glossaryTerms = await findMatchingGlossaryEntries(
-    db,
-    combinedText,
-    TARGET_LANGUAGE,
-  );
-
-  // Build glossary text
-  const glossaryText = glossaryTerms
-    .map((t) => `- ${t.sourceText} → ${t.translatedText}`)
-    .join('\n');
-
-  // Translate via LLM
-  const translationMap = await translateWithCsv(rows, glossaryText, apiKey);
-
-  // Save translations to D1
-  const now = Temporal.Now.instant();
-  const model = 'gpt-4o';
-  let fieldsTranslated = 0;
-
-  for (const row of rows) {
-    const translatedText = translationMap.get(row.id);
-    if (!translatedText) {
-      console.warn(`No translation found for row ${row.id}`);
+    const translated = stripCodeFence(
+      response.choices[0]?.message?.content ?? '',
+    ).trim();
+    if (!translated) {
+      console.warn(`No translation returned for event ${event.id}`);
       continue;
     }
-
-    const field = row.type === 'event_title' ? 'title' : row.type;
-
-    await db
-      .insert(translations)
-      .values({
-        itemType: row.itemType,
-        itemId: row.itemId,
-        language: TARGET_LANGUAGE,
-        field,
-        value: translatedText,
-        translatedAt: now,
-        model,
-      })
-      .onConflictDoUpdate({
-        target: [
-          translations.itemType,
-          translations.itemId,
-          translations.language,
-          translations.field,
-        ],
-        set: {
-          value: translatedText,
-          translatedAt: now,
-          model,
-        },
-      });
-
+    await upsertTranslation(db, {
+      itemType: 'event',
+      itemId: event.id,
+      field: 'title',
+      value: translated,
+    });
     fieldsTranslated++;
   }
 

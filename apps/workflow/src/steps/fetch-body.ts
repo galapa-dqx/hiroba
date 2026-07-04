@@ -1,8 +1,9 @@
 /**
- * Fetch body step - Scrape news content and save to D1.
+ * Fetch body step - scrape a news detail page into the block tree and save it.
  *
- * Reads the news item from D1, fetches the body HTML from hiroba.dqx.jp,
- * parses and cleans the text, and saves contentJa and bodyFetchedAt.
+ * Reads the news item from D1, and if the body hasn't been fetched yet, fetches
+ * the detail page from hiroba.dqx.jp, parses it into blocks_ja (the
+ * @hiroba/richtext tree), and stamps bodyFetchedAt.
  */
 
 import { eq } from 'drizzle-orm';
@@ -18,16 +19,16 @@ import type { FetchBodyResult } from '../types';
  *
  * @param db - Database client
  * @param itemId - News item ID
- * @returns Result with success status and content length
+ * @returns Result with success status and parsed block count
  */
 export async function fetchAndSaveBody(
   db: Database,
   itemId: string,
 ): Promise<FetchBodyResult> {
-  // Check if item exists and if body is already fetched
+  // Check if item exists and if the body is already fetched
   const item = await db
     .select({
-      contentJa: newsItems.contentJa,
+      blocksJa: newsItems.blocksJa,
     })
     .from(newsItems)
     .where(eq(newsItems.id, itemId))
@@ -38,31 +39,31 @@ export async function fetchAndSaveBody(
     return { success: false };
   }
 
-  // If body already exists, skip fetching
-  if (item.contentJa !== null) {
+  // If the block tree already exists, skip fetching.
+  if (item.blocksJa !== null) {
     return {
       success: true,
-      contentLength: item.contentJa.length,
+      contentLength: item.blocksJa.length,
     };
   }
 
   try {
-    // Fetch the body from hiroba.dqx.jp
-    const body = await fetchNewsBody(itemId);
+    // Fetch + parse the detail page into a block tree.
+    const blocks = await fetchNewsBody(itemId);
     const now = Temporal.Now.instant();
 
     // Save to D1
     await db
       .update(newsItems)
       .set({
-        contentJa: body.contentJa,
+        blocksJa: blocks,
         bodyFetchedAt: now,
       })
       .where(eq(newsItems.id, itemId));
 
     return {
-      success: true,
-      contentLength: body.contentJa.length,
+      success: blocks.length > 0,
+      contentLength: blocks.length,
     };
   } catch (error) {
     console.error(`Failed to fetch body for ${itemId}:`, error);

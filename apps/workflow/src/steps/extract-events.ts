@@ -1,17 +1,19 @@
 /**
- * Extract events step - Use LLM to extract calendar events from news content.
+ * Extract events step - Use the LLM to extract calendar events from news content.
  *
- * Reads contentJa from D1, calls OpenAI with the extraction prompt,
- * parses the response, and saves events to the events table.
+ * Reads blocks_ja from D1, serializes the block tree to RTML (the same
+ * structured input the translate step uses), calls Gemini with the extraction
+ * prompt, parses the response, and saves events to the events table.
  */
 
 import { Temporal } from 'temporal-polyfill';
 import { eq } from 'drizzle-orm';
-import OpenAI from 'openai';
 import { z } from 'zod';
 
+import { serializeToRtml, type Block } from '@hiroba/richtext';
 import { events, newsItems, type Database, type EventType } from '@hiroba/db';
 
+import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import type { ExtractEventsResult } from '../types';
 
 // Event extraction prompt (loaded inline to avoid file system reads in worker)
@@ -265,16 +267,16 @@ function toDbEvent(
 }
 
 /**
- * Extract events from content using OpenAI.
+ * Extract events from RTML content using Gemini.
  */
 async function extractEventsFromContent(
   content: string,
   apiKey: string,
 ): Promise<ExtractedEvent[]> {
-  const client = new OpenAI({ apiKey });
+  const client = createGemini(apiKey);
 
   const response = await client.chat.completions.create({
-    model: 'gpt-4o',
+    model: GEMINI_MODEL,
     temperature: 0.1,
     messages: [
       { role: 'system', content: EXTRACTION_PROMPT },
@@ -283,21 +285,7 @@ async function extractEventsFromContent(
   });
 
   const responseText = response.choices[0]?.message?.content ?? '[]';
-
-  // Try to extract JSON array from response
-  let jsonText = responseText.trim();
-
-  // Handle markdown code blocks
-  if (jsonText.startsWith('```')) {
-    const lines = jsonText.split('\n');
-    // Remove first line (```json or ```)
-    lines.shift();
-    // Remove last line (```)
-    if (lines[lines.length - 1]?.trim() === '```') {
-      lines.pop();
-    }
-    jsonText = lines.join('\n').trim();
-  }
+  const jsonText = stripCodeFence(responseText) || '[]';
 
   try {
     const parsed = JSON.parse(jsonText) as unknown;
@@ -319,7 +307,7 @@ async function extractEventsFromContent(
  * Extract and save events for a news item.
  *
  * @param db - Database client
- * @param apiKey - OpenAI API key
+ * @param apiKey - Gemini API key
  * @param itemId - News item ID
  * @returns Result with count of events extracted and their IDs
  */
@@ -328,28 +316,31 @@ export async function extractAndSaveEvents(
   apiKey: string,
   itemId: string,
 ): Promise<ExtractEventsResult> {
-  // Get the content from D1
+  // Get the block tree from D1
   const item = await db
     .select({
-      contentJa: newsItems.contentJa,
+      titleJa: newsItems.titleJa,
+      blocksJa: newsItems.blocksJa,
     })
     .from(newsItems)
     .where(eq(newsItems.id, itemId))
     .get();
 
-  if (!item?.contentJa) {
+  const blocks = (item?.blocksJa ?? []) as Block[];
+  if (!item || blocks.length === 0) {
     console.error(`No content found for item ${itemId}`);
     return { count: 0, eventIds: [] };
   }
+
+  // Feed the LLM the RTML serialization of the block tree — the structure
+  // (links, headings, tables) the old plaintext extraction never had.
+  const content = serializeToRtml({ title: item.titleJa, blocks });
 
   // Delete existing events for this source (re-extraction)
   await db.delete(events).where(eq(events.sourceId, itemId));
 
   // Extract events using LLM
-  const extractedEvents = await extractEventsFromContent(
-    item.contentJa,
-    apiKey,
-  );
+  const extractedEvents = await extractEventsFromContent(content, apiKey);
 
   if (extractedEvents.length === 0) {
     return { count: 0, eventIds: [] };

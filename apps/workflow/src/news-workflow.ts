@@ -2,9 +2,9 @@
  * NewsWorkflow - Multi-step processing pipeline for news items.
  *
  * Steps:
- * 1. fetch-body - Scrape content and save to D1
- * 2. extract-events - LLM event extraction and save to D1
- * 3. translate - Load glossary, CSV bulk translation, save to D1
+ * 1. fetch-body - Scrape the detail page into blocks_ja and save to D1
+ * 2. extract-events - LLM event extraction (RTML input) and save to D1
+ * 3. translate - Whole-document RTML translation + event titles, save to D1
  *
  * Each step reads inputs from D1 and writes outputs to D1 immediately,
  * returning only minimal state (success/failure, counts).
@@ -60,7 +60,7 @@ export class NewsWorkflow extends WorkflowEntrypoint<Env, NewsWorkflowParams> {
     const extractEventsResult = await step.do(
       'extract-events',
       async (): Promise<ExtractEventsResult> => {
-        return extractAndSaveEvents(db, this.env.OPENAI_API_KEY, itemId);
+        return extractAndSaveEvents(db, this.env.GEMINI_API_KEY, itemId);
       },
     );
 
@@ -70,7 +70,7 @@ export class NewsWorkflow extends WorkflowEntrypoint<Env, NewsWorkflowParams> {
       async (): Promise<TranslateResult> => {
         return translateAndSave(
           db,
-          this.env.OPENAI_API_KEY,
+          this.env.GEMINI_API_KEY,
           itemId,
           extractEventsResult.eventIds,
         );
