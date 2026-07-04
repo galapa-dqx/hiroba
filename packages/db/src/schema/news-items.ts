@@ -3,12 +3,20 @@
  *
  * Supports two-phase scraping:
  * - Phase 1 (list scraping): Populates id, titleJa, category, publishedAt
- * - Phase 2 (body scraping): Populates contentJa on demand
+ * - Phase 2 (body scraping): Populates blocksJa (the JSON block tree) on demand
+ *
+ * Localized output lives in the `translations` table (itemType='news',
+ * field='title'|'content'); the content translation stores the block tree as
+ * JSON, same as topics.
  */
 
 import { sql } from 'drizzle-orm';
 import { check, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+import type { Block } from '@hiroba/richtext';
+
 import { instant } from '../types/instant';
+import { json } from '../types/json';
 
 export const newsItems = sqliteTable(
   'news_items',
@@ -21,19 +29,23 @@ export const newsItems = sqliteTable(
     category: text('category').notNull(), // news|event|update|maintenance
     publishedAt: instant('published_at').notNull(), // epoch ms (Temporal.Instant)
 
-    // From detail page (Phase 2) - NULL if not yet fetched
-    contentJa: text('content_ja'),
+    // From detail page (Phase 2) - NULL until fetched. Canonical source tree.
+    blocksJa: json<Block[]>('blocks_ja'),
 
     // Body fetch tracking
     bodyFetchedAt: instant('body_fetched_at'), // epoch ms (Temporal.Instant)
   },
-  // Mirrors the CHECK constraints in migration 0008. Drizzle has no STRICT
+  // Mirrors the CHECK constraints in migration 0011. Drizzle has no STRICT
   // table option, so strict typing lives only in the raw migration.
   (table) => [
     check('news_items_id_len', sql`length(${table.id}) = 32`),
     check(
       'news_items_category_valid',
       sql`${table.category} IN ('news', 'event', 'update', 'maintenance')`,
+    ),
+    check(
+      'news_items_blocks_ja_json',
+      sql`${table.blocksJa} IS NULL OR json_valid(${table.blocksJa})`,
     ),
   ],
 );

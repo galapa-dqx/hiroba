@@ -242,7 +242,10 @@ describe('getStats', () => {
     // Give item 1 a fetched body.
     await ctx.db
       .update(newsItems)
-      .set({ contentJa: '本文', bodyFetchedAt: BASE })
+      .set({
+        blocksJa: [{ type: 'paragraph', children: ['本文'] }],
+        bodyFetchedAt: BASE,
+      })
       .where(eq(newsItems.id, hex(1)));
     // Translate item 2.
     await ctx.db.insert(translations).values({

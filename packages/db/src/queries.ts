@@ -129,7 +129,7 @@ export async function getStats(db: Database): Promise<{
       db
         .select({ count: sql<number>`count(*)` })
         .from(newsItems)
-        .where(isNotNull(newsItems.contentJa))
+        .where(isNotNull(newsItems.blocksJa))
         .get(),
       db
         .select({ count: sql<number>`count(DISTINCT item_id)` })
@@ -227,7 +227,7 @@ export async function invalidateBody(
   const result = await db
     .update(newsItems)
     .set({
-      contentJa: null,
+      blocksJa: null,
       bodyFetchedAt: null,
     })
     .where(eq(newsItems.id, id))
