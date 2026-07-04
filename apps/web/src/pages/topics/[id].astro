@@ -2,8 +2,8 @@
 import Layout from "../../layouts/Layout.astro";
 import Rosette from "../../components/Rosette.astro";
 import Ornament from "../../components/Ornament.astro";
-import { createDb, getTopic, getTopicTranslations } from "@hiroba/db";
-import { renderBlocks, rewriteImageSrc, type Block } from "@hiroba/richtext";
+import { createDb, getImagesByKeys, getImageTranslations, getTopic, getTopicTranslations } from "@hiroba/db";
+import { collectImages, imageKey, renderBlocks, rewriteImageSrc, type Block } from "@hiroba/richtext";
 
 const { id } = Astro.params;
 if (!id) {
@@ -37,6 +37,29 @@ if (!topic || !hasBody || !isTranslated) {
 
 const title = enTitle ?? topic?.titleJa ?? "Loading topic…";
 const blocks: Block[] = enBlocks ?? (topic?.blocksJa as Block[] | null) ?? [];
+
+// Hydrate each image's transient `text` with the displayed language's spans, so
+// renderBlocks can put it on the image as alt (image text lives in the images /
+// translations tables, not the block tree). EN prefers the translated spans and
+// falls back to the JA transcription.
+const imgs = collectImages(blocks);
+const imgKeys = [...new Set(imgs.map((i) => imageKey(i.src)).filter((k): k is string => !!k))];
+if (imgKeys.length > 0) {
+	const rows = await getImagesByKeys(db, imgKeys);
+	const byKey = new Map(rows.map((r) => [r.key, r]));
+	const enText = isTranslated
+		? await getImageTranslations(db, rows.map((r) => r.id), "en", "text")
+		: new Map<number, string>();
+	for (const img of imgs) {
+		const key = imageKey(img.src);
+		const row = key ? byKey.get(key) : undefined;
+		const en = row && isTranslated ? enText.get(row.id) : undefined;
+		const spans = en ? (JSON.parse(en) as string[]) : (row?.textsJa ?? undefined);
+		if (spans && spans.length) img.text = spans;
+		else delete img.text;
+	}
+}
+
 // When showing the English translation, prefer localized images — the /img route
 // serves the l10n/en/<key> object and falls back to the original for images that
 // weren't localized. Otherwise serve originals (a bucket custom-domain can be set
@@ -201,19 +224,6 @@ const contentHtml = renderBlocks(blocks, { imageSrc: (src: string) => rewriteIma
 		width: 100%;
 		aspect-ratio: 16 / 9;
 		border: 0;
-	}
-
-	.topic-body .rt-image-fig {
-		margin: 0;
-	}
-	/* per-image transcribed text */
-	.topic-body .rt-image-text {
-		margin-top: 0.35rem;
-		padding: 0.35rem 0.6rem;
-		font-size: 0.85em;
-		color: var(--ink-faint);
-		background: var(--surface-sunken);
-		border-left: 2px solid var(--gold-edge);
 	}
 
 	.topic-body .rt-interview .rt-q {

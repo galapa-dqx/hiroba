@@ -41,8 +41,10 @@ export const translations = sqliteTable(
 // Type exports
 export type Translation = typeof translations.$inferSelect;
 export type NewTranslation = typeof translations.$inferInsert;
-export type ItemType = 'news' | 'topic' | 'event';
-export type TranslationField = 'title' | 'content';
+export type ItemType = 'news' | 'topic' | 'event' | 'image';
+// news/topic bodies use 'title' | 'content'; per-image (item_type='image') uses
+// 'text' (translated spans) | 'url' (localized image R2 key).
+export type TranslationField = 'title' | 'content' | 'text' | 'url';
 
 /** Result for a single translated field */
 export type FieldTranslation = {

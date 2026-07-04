@@ -1,16 +1,34 @@
 /**
  * Translate-topic step — whole-document JA→EN translation of a topic.
  *
- * Serializes the title + body as one `<title>…</title><article>…</article>`
- * document (so the model sees full context and can adjust the title once it has
- * read the body), sends it to Gemini 3.1 Flash Lite with matching glossary terms,
- * parses the translated markup back to a block tree, and stores the EN title +
- * content in the translations table. On a bad round-trip it leaves the topic in
- * JA (the renderer falls back to blocks_ja).
+ * Image text is transcribed into the `images` table (deduped per image). Here we
+ * hydrate each image's spans back into the block tree so they translate
+ * in-context via `<figure>` — but only for images that have Japanese and aren't
+ * already translated to the target language (a shared banner is translated once,
+ * by the first topic to include it). After translating we pull the EN spans out
+ * into per-image translation rows (item_type='image', field='text') and strip
+ * them from the stored topic content, which therefore carries no image text.
+ *
+ * On a bad round-trip it leaves the topic in JA (the renderer falls back to
+ * blocks_ja).
  */
 
-import { parseTranslation, serializeForTranslation, type Block } from '@hiroba/richtext';
-import { findMatchingGlossaryEntries, getTopic, upsertTopicTranslation, type Database } from '@hiroba/db';
+import {
+  collectImages,
+  imageKey,
+  parseTranslation,
+  serializeForTranslation,
+  type Block,
+} from '@hiroba/richtext';
+import {
+  findMatchingGlossaryEntries,
+  getImagesByKeys,
+  getTopic,
+  getTranslatedImageIds,
+  upsertImageTranslation,
+  upsertTopicTranslation,
+  type Database,
+} from '@hiroba/db';
 
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import type { TranslateResult } from '../types';
@@ -20,12 +38,11 @@ const TARGET_LANGUAGE = 'en';
 const TRANSLATION_SYSTEM_PROMPT =
   'Translate the provided article from Japanese to natural English, maintaining formatting and matching the original tone, while strictly adhering to the translation glossary. Retain all HTML tags in the output.';
 
+const JAPANESE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]/;
+const hasJapanese = (spans: string[]): boolean => spans.some((s) => JAPANESE.test(s));
+
 /**
- * Translate a topic and save its EN title + content.
- *
- * @param db - Database client
- * @param apiKey - Gemini API key
- * @param topicId - Topic ID (its blocks_ja must already be populated)
+ * Translate a topic and save its EN title + content, plus per-image EN text.
  */
 export async function translateTopic(db: Database, apiKey: string, topicId: string): Promise<TranslateResult> {
   const topic = await getTopic(db, topicId);
@@ -37,6 +54,24 @@ export async function translateTopic(db: Database, apiKey: string, topicId: stri
   if (blocks.length === 0) {
     console.error(`Topic ${topicId} has no blocks to translate`);
     return { success: false, fieldsTranslated: 0 };
+  }
+
+  // Hydrate image text from the images table, injecting spans only for localizable
+  // images not already translated to the target language.
+  const blockImages = collectImages(blocks);
+  const keys = [...new Set(blockImages.map((i) => imageKey(i.src)).filter((k): k is string => !!k))];
+  const imageRows = await getImagesByKeys(db, keys);
+  const byKey = new Map(imageRows.map((r) => [r.key, r]));
+  const alreadyTranslated = await getTranslatedImageIds(db, imageRows.map((r) => r.id), TARGET_LANGUAGE);
+
+  for (const img of blockImages) {
+    const key = imageKey(img.src);
+    const row = key ? byKey.get(key) : undefined;
+    if (row?.textsJa && hasJapanese(row.textsJa) && !alreadyTranslated.has(row.id)) {
+      img.text = row.textsJa;
+    } else {
+      delete img.text;
+    }
   }
 
   const markup = serializeForTranslation({ title: topic.titleJa, blocks });
@@ -74,6 +109,30 @@ export async function translateTopic(db: Database, apiKey: string, topicId: stri
     console.error(`Topic ${topicId}: translated body was empty, keeping JA`);
     return { success: false, fieldsTranslated: 0 };
   }
+
+  // Pull the translated image spans out into per-image translation rows. The two
+  // trees share structure, so images line up by index.
+  const enImages = collectImages(result.blocks);
+  if (enImages.length === blockImages.length) {
+    for (let i = 0; i < blockImages.length; i++) {
+      if (!blockImages[i].text?.length) continue; // wasn't injected → not (re)translated
+      const key = imageKey(blockImages[i].src);
+      const row = key ? byKey.get(key) : undefined;
+      const enSpans = enImages[i].text;
+      if (row && enSpans?.length) {
+        await upsertImageTranslation(db, {
+          imageId: row.id,
+          language: TARGET_LANGUAGE,
+          field: 'text',
+          value: JSON.stringify(enSpans),
+          model: GEMINI_MODEL,
+        });
+      }
+    }
+  }
+
+  // Image text is transient in the tree — its home is images/translations.
+  for (const img of enImages) delete img.text;
 
   await upsertTopicTranslation(db, {
     itemId: topicId,

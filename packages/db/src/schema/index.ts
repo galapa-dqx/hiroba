@@ -9,3 +9,4 @@ export * from './topics';
 export * from './translations';
 export * from './glossary';
 export * from './events';
+export * from './images';

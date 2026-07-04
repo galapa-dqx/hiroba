@@ -10,6 +10,7 @@ import { getNextCheckTime, isDueForCheck, type Category } from '@hiroba/shared';
 import type { Block } from '@hiroba/richtext';
 
 import type { Database } from './client';
+import { images, type Image } from './schema/images';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
 import { topics, type NewTopic, type Topic } from './schema/topics';
 import { translations, type TranslationField } from './schema/translations';
@@ -540,6 +541,114 @@ export async function upsertTopicTranslation(
         translations.language,
         translations.field,
       ],
+      set: { value: params.value, translatedAt: now, model: params.model },
+    });
+}
+
+/* ------------------------------------------------------------------ *
+ * Images (per-distinct-image transcription + localization state)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Record an image's transcription (get-or-create by key). `textsJa` is every
+ * transcribed span ([] if none). Returns the surrogate image id (used as
+ * translations.item_id). Whether it's worth localizing is derived from textsJa.
+ */
+export async function upsertImageTranscription(
+  db: Database,
+  params: { key: string; textsJa: string[]; model: string },
+): Promise<number> {
+  const now = Temporal.Now.instant();
+  const rows = await db
+    .insert(images)
+    .values({
+      key: params.key,
+      textsJa: params.textsJa,
+      transcribeModel: params.model,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: images.key,
+      set: {
+        textsJa: params.textsJa,
+        transcribeModel: params.model,
+        updatedAt: now,
+      },
+    })
+    .returning({ id: images.id });
+  return rows[0].id;
+}
+
+/** Look up image rows by their natural keys (imageKey). */
+export async function getImagesByKeys(db: Database, keys: string[]): Promise<Image[]> {
+  if (keys.length === 0) return [];
+  return db.select().from(images).where(inArray(images.key, keys)).all();
+}
+
+/** The subset of `imageIds` that already have a translated `text` row for `language`. */
+export async function getTranslatedImageIds(
+  db: Database,
+  imageIds: number[],
+  language: string,
+): Promise<Set<number>> {
+  if (imageIds.length === 0) return new Set();
+  const rows = await db
+    .select({ itemId: translations.itemId })
+    .from(translations)
+    .where(
+      and(
+        eq(translations.itemType, 'image'),
+        eq(translations.language, language),
+        eq(translations.field, 'text'),
+        inArray(translations.itemId, imageIds.map(String)),
+      ),
+    )
+    .all();
+  return new Set(rows.map((r) => Number(r.itemId)));
+}
+
+/** Map image id → translation value for a given `field` ('text' | 'url') and language. */
+export async function getImageTranslations(
+  db: Database,
+  imageIds: number[],
+  language: string,
+  field: 'text' | 'url',
+): Promise<Map<number, string>> {
+  if (imageIds.length === 0) return new Map();
+  const rows = await db
+    .select({ itemId: translations.itemId, value: translations.value })
+    .from(translations)
+    .where(
+      and(
+        eq(translations.itemType, 'image'),
+        eq(translations.language, language),
+        eq(translations.field, field),
+        inArray(translations.itemId, imageIds.map(String)),
+      ),
+    )
+    .all();
+  return new Map(rows.map((r) => [Number(r.itemId), r.value]));
+}
+
+/** Upsert a per-image translation row (item_type='image', item_id=image id). */
+export async function upsertImageTranslation(
+  db: Database,
+  params: { imageId: number; language: string; field: 'text' | 'url'; value: string; model: string },
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  await db
+    .insert(translations)
+    .values({
+      itemType: 'image',
+      itemId: String(params.imageId),
+      language: params.language,
+      field: params.field,
+      value: params.value,
+      translatedAt: now,
+      model: params.model,
+    })
+    .onConflictDoUpdate({
+      target: [translations.itemType, translations.itemId, translations.language, translations.field],
       set: { value: params.value, translatedAt: now, model: params.model },
     });
 }

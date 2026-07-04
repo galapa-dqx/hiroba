@@ -18,7 +18,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloud
 import { Temporal } from 'temporal-polyfill';
 
 import type { Block } from '@hiroba/richtext';
-import { createDb, getTopic, getTopicTranslations, updateTopicBlocks, upsertTopic } from '@hiroba/db';
+import { createDb, getTopic, getTopicTranslations, upsertTopic } from '@hiroba/db';
 import { fetchTopicBody } from '@hiroba/scraper';
 
 import { localizeImages, type LocalizeResult } from './steps/localize-images';
@@ -73,13 +73,13 @@ export class TopicsWorkflow extends WorkflowEntrypoint<Env, TopicsWorkflowParams
       return mirrorImages(this.env.IMAGES, blocks);
     });
 
-    // Step 3: transcribe baked-in image text → blocks_ja (saved again). Reads
-    // bytes from the R2 mirror, so it doesn't re-hit the CDN.
+    // Step 3: transcribe baked-in image text into the `images` table (deduped by
+    // key across topics). Reads bytes from the R2 mirror, so it doesn't re-hit
+    // the CDN.
     const transcribe = await step.do('transcribe-images', async (): Promise<TranscribeResult> => {
       const topic = await getTopic(db, itemId);
       const blocks = (topic?.blocksJa ?? []) as Block[];
-      const imagesTranscribed = await transcribeImages(blocks, this.env.GEMINI_API_KEY, this.env.IMAGES);
-      if (imagesTranscribed > 0) await updateTopicBlocks(db, itemId, blocks);
+      const imagesTranscribed = await transcribeImages(db, blocks, this.env.GEMINI_API_KEY, this.env.IMAGES);
       return { imagesTranscribed };
     });
 

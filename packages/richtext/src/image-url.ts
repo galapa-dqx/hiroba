@@ -89,6 +89,52 @@ export function rewriteImageSrc(src: string, base = '/img'): string {
 }
 
 /**
+ * Every block-level image node in the tree, in document order (returns the live
+ * references so callers can hydrate `text`). Two trees of the same document (JA
+ * and its translation) yield images in matching order, so callers pair by index.
+ */
+export function collectImages(blocks: Block[]): ImageNode[] {
+  const out: ImageNode[] = [];
+
+  const visitContent = (n: ContentNode) => {
+    if (isBlock(n)) visitBlock(n);
+  };
+
+  const visitBlock = (node: Block) => {
+    switch (node.type) {
+      case 'image':
+        out.push(node);
+        break;
+      case 'infoBox':
+      case 'section':
+      case 'accordion':
+      case 'speechBubble':
+      case 'messageBox':
+        node.children.forEach(visitContent);
+        break;
+      case 'list':
+        node.items.forEach((it) => it.children.forEach(visitContent));
+        break;
+      case 'table':
+        node.headers?.forEach((c) => c.children.forEach(visitContent));
+        node.rows.forEach((row) => row.forEach((c) => c.children.forEach(visitContent)));
+        break;
+      case 'interview':
+        node.exchanges.forEach((e) => e.answer.forEach(visitBlock));
+        break;
+      case 'steps':
+        node.items.forEach((s) => s.children.forEach(visitBlock));
+        break;
+      default:
+        break; // paragraph/heading/button/divider/video/embed/ranking hold no block images
+    }
+  };
+
+  blocks.forEach(visitBlock);
+  return out;
+}
+
+/**
  * Every mirrorable image URL referenced anywhere in a block tree — block images
  * (+ responsive sources), inline icons, and speech-bubble portraits. Deduped.
  * Used by the mirror-images step to pull each asset into R2 exactly once.

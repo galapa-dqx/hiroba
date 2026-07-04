@@ -69,15 +69,13 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
       case 'divider':
         return '<hr>';
       case 'image': {
-        const img = `<img class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} src="${escAttr(src(node.src))}" alt="${escAttr(node.alt ?? '')}">`;
-        // Show the translated in-image text as a caption (overlay/compositing is a
-        // later refinement); newlines separate transcribed spans.
-        const fig = node.text === undefined
-          ? img
-          : `<figure class="rt-image-fig">${img}<figcaption class="rt-image-text">${node.text.map(esc).join('<br>')}</figcaption></figure>`;
-        if (!node.href) return fig;
+        // The in-image text (localized into the image itself) rides as alt for
+        // accessibility; hydrate `text` with the displayed language's spans.
+        const alt = node.text?.length ? node.text.join(' ') : (node.alt ?? '');
+        const img = `<img class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} src="${escAttr(src(node.src))}" alt="${escAttr(alt)}">`;
+        if (!node.href) return img;
         const rel = node.external ? ' target="_blank" rel="noopener noreferrer"' : '';
-        return `<a class="rt-image-link" href="${escAttr(node.href)}"${rel}>${fig}</a>`;
+        return `<a class="rt-image-link" href="${escAttr(node.href)}"${rel}>${img}</a>`;
       }
       case 'video':
         return `<div class="rt-video"><iframe src="${escAttr(node.src)}" allowfullscreen loading="lazy"></iframe></div>`;

@@ -13,10 +13,9 @@
  * the image model). Idempotent: skips images already localized in R2.
  */
 
-import { imageKey, imageUpstreamUrl, type Block, type ImageNode } from '@hiroba/richtext';
+import { collectImages, imageKey, imageUpstreamUrl, type Block, type ImageNode } from '@hiroba/richtext';
 
 import { generateImageEdit } from '../gemini';
-import { collectImages } from './transcribe-images';
 
 /** R2 key prefix for English-localized images. */
 export const LOCALIZED_PREFIX = 'l10n/en';
