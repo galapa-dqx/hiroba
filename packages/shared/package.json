@@ -14,9 +14,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "openai": "^4.104.0",
-    "temporal-polyfill": "^0.3.0",
-    "zod": "^3.24.0"
+    "temporal-polyfill": "^0.3.0"
   },
   "devDependencies": {
     "typescript": "^5.9.3"
