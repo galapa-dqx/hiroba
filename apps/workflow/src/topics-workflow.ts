@@ -18,7 +18,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloud
 import { Temporal } from 'temporal-polyfill';
 
 import type { Block } from '@hiroba/richtext';
-import { createDb, getTopic, getTopicTranslations, upsertTopic } from '@hiroba/db';
+import { createDb, getTopic, upsertTopic } from '@hiroba/db';
 import { fetchTopicBody } from '@hiroba/scraper';
 
 import { localizeImages, type LocalizeResult } from './steps/localize-images';
@@ -88,15 +88,14 @@ export class TopicsWorkflow extends WorkflowEntrypoint<Env, TopicsWorkflowParams
       return translateTopic(db, this.env.GEMINI_API_KEY, itemId);
     });
 
-    // Step 5: bake the EN translations back into text-bearing images (Nano Banana
-    // Pro). Needs the EN spans from the translate step, so it runs last.
+    // Step 5: bake the EN translations back into text-bearing images (gpt-image-2).
+    // Reads texts_ja + the EN spans from the images/translations tables, so it
+    // just needs the topic's block tree to know which images it references.
     const localize = await step.do('localize-images', async (): Promise<LocalizeResult> => {
       if (!translate.success) return { localized: 0, skipped: 0, failed: 0 };
       const topic = await getTopic(db, itemId);
-      const blocksJa = (topic?.blocksJa ?? []) as Block[];
-      const { blocks: blocksEn } = await getTopicTranslations(db, itemId, 'en');
-      if (!blocksEn) return { localized: 0, skipped: 0, failed: 0 };
-      return localizeImages(this.env.IMAGES, this.env.GEMINI_API_KEY, blocksJa, blocksEn);
+      const blocks = (topic?.blocksJa ?? []) as Block[];
+      return localizeImages(db, this.env.IMAGES, this.env.OPENAI_API_KEY, blocks);
     });
 
     return { itemId, fetchBody, mirror, transcribe, translate, localize };

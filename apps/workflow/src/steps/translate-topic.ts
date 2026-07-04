@@ -31,15 +31,13 @@ import {
 } from '@hiroba/db';
 
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
+import { hasJapanese } from '../japanese';
 import type { TranslateResult } from '../types';
 
 const TARGET_LANGUAGE = 'en';
 
 const TRANSLATION_SYSTEM_PROMPT =
   'Translate the provided article from Japanese to natural English, maintaining formatting and matching the original tone, while strictly adhering to the translation glossary. Retain all HTML tags in the output.';
-
-const JAPANESE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]/;
-const hasJapanese = (spans: string[]): boolean => spans.some((s) => JAPANESE.test(s));
 
 /**
  * Translate a topic and save its EN title + content, plus per-image EN text.

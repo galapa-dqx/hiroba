@@ -1,21 +1,27 @@
 /**
- * Localize-images step — bake the English translations back into the images.
+ * Localize-images step — bake the English translations into text-bearing images.
  *
- * Topics carry text inside banners/headings. The transcribe step read that text
- * (JA spans on `image.text`) and the translate step produced the matching EN
- * spans (the EN block tree's `image.text`, 1:1 by span). Here we hand each image
- * plus its JA→EN pairs to Gemini's image model (Nano Banana Pro) and ask it to
- * swap the Japanese for the provided English in place, then store the result in
- * R2 under `l10n/en/<imageKey>`. The web `/img` route serves that for EN pages
- * and falls back to the original when an image was never localized.
+ * Reads each image's source spans (`images.texts_ja`) and their translation
+ * (`translations` item_type='image', field='text'), hands the pairs to
+ * gpt-image-2, and stores the result in R2 under `l10n/en/<imageKey>`. A
+ * `translations` `url` row records the R2 key + the image model, so we skip
+ * images already localized by the current model and regenerate when it changes.
  *
- * Only images that actually have baked-in text are localized (bounds the cost of
- * the image model). Idempotent: skips images already localized in R2.
+ * Only images that were translated (i.e. had Japanese) are candidates.
  */
 
-import { collectImages, imageKey, imageUpstreamUrl, type Block, type ImageNode } from '@hiroba/richtext';
+import { collectImages, imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
+import {
+  getImagesByKeys,
+  getImageTranslations,
+  getLocalizedImageModels,
+  upsertImageTranslation,
+  type Database,
+} from '@hiroba/db';
 
-import { generateImageEdit } from '../gemini';
+import { editImage, IMAGE_MODEL } from '../image-edit';
+import { trimToAspect } from '../image-trim';
+import { hasJapanese } from '../japanese';
 
 /** R2 key prefix for English-localized images. */
 export const LOCALIZED_PREFIX = 'l10n/en';
@@ -30,7 +36,7 @@ const CACHE_CONTROL = 'public, max-age=31536000, immutable';
 export type LocalizeResult = {
   /** images newly localized this run */
   localized: number;
-  /** already localized (skipped) or no baked-in text */
+  /** already localized by the current model, or nothing to translate */
   skipped: number;
   /** load or generation failed */
   failed: number;
@@ -55,105 +61,97 @@ function buildPrompt(pairs: Array<{ ja: string; en: string }>): string {
   ].join('\n');
 }
 
-/** Base64-encode raw bytes (chunked to avoid a huge spread on String.fromCharCode). */
-function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-function fromBase64(data: string): Uint8Array {
-  const binary = atob(data);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
 /** Load the original image bytes — from the R2 mirror if present, else the CDN. */
 async function loadOriginal(
   bucket: R2Bucket,
   key: string,
-): Promise<{ base64: string; mimeType: string } | null> {
+): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
   const obj = await bucket.get(key);
   if (obj) {
-    return { base64: toBase64(await obj.arrayBuffer()), mimeType: obj.httpMetadata?.contentType ?? 'image/jpeg' };
+    return { bytes: new Uint8Array(await obj.arrayBuffer()), mimeType: obj.httpMetadata?.contentType ?? 'image/jpeg' };
   }
   try {
     const res = await fetch(imageUpstreamUrl(key), { headers: FETCH_HEADERS });
     if (!res.ok) return null;
-    return { base64: toBase64(await res.arrayBuffer()), mimeType: res.headers.get('content-type') ?? 'image/jpeg' };
+    return { bytes: new Uint8Array(await res.arrayBuffer()), mimeType: res.headers.get('content-type') ?? 'image/jpeg' };
   } catch {
     return null;
   }
 }
 
-/** Pair an image's JA spans with the EN spans from the translated twin. */
-function spanPairs(ja: ImageNode, en: ImageNode | undefined): Array<{ ja: string; en: string }> {
-  const enText = en?.text ?? [];
-  return (ja.text ?? []).map((j, k) => ({ ja: j, en: enText[k] ?? j }));
-}
-
 /**
- * Localize every text-bearing image in a topic. `blocksJa`/`blocksEn` are the
- * same tree in each language, so their images line up by traversal order.
+ * Localize every text-bearing image referenced by `blocks`. Idempotent per model.
  */
 export async function localizeImages(
+  db: Database,
   bucket: R2Bucket,
   apiKey: string,
-  blocksJa: Block[],
-  blocksEn: Block[],
+  blocks: Block[],
 ): Promise<LocalizeResult> {
-  const imagesJa = collectImages(blocksJa);
-  const imagesEn = collectImages(blocksEn);
+  const keys = [
+    ...new Set(collectImages(blocks).map((i) => imageKey(i.src)).filter((k): k is string => !!k)),
+  ];
+  if (keys.length === 0) return { localized: 0, skipped: 0, failed: 0 };
 
-  // If the trees diverged (translation restructured the body) we can't trust the
-  // positional pairing — skip rather than burn image-model calls on mismatches.
-  if (imagesJa.length !== imagesEn.length) {
-    console.warn(`localizeImages: image count mismatch (ja=${imagesJa.length}, en=${imagesEn.length}), skipping`);
-    return { localized: 0, skipped: imagesJa.length, failed: 0 };
-  }
+  const rows = await getImagesByKeys(db, keys);
+  const ids = rows.map((r) => r.id);
+  const enText = await getImageTranslations(db, ids, 'en', 'text');
+  const localizedBy = await getLocalizedImageModels(db, ids, 'en');
 
   let localized = 0;
   let skipped = 0;
   let failed = 0;
 
-  for (let i = 0; i < imagesJa.length; i++) {
-    const ja = imagesJa[i];
-    if (!ja.text || ja.text.length === 0) {
-      skipped++; // no baked-in text to localize
+  for (const row of rows) {
+    const enJson = enText.get(row.id);
+    if (!enJson) {
+      skipped++; // nothing translated (no Japanese) → nothing to localize
       continue;
     }
-    const key = imageKey(ja.src);
-    if (!key) {
+    if (localizedBy.get(row.id) === IMAGE_MODEL) {
+      skipped++; // already localized by the current model
+      continue;
+    }
+
+    const enSpans = JSON.parse(enJson) as string[];
+    const jaSpans = row.textsJa ?? [];
+    const pairs = jaSpans
+      .map((ja, i) => ({ ja, en: enSpans[i] ?? ja }))
+      .filter((p) => hasJapanese([p.ja]));
+    if (pairs.length === 0) {
       skipped++;
       continue;
     }
 
-    const localizedKey = `${LOCALIZED_PREFIX}/${key}`;
-    if (await bucket.head(localizedKey)) {
-      skipped++; // already localized
-      continue;
-    }
-
-    const original = await loadOriginal(bucket, key);
+    const original = await loadOriginal(bucket, row.key);
     if (!original) {
       failed++;
       continue;
     }
 
-    const edited = await generateImageEdit(apiKey, {
-      prompt: buildPrompt(spanPairs(ja, imagesEn[i])),
-      imageBase64: original.base64,
+    const edited = await editImage(apiKey, {
+      imageBytes: original.bytes,
       mimeType: original.mimeType,
+      prompt: buildPrompt(pairs),
     });
     if (!edited) {
       failed++;
       continue;
     }
 
-    await bucket.put(localizedKey, fromBase64(edited.data), {
-      httpMetadata: { contentType: edited.mimeType, cacheControl: CACHE_CONTROL },
+    // Trim the padding gpt-image-2 adds, back to the original's aspect ratio.
+    const localizedBytes = trimToAspect(edited, original.bytes);
+
+    const localizedKey = `${LOCALIZED_PREFIX}/${row.key}`;
+    await bucket.put(localizedKey, localizedBytes, {
+      httpMetadata: { contentType: 'image/png', cacheControl: CACHE_CONTROL },
+    });
+    await upsertImageTranslation(db, {
+      imageId: row.id,
+      language: 'en',
+      field: 'url',
+      value: localizedKey,
+      model: IMAGE_MODEL,
     });
     localized++;
   }

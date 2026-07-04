@@ -630,6 +630,32 @@ export async function getImageTranslations(
   return new Map(rows.map((r) => [Number(r.itemId), r.value]));
 }
 
+/**
+ * Map image id → the model that produced its localized image (the `url` row's
+ * model), for a language. Lets the localize step regenerate only when the model
+ * changed (or is missing).
+ */
+export async function getLocalizedImageModels(
+  db: Database,
+  imageIds: number[],
+  language: string,
+): Promise<Map<number, string>> {
+  if (imageIds.length === 0) return new Map();
+  const rows = await db
+    .select({ itemId: translations.itemId, model: translations.model })
+    .from(translations)
+    .where(
+      and(
+        eq(translations.itemType, 'image'),
+        eq(translations.language, language),
+        eq(translations.field, 'url'),
+        inArray(translations.itemId, imageIds.map(String)),
+      ),
+    )
+    .all();
+  return new Map(rows.map((r) => [Number(r.itemId), r.model]));
+}
+
 /** Upsert a per-image translation row (item_type='image', item_id=image id). */
 export async function upsertImageTranslation(
   db: Database,
