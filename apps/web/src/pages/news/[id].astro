@@ -4,6 +4,7 @@ import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import CategoryDot from "@hiroba/ui/CategoryDot.astro";
 import { createDb, getNewsItem, translations as translationsTable } from "@hiroba/db";
+import { renderBlocks, type Block } from "@hiroba/richtext";
 import { CATEGORY_LABELS, type Category } from "@hiroba/shared";
 import { and, eq } from "drizzle-orm";
 
@@ -40,7 +41,7 @@ const contentTranslation = existingTranslations.find((t) => t.field === "content
 
 // Determine content state
 const hasTranslations = !!titleTranslation;
-const hasContent = !!item.contentJa;
+const hasContent = !!item.blocksJa;
 
 // If no content or no translations, trigger workflow (fire and forget)
 if (!hasContent || !hasTranslations) {
@@ -60,7 +61,19 @@ if (!hasContent || !hasTranslations) {
 
 // Use translations if available, otherwise fall back to Japanese
 const title = titleTranslation?.value ?? item.titleJa;
-const content = contentTranslation?.value ?? item.contentJa ?? "";
+
+// The EN content translation stores the block tree as JSON (same format as
+// topics); fall back to the Japanese blocks_ja when it's missing or unparseable.
+let enBlocks: Block[] | null = null;
+if (contentTranslation) {
+	try {
+		enBlocks = JSON.parse(contentTranslation.value) as Block[];
+	} catch {
+		enBlocks = null;
+	}
+}
+const blocks: Block[] = enBlocks ?? (item.blocksJa as Block[] | null) ?? [];
+const contentHtml = renderBlocks(blocks);
 const translatedAt = titleTranslation?.translatedAt ?? null;
 const isTranslated = !!titleTranslation;
 const category = item.category as Category;
@@ -97,9 +110,9 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 			</div>
 		)}
 
-		{content && (
+		{contentHtml && (
 			<div class="scroll">
-				<div class="scroll__content" set:html={content} />
+				<div class="scroll__content news-body" set:html={contentHtml} />
 			</div>
 		)}
 
@@ -147,6 +160,64 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 	}
 	.translation-info p {
 		margin: 1rem 0;
+	}
+</style>
+
+{/* The rendered block tree is injected via set:html, so its rt-* styles must be
+    global. News bodies are paragraphs + links, but we cover the common blocks. */}
+<style is:global>
+	/* Structured HTML (not the old preformatted plaintext) — collapse whitespace. */
+	.news-body {
+		white-space: normal;
+	}
+	.news-body > * + * {
+		margin-top: 1rem;
+	}
+	.news-body img {
+		max-width: 100%;
+		height: auto;
+	}
+	.news-body h2,
+	.news-body h3 {
+		font-family: var(--font-display);
+		line-height: 1.3;
+		margin-top: 1.5rem;
+	}
+
+	/* table → ruled ledger */
+	.news-body .rt-table {
+		border-collapse: collapse;
+		width: 100%;
+		font-size: 0.94em;
+	}
+	.news-body .rt-table td,
+	.news-body .rt-table th {
+		border: 1px solid var(--rule);
+		padding: 0.45rem 0.65rem;
+		text-align: left;
+	}
+	.news-body .rt-table th {
+		background: var(--surface-sunken);
+		font-weight: 650;
+	}
+
+	/* badge → red chip */
+	.news-body .rt-badge {
+		display: inline-block;
+		margin-left: 0.3em;
+		padding: 0.08em 0.45em;
+		font-size: 0.72em;
+		font-weight: 800;
+		letter-spacing: 0.04em;
+		color: oklch(99% 0.01 30);
+		background: linear-gradient(180deg, var(--red-9), var(--red-10));
+		border-radius: var(--radius);
+	}
+
+	.news-body .rt-icon {
+		display: inline;
+		height: 1em;
+		vertical-align: -0.12em;
 	}
 </style>
 

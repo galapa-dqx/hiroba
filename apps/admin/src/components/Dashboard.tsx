@@ -71,7 +71,7 @@ export default function Dashboard() {
           <p className="stat-value">{stats.totalItems}</p>
         </div>
         <div className="stat-card">
-          <h3>With Body (contentJa)</h3>
+          <h3>With Body (blocks_ja)</h3>
           <p className="stat-value">{stats.itemsWithBody}</p>
         </div>
         <div className="stat-card">

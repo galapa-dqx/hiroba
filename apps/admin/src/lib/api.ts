@@ -60,7 +60,7 @@ export type NewsItem = {
   titleJa: string;
   category: string;
   publishedAt: string; // ISO-8601 UTC instant
-  contentJa: string | null;
+  blocksJa: unknown[] | null; // JSON Block[] tree, NULL until the body is fetched
 };
 
 export async function getNewsList(options?: {

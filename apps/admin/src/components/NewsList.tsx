@@ -165,7 +165,7 @@ export default function NewsList() {
                   </span>
                 </td>
                 <td>{formatLocalDate(item.publishedAt)}</td>
-                <td>{item.contentJa ? '✓' : '—'}</td>
+                <td>{item.blocksJa ? '✓' : '—'}</td>
                 <td className="actions-cell">
                   <button
                     onClick={() => handleTriggerWorkflow(item.id)}
