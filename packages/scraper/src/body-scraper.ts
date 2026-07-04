@@ -1,19 +1,35 @@
 /**
- * Body scraper for fetching news detail page content.
+ * Body scraper for news detail pages.
+ *
+ * A news body is a strict subset of the topics rich-text model — paragraphs,
+ * line breaks, and links (sqex.to shortlinks) — so we parse it with the topics
+ * parser pointed at `div.newsContent`. This preserves the `<a>` links the old
+ * plaintext conversion destroyed (see DQX-9); fetching is driven by the workflow.
  */
 
-import * as cheerio from 'cheerio';
+import { load } from 'cheerio';
+import type { Element } from 'domhandler';
 
+import type { Block } from '@hiroba/richtext';
 import { SCRAPE_CONFIG } from '@hiroba/shared';
 
-export type BodyContent = {
-  contentJa: string;
-};
+import { parseTopicContent } from './topics-parser';
 
 /**
- * Fetch and parse the detail page for a news item.
+ * Parse a news detail page's HTML into the @hiroba/richtext block tree, targeting
+ * the `div.newsContent` body container.
  */
-export async function fetchNewsBody(id: string): Promise<BodyContent> {
+export function parseNewsBody(html: string): Block[] {
+  const $ = load(html);
+  const root = $('div.newsContent')[0] as Element | undefined;
+  if (!root) return [];
+  return parseTopicContent($, root);
+}
+
+/**
+ * Fetch and parse the detail page for a news item into a block tree.
+ */
+export async function fetchNewsBody(id: string): Promise<Block[]> {
   const url = `${SCRAPE_CONFIG.baseUrl}${SCRAPE_CONFIG.newsDetailPath}${id}/`;
 
   const response = await fetch(url, {
@@ -27,30 +43,5 @@ export async function fetchNewsBody(id: string): Promise<BodyContent> {
     throw new Error(`Failed to fetch detail page: ${response.status}`);
   }
 
-  const html = await response.text();
-  return parseDetailPage(html);
-}
-
-/**
- * Extract the main content from a detail page.
- */
-function parseDetailPage(html: string): BodyContent {
-  const $ = cheerio.load(html);
-
-  // Extract content from div.newsContent
-  const contentElem = $('div.newsContent');
-  let contentJa = '';
-  if (contentElem.length) {
-    // Get text content, preserving some structure
-    contentJa = contentElem
-      .html()!
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-  }
-
-  return { contentJa };
+  return parseNewsBody(await response.text());
 }

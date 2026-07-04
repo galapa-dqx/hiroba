@@ -11,8 +11,8 @@ export {
   CATEGORY_TO_ID,
 } from './list-scraper';
 
-// Body scraper (fetching is now handled by Durable Objects)
-export { fetchNewsBody, type BodyContent } from './body-scraper';
+// Body scraper (news detail page → @hiroba/richtext block tree)
+export { fetchNewsBody, parseNewsBody } from './body-scraper';
 
 // Glossary fetcher
 export {
