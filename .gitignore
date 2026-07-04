@@ -33,12 +33,6 @@ pnpm-debug.log*
 .env.*
 !.env.example
 
-# Python (legacy)
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-
 # Testing
 coverage/
 
