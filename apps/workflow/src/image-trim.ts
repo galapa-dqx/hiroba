@@ -1,16 +1,21 @@
 /**
- * Trim the opaque white/off-white padding gpt-image-2 adds, then crop to the
- * original image's aspect ratio. Pure-JS PNG codec (fast-png) so it runs in the
- * Worker; the geometry (contentBox / fitAspect / crop) is exported for testing.
+ * Trim the padding gpt-image-2 adds around its edit, then crop to the original
+ * image's aspect ratio. Pure-JS PNG codec (fast-png) so it runs in the Worker;
+ * the geometry (contentBox / fitAspect / crop) is exported for testing.
  *
- * Note: this trims *edge* whitespace — solid near-white rows/columns from each
- * side — so it removes an added border without touching interior whitespace.
+ * Note: this trims *edge* padding — solid background rows/columns from each side
+ * — so it removes an added border without touching the interior. Background is
+ * near-white *or* near-transparent, so it handles both the opaque white the
+ * model pads with and the transparency restored by image-matte.
  */
 
 import { decode, encode } from 'fast-png';
 
 /** R,G,B all ≥ this ⇒ background (white / off-white). */
 const BG_THRESHOLD = 240;
+
+/** alpha ≤ this ⇒ background (see-through padding, e.g. from image-matte). */
+const BG_ALPHA = 8;
 
 export type Raster = {
   data: Uint8Array;
@@ -68,9 +73,10 @@ export function imageDimensions(
 export function contentBox(r: Raster, threshold = BG_THRESHOLD): Box {
   const { data, width, height, channels } = r;
   const isBg = (px: number): boolean =>
-    data[px] >= threshold &&
-    data[px + 1] >= threshold &&
-    data[px + 2] >= threshold;
+    (channels >= 4 && data[px + 3] <= BG_ALPHA) ||
+    (data[px] >= threshold &&
+      data[px + 1] >= threshold &&
+      data[px + 2] >= threshold);
 
   let minX = width;
   let minY = height;

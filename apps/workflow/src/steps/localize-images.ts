@@ -28,6 +28,7 @@ import { hasJapanese } from '@hiroba/shared';
 
 import { mapWithConcurrency } from '../concurrency';
 import { editImage, IMAGE_MODEL, toEditableImage } from '../image-edit';
+import { matteTransparentPng, restoreTransparency } from '../image-matte';
 import { trimToAspect } from '../image-trim';
 
 /** R2 key prefix for English-localized images. */
@@ -190,8 +191,15 @@ export async function localizeImages(
         return;
       }
 
+      // gpt-image-2 can't round-trip transparency; matte onto black first and
+      // key it back out after the edit (see image-matte). No-op for opaque images.
+      const prepared =
+        editable.mimeType === 'image/png'
+          ? matteTransparentPng(editable.bytes)
+          : { bytes: editable.bytes, matted: false };
+
       const edited = await editImage(apiKey, {
-        imageBytes: editable.bytes,
+        imageBytes: prepared.bytes,
         mimeType: editable.mimeType,
         prompt: buildPrompt(pairs),
       });
@@ -200,8 +208,10 @@ export async function localizeImages(
         return;
       }
 
-      // Trim the padding gpt-image-2 adds, back to the original's aspect ratio.
-      const localizedBytes = trimToAspect(edited, original.bytes);
+      // Restore transparency (matted images only), then trim the padding
+      // gpt-image-2 adds back to the original's aspect ratio.
+      const restored = prepared.matted ? restoreTransparency(edited) : edited;
+      const localizedBytes = trimToAspect(restored, original.bytes);
 
       const localizedKey = `${LOCALIZED_PREFIX}/${row.key}`;
       await bucket.put(localizedKey, localizedBytes, {

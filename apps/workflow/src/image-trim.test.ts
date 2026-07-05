@@ -66,6 +66,19 @@ describe('contentBox', () => {
       height: 6,
     });
   });
+
+  it('treats transparent padding as background (restored-matte case)', () => {
+    // fully transparent frame with an opaque dark block — dark RGB alone would
+    // read as content, so alpha is what marks the padding as background.
+    const r: Raster = {
+      data: new Uint8Array(6 * 6 * 4), // all zero → transparent black
+      width: 6,
+      height: 6,
+      channels: 4,
+    };
+    fillRect(r, 2, 1, 2, 3, [10, 10, 10]); // opaque (alpha 255) dark content
+    expect(contentBox(r)).toEqual({ x: 2, y: 1, width: 2, height: 3 });
+  });
 });
 
 describe('fitAspect', () => {
