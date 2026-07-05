@@ -21,10 +21,17 @@ import {
 } from 'cloudflare:workers';
 import { Temporal } from 'temporal-polyfill';
 
-import { createDb, getTopic, upsertTopic } from '@hiroba/db';
+import {
+  createDb,
+  failPipelineStates,
+  getTopic,
+  setItemFetchState,
+  upsertTopic,
+} from '@hiroba/db';
 import type { Block } from '@hiroba/richtext';
 import { fetchTopicBody } from '@hiroba/scraper';
 
+import { createLogger, runStep } from './logger';
 import { localizeImages, type LocalizeResult } from './steps/localize-images';
 import { mirrorImages, type MirrorResult } from './steps/mirror-images';
 import { transcribeImages } from './steps/transcribe-images';
@@ -48,11 +55,41 @@ export class TopicsWorkflow extends WorkflowEntrypoint<
   ): Promise<TopicsWorkflowOutput> {
     const { itemId } = event.payload;
     const db = createDb(this.env.DB);
+    const log = createLogger(this.env, `topic:${itemId}`);
 
+    try {
+      return await this.runSteps(itemId, db, log, step);
+    } catch (err) {
+      // Terminal workflow failure (a step exhausted its retries): settle every
+      // state this item still holds open so SSE clients and later triggers see
+      // failed, not an eternal running. Shared image rows settle themselves.
+      await step.do('mark-failed', async () => {
+        await failPipelineStates(
+          db,
+          'topic',
+          itemId,
+          'en',
+          err instanceof Error ? err.message : 'workflow failed',
+        );
+      });
+      throw err;
+    }
+  }
+
+  private async runSteps(
+    itemId: string,
+    db: ReturnType<typeof createDb>,
+    log: ReturnType<typeof createLogger>,
+    step: WorkflowStep,
+  ): Promise<TopicsWorkflowOutput> {
     // Step 1: fetch + parse the detail page → blocks_ja
-    const fetchBody = await step.do(
+    const fetchBody = await runStep(
+      step,
+      log,
       'fetch-body',
       async (): Promise<FetchTopicResult> => {
+        // No-op for a topic not yet in D1 — the upsert below settles the state.
+        await setItemFetchState(db, 'topic', itemId, 'running');
         const { titleJa, blocks } = await fetchTopicBody(itemId);
         const existing = await getTopic(db, itemId);
         await upsertTopic(db, {
@@ -63,6 +100,7 @@ export class TopicsWorkflow extends WorkflowEntrypoint<
           publishedAt: existing?.publishedAt ?? Temporal.Now.instant(),
           blocksJa: blocks,
           bodyFetchedAt: Temporal.Now.instant(),
+          fetchState: blocks.length > 0 ? 'done' : 'failed',
         });
         return { success: blocks.length > 0, blockCount: blocks.length };
       },
@@ -80,19 +118,23 @@ export class TopicsWorkflow extends WorkflowEntrypoint<
     }
 
     // Step 2: mirror every referenced image into R2 (self-hosted, cheap to serve)
-    const mirror = await step.do(
+    const mirror = await runStep(
+      step,
+      log,
       'mirror-images',
       async (): Promise<MirrorResult> => {
         const topic = await getTopic(db, itemId);
         const blocks = (topic?.blocksJa ?? []) as Block[];
-        return mirrorImages(this.env.IMAGES_BUCKET, blocks);
+        return mirrorImages(db, this.env.IMAGES_BUCKET, blocks);
       },
     );
 
     // Step 3: transcribe baked-in image text into the `images` table (deduped by
     // key across topics). Reads bytes from the R2 mirror, so it doesn't re-hit
     // the CDN.
-    const transcribe = await step.do(
+    const transcribe = await runStep(
+      step,
+      log,
       'transcribe-images',
       async (): Promise<TranscribeResult> => {
         const topic = await getTopic(db, itemId);
@@ -108,7 +150,9 @@ export class TopicsWorkflow extends WorkflowEntrypoint<
     );
 
     // Step 4: translate the (now transcribed) document → translations
-    const translate = await step.do(
+    const translate = await runStep(
+      step,
+      log,
       'translate',
       async (): Promise<TranslateResult> => {
         return translateTopic(db, this.env.GEMINI_API_KEY, itemId);
@@ -118,10 +162,13 @@ export class TopicsWorkflow extends WorkflowEntrypoint<
     // Step 5: bake the EN translations back into text-bearing images (gpt-image-2).
     // Reads texts_ja + the EN spans from the images/translations tables, so it
     // just needs the topic's block tree to know which images it references.
-    const localize = await step.do(
+    // Runs even when translation failed: candidates without EN text then get
+    // their url rows marked failed, settling the pipeline snapshot.
+    const localize = await runStep(
+      step,
+      log,
       'localize-images',
       async (): Promise<LocalizeResult> => {
-        if (!translate.success) return { localized: 0, skipped: 0, failed: 0 };
         const topic = await getTopic(db, itemId);
         const blocks = (topic?.blocksJa ?? []) as Block[];
         return localizeImages(

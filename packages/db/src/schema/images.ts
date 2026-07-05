@@ -13,6 +13,8 @@
 import { sql } from 'drizzle-orm';
 import { check, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
+import type { PhaseState } from '@hiroba/shared';
+
 import { instant } from '../types/instant';
 import { json } from '../types/json';
 
@@ -29,6 +31,14 @@ export const images = sqliteTable(
     textsJa: json<string[]>('texts_ja'),
 
     transcribeModel: text('transcribe_model'),
+    mirrorState: text('mirror_state')
+      .$type<PhaseState>()
+      .notNull()
+      .default('pending'),
+    transcribeState: text('transcribe_state')
+      .$type<PhaseState>()
+      .notNull()
+      .default('pending'),
     updatedAt: instant('updated_at').notNull(),
   },
   (table) => [

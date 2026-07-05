@@ -6,13 +6,41 @@ import { and, desc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import type { Block } from '@hiroba/richtext';
-import { getNextCheckTime, isDueForCheck, type Category } from '@hiroba/shared';
+import {
+  getNextCheckTime,
+  isDueForCheck,
+  type Category,
+  type PhaseState,
+} from '@hiroba/shared';
 
 import type { Database } from './client';
 import { images, type Image } from './schema/images';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
 import { topics, type NewTopic, type Topic } from './schema/topics';
-import { translations, type TranslationField } from './schema/translations';
+import {
+  translations,
+  type ItemType,
+  type TranslationField,
+} from './schema/translations';
+
+/**
+ * D1 caps bound parameters at ~100 per statement, so any query that fans a
+ * caller-supplied list into `IN (?, ?, …)` must run in slices. 50 leaves
+ * headroom for the query's other parameters.
+ */
+const IN_CHUNK = 50;
+
+/** Run `fn` over `items` in IN_CHUNK-sized slices and concatenate the results. */
+async function chunked<T, R>(
+  items: T[],
+  fn: (slice: T[]) => Promise<R[]>,
+): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += IN_CHUNK) {
+    out.push(...(await fn(items.slice(i, i + IN_CHUNK))));
+  }
+  return out;
+}
 
 /**
  * Upsert news items from list scraping.
@@ -137,6 +165,7 @@ export async function getStats(db: Database): Promise<{
           and(
             eq(translations.itemType, 'news'),
             eq(translations.language, 'en'),
+            eq(translations.state, 'done'),
           ),
         )
         .get(),
@@ -304,6 +333,7 @@ export async function getTopicStats(db: Database): Promise<{
           eq(translations.itemType, 'topic'),
           eq(translations.language, 'en'),
           eq(translations.field, 'content'),
+          eq(translations.state, 'done'),
         ),
       )
       .get(),
@@ -349,6 +379,7 @@ export async function upsertTopic(
   if (topic.blocksJa !== undefined) set.blocksJa = topic.blocksJa;
   if (topic.bodyFetchedAt !== undefined)
     set.bodyFetchedAt = topic.bodyFetchedAt;
+  if (topic.fetchState !== undefined) set.fetchState = topic.fetchState;
 
   await db
     .insert(topics)
@@ -466,20 +497,21 @@ export async function listTopicsAdmin(
   const page = hasMore ? rows.slice(0, -1) : rows;
 
   const ids = page.map((r) => r.id);
-  const translatedRows = ids.length
-    ? await db
-        .select({ itemId: translations.itemId })
-        .from(translations)
-        .where(
-          and(
-            eq(translations.itemType, 'topic'),
-            eq(translations.language, 'en'),
-            eq(translations.field, 'content'),
-            inArray(translations.itemId, ids),
-          ),
-        )
-        .all()
-    : [];
+  const translatedRows = await chunked(ids, (slice) =>
+    db
+      .select({ itemId: translations.itemId })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'topic'),
+          eq(translations.language, 'en'),
+          eq(translations.field, 'content'),
+          eq(translations.state, 'done'),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
   const translated = new Set(translatedRows.map((r) => r.itemId));
 
   return {
@@ -518,9 +550,12 @@ export async function getTopicTranslations(
     )
     .all();
 
+  // Stale-while-revalidate: a running re-translation keeps its previous value,
+  // which is still the best thing to render. Only value-less rows are skipped.
   let title: string | null = null;
   let blocks: Block[] | null = null;
   for (const row of rows) {
+    if (row.value === null) continue;
     if (row.field === 'title') {
       title = row.value;
     } else if (row.field === 'content') {
@@ -556,9 +591,11 @@ export async function upsertTopicTranslation(
       itemId: params.itemId,
       language: params.language,
       field: params.field,
+      state: 'done',
       value: params.value,
       translatedAt: now,
       model: params.model,
+      updatedAt: now,
     })
     .onConflictDoUpdate({
       target: [
@@ -567,8 +604,183 @@ export async function upsertTopicTranslation(
         translations.language,
         translations.field,
       ],
-      set: { value: params.value, translatedAt: now, model: params.model },
+      set: {
+        state: 'done',
+        error: null,
+        value: params.value,
+        translatedAt: now,
+        model: params.model,
+        updatedAt: now,
+      },
     });
+}
+
+/* ------------------------------------------------------------------ *
+ * Pipeline state transitions
+ * ------------------------------------------------------------------ */
+
+/** Set the article fetch state on a news item or topic. */
+export async function setItemFetchState(
+  db: Database,
+  itemType: 'news' | 'topic',
+  id: string,
+  state: PhaseState,
+): Promise<void> {
+  const table = itemType === 'news' ? newsItems : topics;
+  await db.update(table).set({ fetchState: state }).where(eq(table.id, id));
+}
+
+/**
+ * Set the state on translation rows without touching their value — creating
+ * the rows if this is the first time a step touches them. A re-run therefore
+ * keeps the previous value visible while state says `running`
+ * (stale-while-revalidate).
+ */
+export async function setTranslationStates(
+  db: Database,
+  params: {
+    itemType: ItemType;
+    itemId: string;
+    language: string;
+    fields: TranslationField[];
+    state: Exclude<PhaseState, 'done'>; // 'done' only lands with a value, via the upsert helpers
+    error?: string;
+  },
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  const error = params.state === 'failed' ? (params.error ?? null) : null;
+  for (const field of params.fields) {
+    await db
+      .insert(translations)
+      .values({
+        itemType: params.itemType,
+        itemId: params.itemId,
+        language: params.language,
+        field,
+        state: params.state,
+        error,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          translations.itemType,
+          translations.itemId,
+          translations.language,
+          translations.field,
+        ],
+        set: { state: params.state, error, updatedAt: now },
+      });
+  }
+}
+
+/**
+ * Read the state of translation rows for an item. Missing rows are `pending`
+ * — the pipeline hasn't picked them up yet.
+ */
+export async function getTranslationStates(
+  db: Database,
+  itemType: ItemType,
+  itemId: string,
+  language: string,
+  fields: TranslationField[],
+): Promise<Map<TranslationField, PhaseState>> {
+  const rows = await db
+    .select({ field: translations.field, state: translations.state })
+    .from(translations)
+    .where(
+      and(
+        eq(translations.itemType, itemType),
+        eq(translations.itemId, itemId),
+        eq(translations.language, language),
+        inArray(translations.field, fields),
+      ),
+    )
+    .all();
+  const byField = new Map(rows.map((r) => [r.field, r.state]));
+  return new Map(
+    fields.map((f) => [f, (byField.get(f) ?? 'pending') as PhaseState]),
+  );
+}
+
+/**
+ * Terminal cleanup when a workflow dies: everything for this item still
+ * marked in-flight (or never picked up) becomes `failed`, so SSE clients and
+ * later triggers see a settled pipeline instead of an eternal `running`.
+ * Scoped to the item's own rows — shared image rows are owned by whichever
+ * workflow is actually touching them.
+ */
+export async function failPipelineStates(
+  db: Database,
+  itemType: 'news' | 'topic',
+  itemId: string,
+  language: string,
+  error: string,
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  const table = itemType === 'news' ? newsItems : topics;
+  await db
+    .update(table)
+    .set({ fetchState: 'failed' })
+    .where(and(eq(table.id, itemId), eq(table.fetchState, 'running')));
+  await db
+    .update(translations)
+    .set({ state: 'failed', error, updatedAt: now })
+    .where(
+      and(
+        eq(translations.itemType, itemType),
+        eq(translations.itemId, itemId),
+        eq(translations.language, language),
+        inArray(translations.state, ['pending', 'running']),
+      ),
+    );
+}
+
+/**
+ * Ensure an image row exists for every key, so the pipeline has rows to hang
+ * transcription state on. Existing rows (any state) are left untouched.
+ */
+export async function ensureImageRows(
+  db: Database,
+  keys: string[],
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  // Batched inserts: each row binds several parameters, so keep batches small
+  // enough to stay under D1's per-statement cap.
+  const ROWS_PER_INSERT = 20;
+  for (let i = 0; i < keys.length; i += ROWS_PER_INSERT) {
+    await db
+      .insert(images)
+      .values(
+        keys
+          .slice(i, i + ROWS_PER_INSERT)
+          .map((key) => ({ key, updatedAt: now })),
+      )
+      .onConflictDoNothing();
+  }
+}
+
+/** Set the transcription state on an image row (running/failed transitions). */
+export async function setImageTranscribeState(
+  db: Database,
+  key: string,
+  state: Exclude<PhaseState, 'done'>, // 'done' lands with texts via upsertImageTranscription
+): Promise<void> {
+  await db
+    .update(images)
+    .set({ transcribeState: state, updatedAt: Temporal.Now.instant() })
+    .where(eq(images.key, key));
+}
+
+/** Set the mirror (CDN → R2 copy) state on an image row. */
+export async function setImageMirrorState(
+  db: Database,
+  key: string,
+  state: PhaseState,
+): Promise<void> {
+  await db
+    .update(images)
+    .set({ mirrorState: state, updatedAt: Temporal.Now.instant() })
+    .where(eq(images.key, key));
 }
 
 /* ------------------------------------------------------------------ *
@@ -591,6 +803,7 @@ export async function upsertImageTranscription(
       key: params.key,
       textsJa: params.textsJa,
       transcribeModel: params.model,
+      transcribeState: 'done',
       updatedAt: now,
     })
     .onConflictDoUpdate({
@@ -598,6 +811,7 @@ export async function upsertImageTranscription(
       set: {
         textsJa: params.textsJa,
         transcribeModel: params.model,
+        transcribeState: 'done',
         updatedAt: now,
       },
     })
@@ -610,8 +824,9 @@ export async function getImagesByKeys(
   db: Database,
   keys: string[],
 ): Promise<Image[]> {
-  if (keys.length === 0) return [];
-  return db.select().from(images).where(inArray(images.key, keys)).all();
+  return chunked(keys, (slice) =>
+    db.select().from(images).where(inArray(images.key, slice)).all(),
+  );
 }
 
 /** The subset of `imageIds` that already have a translated `text` row for `language`. */
@@ -620,20 +835,49 @@ export async function getTranslatedImageIds(
   imageIds: number[],
   language: string,
 ): Promise<Set<number>> {
-  if (imageIds.length === 0) return new Set();
-  const rows = await db
-    .select({ itemId: translations.itemId })
-    .from(translations)
-    .where(
-      and(
-        eq(translations.itemType, 'image'),
-        eq(translations.language, language),
-        eq(translations.field, 'text'),
-        inArray(translations.itemId, imageIds.map(String)),
-      ),
-    )
-    .all();
+  const rows = await chunked(imageIds.map(String), (slice) =>
+    db
+      .select({ itemId: translations.itemId })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'image'),
+          eq(translations.language, language),
+          eq(translations.field, 'text'),
+          eq(translations.state, 'done'),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
   return new Set(rows.map((r) => Number(r.itemId)));
+}
+
+/**
+ * Map image id → pipeline state of its translation row for a `field` and
+ * language. Ids without a row are absent (i.e. derived-pending).
+ */
+export async function getImageTranslationStates(
+  db: Database,
+  imageIds: number[],
+  language: string,
+  field: 'text' | 'url',
+): Promise<Map<number, PhaseState>> {
+  const rows = await chunked(imageIds.map(String), (slice) =>
+    db
+      .select({ itemId: translations.itemId, state: translations.state })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'image'),
+          eq(translations.language, language),
+          eq(translations.field, field),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
+  return new Map(rows.map((r) => [Number(r.itemId), r.state]));
 }
 
 /** Map image id → translation value for a given `field` ('text' | 'url') and language. */
@@ -643,20 +887,22 @@ export async function getImageTranslations(
   language: string,
   field: 'text' | 'url',
 ): Promise<Map<number, string>> {
-  if (imageIds.length === 0) return new Map();
-  const rows = await db
-    .select({ itemId: translations.itemId, value: translations.value })
-    .from(translations)
-    .where(
-      and(
-        eq(translations.itemType, 'image'),
-        eq(translations.language, language),
-        eq(translations.field, field),
-        inArray(translations.itemId, imageIds.map(String)),
-      ),
-    )
-    .all();
-  return new Map(rows.map((r) => [Number(r.itemId), r.value]));
+  const rows = await chunked(imageIds.map(String), (slice) =>
+    db
+      .select({ itemId: translations.itemId, value: translations.value })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'image'),
+          eq(translations.language, language),
+          eq(translations.field, field),
+          isNotNull(translations.value),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
+  return new Map(rows.map((r) => [Number(r.itemId), r.value!]));
 }
 
 /**
@@ -669,20 +915,22 @@ export async function getLocalizedImageModels(
   imageIds: number[],
   language: string,
 ): Promise<Map<number, string>> {
-  if (imageIds.length === 0) return new Map();
-  const rows = await db
-    .select({ itemId: translations.itemId, model: translations.model })
-    .from(translations)
-    .where(
-      and(
-        eq(translations.itemType, 'image'),
-        eq(translations.language, language),
-        eq(translations.field, 'url'),
-        inArray(translations.itemId, imageIds.map(String)),
-      ),
-    )
-    .all();
-  return new Map(rows.map((r) => [Number(r.itemId), r.model]));
+  const rows = await chunked(imageIds.map(String), (slice) =>
+    db
+      .select({ itemId: translations.itemId, model: translations.model })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'image'),
+          eq(translations.language, language),
+          eq(translations.field, 'url'),
+          eq(translations.state, 'done'),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
+  return new Map(rows.map((r) => [Number(r.itemId), r.model!]));
 }
 
 /** Upsert a per-image translation row (item_type='image', item_id=image id). */
@@ -704,9 +952,11 @@ export async function upsertImageTranslation(
       itemId: String(params.imageId),
       language: params.language,
       field: params.field,
+      state: 'done',
       value: params.value,
       translatedAt: now,
       model: params.model,
+      updatedAt: now,
     })
     .onConflictDoUpdate({
       target: [
@@ -715,6 +965,13 @@ export async function upsertImageTranslation(
         translations.language,
         translations.field,
       ],
-      set: { value: params.value, translatedAt: now, model: params.model },
+      set: {
+        state: 'done',
+        error: null,
+        value: params.value,
+        translatedAt: now,
+        model: params.model,
+        updatedAt: now,
+      },
     });
 }

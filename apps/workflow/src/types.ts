@@ -52,6 +52,8 @@ export type Env = {
   NEWS_WORKFLOW: WorkflowBinding<NewsWorkflowParams>;
   TOPICS_WORKFLOW: WorkflowBinding<TopicsWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
+  /** Log verbosity: debug | info | warn | error | silent (default info). */
+  LOG_LEVEL?: string;
 };
 
 /** Which pipeline a WorkflowManager DO coordinates. */
@@ -129,10 +131,6 @@ export type TopicsWorkflowOutput = {
   localize: LocalizeResult;
 };
 
-/**
- * SSE event types for workflow progress.
- */
-export type SSEEvent =
-  | { type: 'progress'; message: string }
-  | { type: 'complete' }
-  | { type: 'error'; error: string };
+// The SSE wire protocol (machine-readable state snapshots) is shared with the
+// web/admin clients — see @hiroba/shared's pipeline-state module.
+export type { SSEEvent, StateSnapshot } from '@hiroba/shared';

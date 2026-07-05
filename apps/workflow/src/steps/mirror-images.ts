@@ -10,11 +10,18 @@
  */
 
 import {
+  ensureImageRows,
+  setImageMirrorState,
+  type Database,
+} from '@hiroba/db';
+import {
   collectImageUrls,
   imageKey,
   imageUpstreamUrl,
   type Block,
 } from '@hiroba/richtext';
+
+import { mapWithConcurrency } from '../concurrency';
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -23,6 +30,9 @@ const FETCH_HEADERS = {
 
 /** Long-lived cache — mirrored assets are immutable under their content key. */
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
+/** Max concurrent CDN→R2 copies. Network-bound, so a higher cap than the LLM steps. */
+const MIRROR_CONCURRENCY = 8;
 
 export type MirrorResult = {
   /** newly written to R2 this run */
@@ -36,8 +46,13 @@ export type MirrorResult = {
 /**
  * Mirror all mirrorable images in `blocks` to `bucket`. Fetches each missing key
  * from the DQX CDN once and streams it into R2 with a content type + long TTL.
+ *
+ * Also the pipeline's image-discovery point: every referenced key gets an
+ * `images` row here (pending), and its mirror_state tracks the copy — that's
+ * what feeds the "Downloading images (x/y)" progress in the SSE snapshot.
  */
 export async function mirrorImages(
+  db: Database,
   bucket: R2Bucket,
   blocks: Block[],
 ): Promise<MirrorResult> {
@@ -48,22 +63,27 @@ export async function mirrorImages(
     if (key) keys.add(key);
   }
 
+  await ensureImageRows(db, [...keys]);
+
   let mirrored = 0;
   let skipped = 0;
   let failed = 0;
 
-  for (const key of keys) {
+  await mapWithConcurrency([...keys], MIRROR_CONCURRENCY, async (key) => {
     if (await bucket.head(key)) {
       skipped++;
-      continue;
+      await setImageMirrorState(db, key, 'done');
+      return;
     }
+    await setImageMirrorState(db, key, 'running');
     try {
       const res = await fetch(imageUpstreamUrl(key), {
         headers: FETCH_HEADERS,
       });
       if (!res.ok || !res.body) {
         failed++;
-        continue;
+        await setImageMirrorState(db, key, 'failed');
+        return;
       }
       await bucket.put(key, res.body, {
         httpMetadata: {
@@ -73,10 +93,12 @@ export async function mirrorImages(
         },
       });
       mirrored++;
+      await setImageMirrorState(db, key, 'done');
     } catch {
       failed++;
+      await setImageMirrorState(db, key, 'failed');
     }
-  }
+  });
 
   return { mirrored, skipped, failed };
 }

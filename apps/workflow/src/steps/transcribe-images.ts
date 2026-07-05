@@ -13,7 +13,9 @@
 import type OpenAI from 'openai';
 
 import {
+  ensureImageRows,
   getImagesByKeys,
+  setImageTranscribeState,
   upsertImageTranscription,
   type Database,
 } from '@hiroba/db';
@@ -24,7 +26,11 @@ import {
   type Block,
 } from '@hiroba/richtext';
 
+import { mapWithConcurrency } from '../concurrency';
 import { createGemini, GEMINI_MODEL } from '../gemini';
+
+/** Max concurrent Gemini vision calls; kept modest to stay under rate limits. */
+const TRANSCRIBE_CONCURRENCY = 6;
 
 const TRANSCRIBE_PROMPT =
   'Transcribe the spans of text in this image verbatim, combining connected strings.';
@@ -127,24 +133,39 @@ export async function transcribeImages(
   ];
   if (keys.length === 0) return 0;
 
+  // Discovery: every referenced image gets a row (pending) so the pipeline
+  // snapshot can see the full set before transcription completes.
+  await ensureImageRows(db, keys);
+
   const existing = await getImagesByKeys(db, keys);
   const done = new Set(
-    existing.filter((r) => r.textsJa !== null).map((r) => r.key),
+    existing.filter((r) => r.transcribeState === 'done').map((r) => r.key),
   );
 
   const client = createGemini(apiKey);
   let transcribed = 0;
-  for (const key of keys) {
-    if (done.has(key)) continue;
-    const dataUrl = await loadByKey(key, bucket);
-    if (!dataUrl) continue;
-    const spans = await transcribeOne(client, dataUrl);
-    await upsertImageTranscription(db, {
-      key,
-      textsJa: spans,
-      model: GEMINI_MODEL,
-    });
-    transcribed++;
-  }
+  await mapWithConcurrency(keys, TRANSCRIBE_CONCURRENCY, async (key) => {
+    if (done.has(key)) return;
+    await setImageTranscribeState(db, key, 'running');
+    try {
+      const dataUrl = await loadByKey(key, bucket);
+      if (!dataUrl) {
+        await setImageTranscribeState(db, key, 'failed');
+        return;
+      }
+      const spans = await transcribeOne(client, dataUrl);
+      await upsertImageTranscription(db, {
+        key,
+        textsJa: spans,
+        model: GEMINI_MODEL,
+      });
+      transcribed++;
+    } catch (err) {
+      // One bad image shouldn't wedge the whole step (or strand this row in
+      // 'running' — shared rows aren't covered by the workflow's mark-failed).
+      console.error(`Failed to transcribe ${key}:`, err);
+      await setImageTranscribeState(db, key, 'failed');
+    }
+  });
   return transcribed;
 }

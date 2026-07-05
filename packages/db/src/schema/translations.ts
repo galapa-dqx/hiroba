@@ -7,9 +7,11 @@
  * - Different translatable fields per item type
  */
 
-import { and, eq } from 'drizzle-orm';
-import { primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { and, eq, sql } from 'drizzle-orm';
+import { check, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { type Temporal } from 'temporal-polyfill';
+
+import type { PhaseState } from '@hiroba/shared';
 
 import type { Database } from '../client';
 import { instant } from '../types/instant';
@@ -18,23 +20,37 @@ export const translations = sqliteTable(
   'translations',
   {
     // Composite key components
-    itemType: text('item_type').notNull(), // "news", "topic", or "event"
-    itemId: text('item_id').notNull(), // FK to news_items.id, topics.id, or events.id
+    itemType: text('item_type').notNull(), // "news", "topic", "event", or "image"
+    itemId: text('item_id').notNull(), // FK to news_items.id, topics.id, events.id, or images.id
     language: text('language').notNull(), // e.g., "en"
     field: text('field').notNull(), // e.g., "title", "content"
 
-    // Translated value
-    value: text('value').notNull(),
+    // Pipeline state. A row exists from the moment a step starts working on it;
+    // `value` lands only on done. A re-translation flips state back to running
+    // but keeps the previous value (stale-while-revalidate for readers).
+    state: text('state').$type<PhaseState>().notNull().default('pending'),
+    error: text('error'), // failure detail when state='failed'
 
-    // Tracking
-    translatedAt: instant('translated_at').notNull(), // epoch ms (Temporal.Instant)
-    model: text('model').notNull(), // AI model used for translation (e.g., "gpt-4o")
+    // Translated value — NULL until first completed.
+    value: text('value'),
+
+    // Tracking. translatedAt/model mark the last successful output (NULL until
+    // then); updatedAt tracks every state change (staleness detection).
+    translatedAt: instant('translated_at'), // epoch ms (Temporal.Instant)
+    model: text('model'), // AI model used for translation (e.g., "gpt-4o")
+    updatedAt: instant('updated_at').notNull(),
   },
-  (table) => ({
-    pk: primaryKey({
+  (table) => [
+    primaryKey({
       columns: [table.itemType, table.itemId, table.language, table.field],
     }),
-  }),
+    // Mirrors migration 0012: done rows always carry their output. One-way on
+    // purpose — running rows may keep a stale value.
+    check(
+      'translations_done_has_value',
+      sql`${table.state} <> 'done' OR (${table.value} IS NOT NULL AND ${table.translatedAt} IS NOT NULL AND ${table.model} IS NOT NULL)`,
+    ),
+  ],
 );
 
 // Type exports

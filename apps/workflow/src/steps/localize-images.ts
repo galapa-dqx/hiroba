@@ -14,6 +14,7 @@ import {
   getImagesByKeys,
   getImageTranslations,
   getLocalizedImageModels,
+  setTranslationStates,
   upsertImageTranslation,
   type Database,
 } from '@hiroba/db';
@@ -23,10 +24,11 @@ import {
   imageUpstreamUrl,
   type Block,
 } from '@hiroba/richtext';
+import { hasJapanese } from '@hiroba/shared';
 
+import { mapWithConcurrency } from '../concurrency';
 import { editImage, IMAGE_MODEL, toEditableImage } from '../image-edit';
 import { trimToAspect } from '../image-trim';
-import { hasJapanese } from '../japanese';
 
 /** R2 key prefix for English-localized images. */
 export const LOCALIZED_PREFIX = 'l10n/en';
@@ -37,6 +39,9 @@ const FETCH_HEADERS = {
 };
 
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
+/** Max concurrent gpt-image-2 edits; kept modest to stay under rate limits. */
+const LOCALIZE_CONCURRENCY = 6;
 
 export type LocalizeResult = {
   /** images newly localized this run */
@@ -118,15 +123,36 @@ export async function localizeImages(
   let skipped = 0;
   let failed = 0;
 
-  for (const row of rows) {
+  /** Record a terminal failure on the image's `url` row (and count it). */
+  const markFailed = async (imageId: number, error: string) => {
+    failed++;
+    await setTranslationStates(db, {
+      itemType: 'image',
+      itemId: String(imageId),
+      language: 'en',
+      fields: ['url'],
+      state: 'failed',
+      error,
+    });
+  };
+
+  await mapWithConcurrency(rows, LOCALIZE_CONCURRENCY, async (row) => {
+    const isCandidate = !!row.textsJa && hasJapanese(row.textsJa);
     const enJson = enText.get(row.id);
     if (!enJson) {
-      skipped++; // nothing translated (no Japanese) → nothing to localize
-      continue;
+      // No EN spans. Fine for text-free images — but a Japanese-bearing image
+      // here means its translation never landed; fail the url row explicitly
+      // so the pipeline snapshot settles instead of waiting forever.
+      if (isCandidate) {
+        await markFailed(row.id, 'image text was never translated');
+      } else {
+        skipped++;
+      }
+      return;
     }
     if (localizedBy.get(row.id) === IMAGE_MODEL) {
       skipped++; // already localized by the current model
-      continue;
+      return;
     }
 
     const enSpans = JSON.parse(enJson) as string[];
@@ -136,51 +162,66 @@ export async function localizeImages(
       .filter((p) => hasJapanese([p.ja]));
     if (pairs.length === 0) {
       skipped++;
-      continue;
+      return;
     }
 
-    const original = await loadOriginal(bucket, row.key);
-    if (!original) {
-      failed++;
-      continue;
-    }
-
-    // gpt-image-2 only ingests jpeg/png/webp; re-encode anything else (GIF, …).
-    const editable = await toEditableImage(images, {
-      bytes: original.bytes,
-      mimeType: original.mimeType,
-    });
-    if (!editable) {
-      failed++;
-      continue;
-    }
-
-    const edited = await editImage(apiKey, {
-      imageBytes: editable.bytes,
-      mimeType: editable.mimeType,
-      prompt: buildPrompt(pairs),
-    });
-    if (!edited) {
-      failed++;
-      continue;
-    }
-
-    // Trim the padding gpt-image-2 adds, back to the original's aspect ratio.
-    const localizedBytes = trimToAspect(edited, original.bytes);
-
-    const localizedKey = `${LOCALIZED_PREFIX}/${row.key}`;
-    await bucket.put(localizedKey, localizedBytes, {
-      httpMetadata: { contentType: 'image/png', cacheControl: CACHE_CONTROL },
-    });
-    await upsertImageTranslation(db, {
-      imageId: row.id,
+    await setTranslationStates(db, {
+      itemType: 'image',
+      itemId: String(row.id),
       language: 'en',
-      field: 'url',
-      value: localizedKey,
-      model: IMAGE_MODEL,
+      fields: ['url'],
+      state: 'running',
     });
-    localized++;
-  }
+
+    try {
+      const original = await loadOriginal(bucket, row.key);
+      if (!original) {
+        await markFailed(row.id, 'failed to load original image');
+        return;
+      }
+
+      // gpt-image-2 only ingests jpeg/png/webp; re-encode anything else (GIF, …).
+      const editable = await toEditableImage(images, {
+        bytes: original.bytes,
+        mimeType: original.mimeType,
+      });
+      if (!editable) {
+        await markFailed(row.id, 'image could not be transcoded for editing');
+        return;
+      }
+
+      const edited = await editImage(apiKey, {
+        imageBytes: editable.bytes,
+        mimeType: editable.mimeType,
+        prompt: buildPrompt(pairs),
+      });
+      if (!edited) {
+        await markFailed(row.id, 'image edit failed');
+        return;
+      }
+
+      // Trim the padding gpt-image-2 adds, back to the original's aspect ratio.
+      const localizedBytes = trimToAspect(edited, original.bytes);
+
+      const localizedKey = `${LOCALIZED_PREFIX}/${row.key}`;
+      await bucket.put(localizedKey, localizedBytes, {
+        httpMetadata: { contentType: 'image/png', cacheControl: CACHE_CONTROL },
+      });
+      await upsertImageTranslation(db, {
+        imageId: row.id,
+        language: 'en',
+        field: 'url',
+        value: localizedKey,
+        model: IMAGE_MODEL,
+      });
+      localized++;
+    } catch (err) {
+      // One bad image shouldn't wedge the step or strand its row in 'running'
+      // (shared rows aren't covered by the workflow's mark-failed).
+      console.error(`Failed to localize ${row.key}:`, err);
+      await markFailed(row.id, err instanceof Error ? err.message : 'unknown');
+    }
+  });
 
   return { localized, skipped, failed };
 }

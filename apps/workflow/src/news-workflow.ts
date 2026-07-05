@@ -16,8 +16,9 @@ import {
   type WorkflowStep,
 } from 'cloudflare:workers';
 
-import { createDb } from '@hiroba/db';
+import { createDb, failPipelineStates } from '@hiroba/db';
 
+import { createLogger, runStep } from './logger';
 import { extractAndSaveEvents } from './steps/extract-events';
 import { fetchAndSaveBody } from './steps/fetch-body';
 import { translateAndSave } from './steps/translate';
@@ -37,9 +38,37 @@ export class NewsWorkflow extends WorkflowEntrypoint<Env, NewsWorkflowParams> {
   ): Promise<NewsWorkflowOutput> {
     const { itemId } = event.payload;
     const db = createDb(this.env.DB);
+    const log = createLogger(this.env, `news:${itemId}`);
 
+    try {
+      return await this.runSteps(itemId, db, log, step);
+    } catch (err) {
+      // Terminal workflow failure (a step exhausted its retries): settle every
+      // state this item still holds open so SSE clients and later triggers see
+      // failed, not an eternal running.
+      await step.do('mark-failed', async () => {
+        await failPipelineStates(
+          db,
+          'news',
+          itemId,
+          'en',
+          err instanceof Error ? err.message : 'workflow failed',
+        );
+      });
+      throw err;
+    }
+  }
+
+  private async runSteps(
+    itemId: string,
+    db: ReturnType<typeof createDb>,
+    log: ReturnType<typeof createLogger>,
+    step: WorkflowStep,
+  ): Promise<NewsWorkflowOutput> {
     // Step 1: Fetch and save body content
-    const fetchBodyResult = await step.do(
+    const fetchBodyResult = await runStep(
+      step,
+      log,
       'fetch-body',
       async (): Promise<FetchBodyResult> => {
         return fetchAndSaveBody(db, itemId);
@@ -57,7 +86,9 @@ export class NewsWorkflow extends WorkflowEntrypoint<Env, NewsWorkflowParams> {
     }
 
     // Step 2: Extract events from content
-    const extractEventsResult = await step.do(
+    const extractEventsResult = await runStep(
+      step,
+      log,
       'extract-events',
       async (): Promise<ExtractEventsResult> => {
         return extractAndSaveEvents(db, this.env.GEMINI_API_KEY, itemId);
@@ -65,7 +96,9 @@ export class NewsWorkflow extends WorkflowEntrypoint<Env, NewsWorkflowParams> {
     );
 
     // Step 3: Translate title, content, and event titles
-    const translateResult = await step.do(
+    const translateResult = await runStep(
+      step,
+      log,
       'translate',
       async (): Promise<TranslateResult> => {
         return translateAndSave(

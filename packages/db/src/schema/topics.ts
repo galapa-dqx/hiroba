@@ -13,6 +13,7 @@ import { sql } from 'drizzle-orm';
 import { check, index, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 import type { Block } from '@hiroba/richtext';
+import type { PhaseState } from '@hiroba/shared';
 
 import { instant } from '../types/instant';
 import { json } from '../types/json';
@@ -35,6 +36,10 @@ export const topics = sqliteTable(
 
     // Body fetch tracking
     bodyFetchedAt: instant('body_fetched_at'), // epoch ms (Temporal.Instant)
+    fetchState: text('fetch_state')
+      .$type<PhaseState>()
+      .notNull()
+      .default('pending'),
   },
   // Mirrors the CHECK constraints in migration 0009. Drizzle has no STRICT
   // table option, so strict typing lives only in the raw migration.

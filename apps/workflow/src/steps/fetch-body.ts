@@ -9,7 +9,7 @@
 import { eq } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
-import { newsItems, type Database } from '@hiroba/db';
+import { newsItems, setItemFetchState, type Database } from '@hiroba/db';
 import { fetchNewsBody } from '@hiroba/scraper';
 
 import type { FetchBodyResult } from '../types';
@@ -39,13 +39,17 @@ export async function fetchAndSaveBody(
     return { success: false };
   }
 
-  // If the block tree already exists, skip fetching.
+  // If the block tree already exists, skip fetching (and make sure the state
+  // agrees — a re-run after a mid-pipeline failure lands here).
   if (item.blocksJa !== null) {
+    await setItemFetchState(db, 'news', itemId, 'done');
     return {
       success: true,
       contentLength: item.blocksJa.length,
     };
   }
+
+  await setItemFetchState(db, 'news', itemId, 'running');
 
   try {
     // Fetch + parse the detail page into a block tree.
@@ -58,6 +62,7 @@ export async function fetchAndSaveBody(
       .set({
         blocksJa: blocks,
         bodyFetchedAt: now,
+        fetchState: blocks.length > 0 ? 'done' : 'failed',
       })
       .where(eq(newsItems.id, itemId));
 
@@ -67,6 +72,7 @@ export async function fetchAndSaveBody(
     };
   } catch (error) {
     console.error(`Failed to fetch body for ${itemId}:`, error);
+    await setItemFetchState(db, 'news', itemId, 'failed');
     return { success: false };
   }
 }

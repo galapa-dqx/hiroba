@@ -18,6 +18,7 @@ import {
   getImagesByKeys,
   getTopic,
   getTranslatedImageIds,
+  setTranslationStates,
   upsertImageTranslation,
   upsertTopicTranslation,
   type Database,
@@ -29,9 +30,9 @@ import {
   serializeForTranslation,
   type Block,
 } from '@hiroba/richtext';
+import { hasJapanese } from '@hiroba/shared';
 
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
-import { hasJapanese } from '../japanese';
 import type { TranslateResult } from '../types';
 
 const TARGET_LANGUAGE = 'en';
@@ -57,6 +58,24 @@ export async function translateTopic(
     console.error(`Topic ${topicId} has no blocks to translate`);
     return { success: false, fieldsTranslated: 0 };
   }
+
+  const markFailed = (error: string) =>
+    setTranslationStates(db, {
+      itemType: 'topic',
+      itemId: topicId,
+      language: TARGET_LANGUAGE,
+      fields: ['title', 'content'],
+      state: 'failed',
+      error,
+    });
+
+  await setTranslationStates(db, {
+    itemType: 'topic',
+    itemId: topicId,
+    language: TARGET_LANGUAGE,
+    fields: ['title', 'content'],
+    state: 'running',
+  });
 
   // Hydrate image text from the images table, injecting spans only for localizable
   // images not already translated to the target language.
@@ -119,12 +138,14 @@ export async function translateTopic(
     result = parseTranslation(stripCodeFence(raw));
   } catch (err) {
     console.error(`Topic ${topicId}: failed to parse translated markup`, err);
+    await markFailed('failed to parse translated markup');
     return { success: false, fieldsTranslated: 0 };
   }
 
   // Fallback: a mangled response that parses to an empty body → keep JA.
   if (result.blocks.length === 0) {
     console.error(`Topic ${topicId}: translated body was empty, keeping JA`);
+    await markFailed('translated body was empty');
     return { success: false, fieldsTranslated: 0 };
   }
 

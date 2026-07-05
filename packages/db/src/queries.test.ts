@@ -3,12 +3,24 @@ import { Temporal } from 'temporal-polyfill';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  ensureImageRows,
+  failPipelineStates,
+  getImagesByKeys,
+  getImageTranslations,
+  getImageTranslationStates,
   getNewsItems,
   getStats,
+  getTranslationStates,
+  setImageTranscribeState,
+  setItemFetchState,
+  setTranslationStates,
   upsertImageTranscription,
+  upsertImageTranslation,
   upsertListItems,
   upsertTopic,
+  upsertTopicTranslation,
 } from './queries';
+import { images } from './schema/images';
 import { newsItems, type ListItem } from './schema/news-items';
 import { topics } from './schema/topics';
 import { translations } from './schema/translations';
@@ -261,9 +273,11 @@ describe('getStats', () => {
       itemId: hex(2),
       language: 'en',
       field: 'title',
+      state: 'done',
       value: 'Article 2',
       translatedAt: BASE,
       model: 'gpt-x',
+      updatedAt: BASE,
     });
 
     const stats = await getStats(ctx.db);
@@ -273,5 +287,219 @@ describe('getStats', () => {
     expect(stats.itemsWithBodyFetchedAt).toBe(1);
     expect(stats.itemsTranslated).toBe(1);
     expect(stats.byCategory).toEqual({ news: 2, event: 1 });
+  });
+});
+
+describe('pipeline state transitions', () => {
+  it('tracks fetch state on items and backfills done via the fetched-body path', async () => {
+    await upsertListItems(ctx.db, [listItem(1, 1)]);
+
+    await setItemFetchState(ctx.db, 'news', hex(1), 'running');
+    let row = await ctx.db
+      .select()
+      .from(newsItems)
+      .where(eq(newsItems.id, hex(1)))
+      .get();
+    expect(row?.fetchState).toBe('running');
+
+    await setItemFetchState(ctx.db, 'news', hex(1), 'done');
+    row = await ctx.db
+      .select()
+      .from(newsItems)
+      .where(eq(newsItems.id, hex(1)))
+      .get();
+    expect(row?.fetchState).toBe('done');
+  });
+
+  it('creates translation rows on first touch and reports missing rows as pending', async () => {
+    const states = await getTranslationStates(ctx.db, 'topic', hex(1), 'en', [
+      'title',
+      'content',
+    ]);
+    expect(states.get('title')).toBe('pending');
+    expect(states.get('content')).toBe('pending');
+
+    await setTranslationStates(ctx.db, {
+      itemType: 'topic',
+      itemId: hex(1),
+      language: 'en',
+      fields: ['title', 'content'],
+      state: 'running',
+    });
+    const running = await getTranslationStates(ctx.db, 'topic', hex(1), 'en', [
+      'title',
+      'content',
+    ]);
+    expect(running.get('title')).toBe('running');
+    expect(running.get('content')).toBe('running');
+  });
+
+  it('keeps the previous value when a re-translation flips state to running', async () => {
+    await upsertTopicTranslation(ctx.db, {
+      itemId: hex(1),
+      language: 'en',
+      field: 'title',
+      value: 'First pass',
+      model: 'gpt-x',
+    });
+
+    await setTranslationStates(ctx.db, {
+      itemType: 'topic',
+      itemId: hex(1),
+      language: 'en',
+      fields: ['title'],
+      state: 'running',
+    });
+
+    const row = await ctx.db.select().from(translations).get();
+    expect(row?.state).toBe('running');
+    expect(row?.value).toBe('First pass'); // stale-while-revalidate
+  });
+
+  it('records failure details and clears them on the next successful upsert', async () => {
+    await setTranslationStates(ctx.db, {
+      itemType: 'topic',
+      itemId: hex(1),
+      language: 'en',
+      fields: ['title'],
+      state: 'failed',
+      error: 'model exploded',
+    });
+    let row = await ctx.db.select().from(translations).get();
+    expect(row?.state).toBe('failed');
+    expect(row?.error).toBe('model exploded');
+    expect(row?.value).toBeNull();
+
+    await upsertTopicTranslation(ctx.db, {
+      itemId: hex(1),
+      language: 'en',
+      field: 'title',
+      value: 'Recovered',
+      model: 'gpt-x',
+    });
+    row = await ctx.db.select().from(translations).get();
+    expect(row?.state).toBe('done');
+    expect(row?.error).toBeNull();
+    expect(row?.value).toBe('Recovered');
+  });
+
+  it('rejects done rows without a value (CHECK constraint)', async () => {
+    await expect(
+      ctx.db.insert(translations).values({
+        itemType: 'topic',
+        itemId: hex(1),
+        language: 'en',
+        field: 'title',
+        state: 'done',
+        updatedAt: BASE,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('failPipelineStates settles running fetch + in-flight translations, not done ones', async () => {
+    await upsertListItems(ctx.db, [listItem(1, 1)]);
+    await setItemFetchState(ctx.db, 'news', hex(1), 'running');
+    await setTranslationStates(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      fields: ['title'],
+      state: 'running',
+    });
+    // A finished row from an earlier run must survive.
+    await ctx.db.insert(translations).values({
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      field: 'content',
+      state: 'done',
+      value: '[]',
+      translatedAt: BASE,
+      model: 'gpt-x',
+      updatedAt: BASE,
+    });
+
+    await failPipelineStates(
+      ctx.db,
+      'news',
+      hex(1),
+      'en',
+      'step exhausted retries',
+    );
+
+    const item = await ctx.db
+      .select()
+      .from(newsItems)
+      .where(eq(newsItems.id, hex(1)))
+      .get();
+    expect(item?.fetchState).toBe('failed');
+
+    const states = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
+      'title',
+      'content',
+    ]);
+    expect(states.get('title')).toBe('failed');
+    expect(states.get('content')).toBe('done');
+  });
+
+  it('tracks image discovery and transcription state', async () => {
+    await ensureImageRows(ctx.db, ['host/a.png', 'host/b.png']);
+    // Idempotent — a second discovery pass must not reset anything.
+    await setImageTranscribeState(ctx.db, 'host/a.png', 'running');
+    await ensureImageRows(ctx.db, ['host/a.png']);
+
+    let rows = await ctx.db.select().from(images).all();
+    expect(rows.map((r) => r.transcribeState).sort()).toEqual([
+      'pending',
+      'running',
+    ]);
+
+    await upsertImageTranscription(ctx.db, {
+      key: 'host/a.png',
+      textsJa: ['テキスト'],
+      model: 'gemini',
+    });
+    rows = await ctx.db.select().from(images).all();
+    const a = rows.find((r) => r.key === 'host/a.png');
+    expect(a?.transcribeState).toBe('done');
+    expect(a?.textsJa).toEqual(['テキスト']);
+  });
+});
+
+describe('IN-list chunking (D1 variable cap)', () => {
+  it('handles image sets far beyond 100 bound parameters', async () => {
+    const keys = Array.from({ length: 130 }, (_, i) => `host/img-${i}.png`);
+
+    await ensureImageRows(ctx.db, keys);
+    const rows = await getImagesByKeys(ctx.db, keys);
+    expect(rows).toHaveLength(130);
+    expect(new Set(rows.map((r) => r.key)).size).toBe(130);
+
+    // Give every image a done url translation, then read them all back.
+    for (const row of rows.slice(0, 5)) {
+      await upsertImageTranslation(ctx.db, {
+        imageId: row.id,
+        language: 'en',
+        field: 'url',
+        value: `l10n/en/${row.key}`,
+        model: 'gpt-image-2',
+      });
+    }
+    const states = await getImageTranslationStates(
+      ctx.db,
+      rows.map((r) => r.id),
+      'en',
+      'url',
+    );
+    expect(states.size).toBe(5);
+    expect([...states.values()].every((s) => s === 'done')).toBe(true);
+
+    const urls = await getImageTranslations(
+      ctx.db,
+      rows.map((r) => r.id),
+      'en',
+      'url',
+    );
+    expect(urls.size).toBe(5);
   });
 });

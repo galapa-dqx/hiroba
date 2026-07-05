@@ -39,11 +39,14 @@ const existingTranslations = await db
 const titleTranslation = existingTranslations.find((t) => t.field === "title");
 const contentTranslation = existingTranslations.find((t) => t.field === "content");
 
-// Determine content state
-const hasTranslations = !!titleTranslation;
+// Determine content state. A translations row exists from the moment the
+// pipeline touches it — only state='done' means finished (a running
+// re-translation may still carry a usable stale value for display below).
+const hasTranslations = titleTranslation?.state === "done";
 const hasContent = !!item.blocksJa;
 
-// If no content or no translations, trigger workflow (fire and forget)
+// If no content or unfinished translations, trigger workflow (fire and forget;
+// the DO ignores the trigger when a run is already in flight).
 if (!hasContent || !hasTranslations) {
 	try {
 		const doId = runtime.env.WORKFLOW_MANAGER.idFromName(id);
@@ -59,13 +62,15 @@ if (!hasContent || !hasTranslations) {
 	}
 }
 
-// Use translations if available, otherwise fall back to Japanese
+// Use translations if available, otherwise fall back to Japanese. The value
+// may be a stale one from before an in-flight re-translation — still the best
+// thing to render.
 const title = titleTranslation?.value ?? item.titleJa;
 
 // The EN content translation stores the block tree as JSON (same format as
 // topics); fall back to the Japanese blocks_ja when it's missing or unparseable.
 let enBlocks: Block[] | null = null;
-if (contentTranslation) {
+if (contentTranslation?.value) {
 	try {
 		enBlocks = JSON.parse(contentTranslation.value) as Block[];
 	} catch {
@@ -75,7 +80,7 @@ if (contentTranslation) {
 const blocks: Block[] = enBlocks ?? (item.blocksJa as Block[] | null) ?? [];
 const contentHtml = renderBlocks(blocks);
 const translatedAt = titleTranslation?.translatedAt ?? null;
-const isTranslated = !!titleTranslation;
+const isTranslated = !!titleTranslation?.value;
 const category = item.category as Category;
 const categoryLabel = CATEGORY_LABELS[category] || item.category;
 ---
@@ -222,6 +227,8 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 </style>
 
 <script>
+	import { describeSnapshot } from "@hiroba/shared";
+
 	const notice = document.getElementById("processing-notice");
 	if (notice) {
 		const itemId = notice.dataset.itemId;
@@ -232,8 +239,8 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 		evtSource.onmessage = (event) => {
 			const data = JSON.parse(event.data);
 
-			if (data.type === "progress" && statusEl) {
-				statusEl.textContent = data.message;
+			if (data.type === "state" && statusEl) {
+				statusEl.textContent = describeSnapshot(data.snapshot);
 			}
 
 			if (data.type === "complete") {

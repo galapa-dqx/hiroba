@@ -19,6 +19,7 @@ import {
   events,
   findMatchingGlossaryEntries,
   newsItems,
+  setTranslationStates,
   translations,
   type Database,
 } from '@hiroba/db';
@@ -67,9 +68,11 @@ async function upsertTranslation(
       itemId: params.itemId,
       language: TARGET_LANGUAGE,
       field: params.field,
+      state: 'done',
       value: params.value,
       translatedAt: now,
       model: GEMINI_MODEL,
+      updatedAt: now,
     })
     .onConflictDoUpdate({
       target: [
@@ -78,7 +81,14 @@ async function upsertTranslation(
         translations.language,
         translations.field,
       ],
-      set: { value: params.value, translatedAt: now, model: GEMINI_MODEL },
+      set: {
+        state: 'done',
+        error: null,
+        value: params.value,
+        translatedAt: now,
+        model: GEMINI_MODEL,
+        updatedAt: now,
+      },
     });
 }
 
@@ -117,6 +127,13 @@ export async function translateAndSave(
   // 1. Translate the news document (title + body) via the RTML whole-doc path.
   const blocks = (item.blocksJa ?? []) as Block[];
   if (blocks.length > 0) {
+    await setTranslationStates(db, {
+      itemType: 'news',
+      itemId,
+      language: TARGET_LANGUAGE,
+      fields: ['title', 'content'],
+      state: 'running',
+    });
     const markup = serializeForTranslation({ title: item.titleJa, blocks });
     const glossary = await findMatchingGlossaryEntries(
       db,
@@ -142,6 +159,14 @@ export async function translateAndSave(
       result = parseTranslation(stripCodeFence(raw));
     } catch (err) {
       console.error(`News ${itemId}: failed to parse translated markup`, err);
+      await setTranslationStates(db, {
+        itemType: 'news',
+        itemId,
+        language: TARGET_LANGUAGE,
+        fields: ['title', 'content'],
+        state: 'failed',
+        error: 'failed to parse translated markup',
+      });
     }
 
     // A mangled response that parses to an empty body → keep JA.
@@ -161,6 +186,14 @@ export async function translateAndSave(
       fieldsTranslated += 2;
     } else if (result) {
       console.error(`News ${itemId}: translated body was empty, keeping JA`);
+      await setTranslationStates(db, {
+        itemType: 'news',
+        itemId,
+        language: TARGET_LANGUAGE,
+        fields: ['title', 'content'],
+        state: 'failed',
+        error: 'translated body was empty',
+      });
     }
   }
 

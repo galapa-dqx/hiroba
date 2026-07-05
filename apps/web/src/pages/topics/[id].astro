@@ -2,8 +2,9 @@
 import Layout from "../../layouts/Layout.astro";
 import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
-import { createDb, getImagesByKeys, getImageTranslations, getTopic, getTopicTranslations } from "@hiroba/db";
+import { computeSnapshot, createDb, getImagesByKeys, getImageTranslations, getTopic, getTopicTranslations } from "@hiroba/db";
 import { collectImages, imageKey, renderBlocks, rewriteImageSrc, type Block } from "@hiroba/richtext";
+import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
 
 const { id } = Astro.params;
 if (!id) {
@@ -16,12 +17,18 @@ const db = createDb(runtime.env.DB);
 const topic = await getTopic(db, id);
 const { title: enTitle, blocks: enBlocks } = await getTopicTranslations(db, id, "en");
 
-const hasBody = !!topic?.blocksJa;
 const isTranslated = !!enBlocks;
 
-// Fire the topics pipeline if the topic is new to us, or missing body/translation.
-// (fetch-body creates the row, so a never-seen id is valid — no 404.)
-if (!topic || !hasBody || !isTranslated) {
+// The article displays only once its pipeline has settled — fetched, translated,
+// and every text-bearing image localized (or given up on). Until then the page
+// shows the processing notice and the SSE stream drives progress + reload.
+const snapshot = await computeSnapshot(db, "topic", id, "en");
+const ready = isSnapshotSettled(snapshot);
+
+// Fire the topics pipeline unless everything already finished cleanly — a
+// degraded-but-settled article displays now and retries its failures in the
+// background. (fetch-body creates the row, so a never-seen id is valid — no 404.)
+if (!isSnapshotComplete(snapshot)) {
 	try {
 		const doId = runtime.env.WORKFLOW_MANAGER.idFromName(`topic:${id}`);
 		const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
@@ -93,14 +100,14 @@ const contentHtml = renderBlocks(blocks, { imageSrc: (src: string) => rewriteIma
 			<h1 class="article-title">{title}</h1>
 		</header>
 
-		{(!hasBody || !isTranslated) && (
+		{!ready && (
 			<div class="callout callout--busy" id="processing-notice" data-item-id={id} role="status">
 				<Rosette class="callout__glyph" />
-				<p id="processing-status">{!hasBody ? "Fetching content…" : "Translating…"}</p>
+				<p id="processing-status">{describeSnapshot(snapshot)}</p>
 			</div>
 		)}
 
-		{contentHtml && (
+		{ready && contentHtml && (
 			<div class="scroll">
 				<div class="scroll__content topic-body" set:html={contentHtml} />
 			</div>
@@ -240,6 +247,8 @@ const contentHtml = renderBlocks(blocks, { imageSrc: (src: string) => rewriteIma
 </style>
 
 <script>
+	import { describeSnapshot } from "@hiroba/shared";
+
 	const notice = document.getElementById("processing-notice");
 	if (notice) {
 		const itemId = notice.dataset.itemId;
@@ -248,7 +257,7 @@ const contentHtml = renderBlocks(blocks, { imageSrc: (src: string) => rewriteIma
 
 		evtSource.onmessage = (event) => {
 			const data = JSON.parse(event.data);
-			if (data.type === "progress" && statusEl) statusEl.textContent = data.message;
+			if (data.type === "state" && statusEl) statusEl.textContent = describeSnapshot(data.snapshot);
 			if (data.type === "complete") {
 				evtSource.close();
 				notice.classList.remove("callout--busy");

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { describeSnapshot } from '@hiroba/shared';
 import CategoryDot from '@hiroba/ui/CategoryDot';
 import { formatLocalDate } from '@hiroba/ui/format-date';
 
@@ -59,8 +60,10 @@ export default function NewsList() {
       evtSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
 
-        if (data.type === 'progress') {
-          setWorkflowStatus((prev) => new Map(prev).set(id, data.message));
+        if (data.type === 'state') {
+          setWorkflowStatus((prev) =>
+            new Map(prev).set(id, describeSnapshot(data.snapshot)),
+          );
         }
 
         if (data.type === 'complete') {

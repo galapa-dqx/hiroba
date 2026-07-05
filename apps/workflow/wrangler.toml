@@ -7,6 +7,13 @@ compatibility_flags = ["nodejs_compat"]
 [observability]
 enabled = true
 
+# Log verbosity for the leveled logger in src/logger.ts:
+#   debug | info | warn | error | silent
+# Deployed default is info. Override per-environment with an [env.<name>.vars]
+# block, or locally via `.dev.vars` / the root .env (dev loads it via dotenv).
+[vars]
+LOG_LEVEL = "info"
+
 [version_metadata]
 binding = "CF_VERSION_METADATA"
 

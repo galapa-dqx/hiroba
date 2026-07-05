@@ -25,6 +25,7 @@ import {
 } from '@hiroba/scraper';
 import { CATEGORIES } from '@hiroba/shared';
 
+import { createLogger, type Logger } from './logger';
 import type { Env } from './types';
 
 // Export the Durable Object and Workflow classes
@@ -86,6 +87,10 @@ export default Sentry.withSentry(
           return Response.json({ error: 'itemId required' }, { status: 400 });
         }
 
+        createLogger(env, 'http').debug(
+          `trigger received: ${itemType} ${itemId}`,
+        );
+
         // Route to the DO for this item, namespaced by type so news/topic ids
         // (both 32-char hex) don't collide.
         const doName = itemType === 'topic' ? `topic:${itemId}` : itemId;
@@ -121,14 +126,18 @@ export default Sentry.withSentry(
       _ctx: ExecutionContext,
     ): Promise<void> {
       const db = createDb(env.DB);
+      const log = createLogger(env, 'cron');
 
       const isGlossaryRefresh = controller.cron === '0 15 * * *';
+      log.info(
+        `cron fired: ${controller.cron} (${isGlossaryRefresh ? 'glossary' : 'news+topics'} refresh)`,
+      );
 
       if (isGlossaryRefresh) {
-        await refreshGlossary(db);
+        await refreshGlossary(db, log);
       } else {
-        await refreshNews(db, env);
-        await refreshTopics(db, env);
+        await refreshNews(db, env, log);
+        await refreshTopics(db, env, log);
       }
     },
   },
@@ -137,7 +146,7 @@ export default Sentry.withSentry(
 /**
  * Refresh glossary from GitHub CSV.
  */
-async function refreshGlossary(db: Database): Promise<void> {
+async function refreshGlossary(db: Database, log: Logger): Promise<void> {
   try {
     const entries = await fetchGlossary();
     const now = Temporal.Now.instant();
@@ -173,9 +182,9 @@ async function refreshGlossary(db: Database): Promise<void> {
       inserted += batch.length;
     }
 
-    console.log(`Glossary refresh complete: ${inserted} entries loaded`);
+    log.info(`Glossary refresh complete: ${inserted} entries loaded`);
   } catch (error) {
-    console.error('Glossary refresh failed:', error);
+    log.error('Glossary refresh failed:', error);
   }
 }
 
@@ -183,7 +192,7 @@ async function refreshGlossary(db: Database): Promise<void> {
  * Refresh news by scraping first page of each category.
  * Triggers workflow for each new item found.
  */
-async function refreshNews(db: Database, env: Env): Promise<void> {
+async function refreshNews(db: Database, env: Env, log: Logger): Promise<void> {
   let totalNew = 0;
   let workflowsTriggered = 0;
   let errors = 0;
@@ -194,6 +203,9 @@ async function refreshNews(db: Database, env: Env): Promise<void> {
       for await (const items of scrapeNewsList(category)) {
         const inserted = await upsertListItems(db, items);
         totalNew += inserted.length;
+        log.debug(
+          `News ${category}: ${inserted.length} new of ${items.length} scraped`,
+        );
 
         // Trigger workflow for each new item
         for (const item of inserted) {
@@ -208,8 +220,9 @@ async function refreshNews(db: Database, env: Env): Promise<void> {
             });
 
             workflowsTriggered++;
+            log.debug(`Triggered news workflow for ${item.id}`);
           } catch (error) {
-            console.error(`Failed to trigger workflow for ${item.id}:`, error);
+            log.error(`Failed to trigger workflow for ${item.id}:`, error);
           }
         }
 
@@ -217,12 +230,12 @@ async function refreshNews(db: Database, env: Env): Promise<void> {
         break;
       }
     } catch (error) {
-      console.error(`Failed to scrape ${category}:`, error);
+      log.error(`Failed to scrape ${category}:`, error);
       errors++;
     }
   }
 
-  console.log(
+  log.info(
     `Scheduled refresh complete: ${totalNew} new items, ${workflowsTriggered} workflows triggered, ${errors} errors`,
   );
 }
@@ -235,7 +248,11 @@ async function refreshNews(db: Database, env: Env): Promise<void> {
  * current month as new and trigger a small burst of pipelines; steady state is
  * a couple per day. A full historical backfill is admin-triggered, not here.
  */
-async function refreshTopics(db: Database, env: Env): Promise<void> {
+async function refreshTopics(
+  db: Database,
+  env: Env,
+  log: Logger,
+): Promise<void> {
   let totalNew = 0;
   let workflowsTriggered = 0;
 
@@ -257,19 +274,17 @@ async function refreshTopics(db: Database, env: Env): Promise<void> {
           });
 
           workflowsTriggered++;
+          log.debug(`Triggered topics workflow for ${item.id}`);
         } catch (error) {
-          console.error(
-            `Failed to trigger topics workflow for ${item.id}:`,
-            error,
-          );
+          log.error(`Failed to trigger topics workflow for ${item.id}:`, error);
         }
       }
     }
   } catch (error) {
-    console.error('Failed to scrape topics:', error);
+    log.error('Failed to scrape topics:', error);
   }
 
-  console.log(
+  log.info(
     `Topics refresh complete: ${totalNew} new topics, ${workflowsTriggered} workflows triggered`,
   );
 }
