@@ -1,10 +1,10 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import Gem from "../components/Gem.astro";
+import ArticleList from "../components/ArticleList.astro";
+import PanelSection from "../components/PanelSection.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
-import { formatShortDate } from "@hiroba/ui";
 import { createDb, getNewsItems } from "@hiroba/db";
-import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
+import { CATEGORIES, CATEGORY_LABELS } from "@hiroba/shared";
 
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
@@ -32,35 +32,14 @@ const newsByCategory = await Promise.all(
 	<div class="stack">
 		{
 			newsByCategory.map(({ category, items }) => (
-				<section class="panel" data-cat={category}>
-					<div class="band-heading">
-						<Gem category={category} />
-						<span class="band-heading__title">
-							<a href={`/category/${category}`}>{CATEGORY_LABELS[category as Category]}</a>
-						</span>
-						<a class="band-heading__more" href={`/category/${category}`}>
-							View all <span class="band-heading__chevrons" aria-hidden="true">››</span>
-						</a>
-					</div>
-					<div class="panel__body">
-						{items.length > 0 ? (
-							<ul class="news-list">
-								{items.map((item) => (
-									<li>
-										<a href={`/news/${item.id}`}>
-											<span class="news-list__title">{item.titleEn ?? item.titleJa}</span>
-											<time datetime={item.publishedAt.toString()}>
-												{formatShortDate(item.publishedAt.epochMilliseconds)}
-											</time>
-										</a>
-									</li>
-								))}
-							</ul>
-						) : (
-							<p class="empty">No dispatches have arrived yet.</p>
-						)}
-					</div>
-				</section>
+				<PanelSection
+					title={CATEGORY_LABELS[category]}
+					titleHref={`/category/${category}`}
+					moreHref={`/category/${category}`}
+					category={category}
+				>
+					<ArticleList items={items} hrefBase="/news" />
+				</PanelSection>
 			))
 		}
 	</div>
@@ -80,8 +59,5 @@ const newsByCategory = await Promise.all(
 	}
 	.home-hero__rule {
 		margin-top: 1.3rem;
-	}
-	.band-heading__more {
-		flex: none;
 	}
 </style>

@@ -14,6 +14,7 @@ import type { Category } from "@hiroba/shared";
 import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import Layout from "../layouts/Layout.astro";
+import BackLink from "./BackLink.astro";
 import EventsRail from "./EventsRail.astro";
 import LocalTime from "./LocalTime.astro";
 import "../styles/article-body.css";
@@ -96,9 +97,7 @@ const originalNoun = itemType === "topic" ? "topic" : "article";
 			>
 		</footer>
 
-		<nav class="back-link">
-			<a href={backHref} class="pill pill--ghost">‹ {backLabel}</a>
-		</nav>
+		<BackLink href={backHref} label={backLabel} />
 	</article>
 </Layout>
 

@@ -1,9 +1,11 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import Gem from "../../components/Gem.astro";
+import ArticleList from "../../components/ArticleList.astro";
+import BackLink from "../../components/BackLink.astro";
+import Pagination from "../../components/Pagination.astro";
+import PanelSection from "../../components/PanelSection.astro";
 import { createDb, getNewsItems, type LocalizedNewsItem } from "@hiroba/db";
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
-import { formatShortDate } from "@hiroba/ui";
 
 const { slug } = Astro.params;
 
@@ -35,49 +37,17 @@ const categoryLabel = CATEGORY_LABELS[category];
 
 <Layout title={categoryLabel} category={category}>
 	<div data-cat={category}>
-		<section class="panel">
-			<div class="band-heading">
-				<Gem category={category} />
-				<span class="band-heading__title">{categoryLabel}</span>
-				<span class="band-heading__chevrons" aria-hidden="true">››</span>
-			</div>
-			<div class="panel__body">
-				{
-					items.length > 0 ? (
-						<ul class="news-list">
-							{items.map((item) => (
-								<li>
-									<a href={`/news/${item.id}`}>
-										<span class="news-list__title">{item.titleEn ?? item.titleJa}</span>
-										<time datetime={item.publishedAt.toString()}>
-											{formatShortDate(item.publishedAt.epochMilliseconds)}
-										</time>
-									</a>
-								</li>
-							))}
-						</ul>
-					) : (
-						<p class="empty">No dispatches have arrived yet.</p>
-					)
-				}
-			</div>
-		</section>
+		<PanelSection title={categoryLabel} category={category}>
+			<ArticleList items={items} hrefBase="/news" />
+		</PanelSection>
 
-		<nav class="pagination" aria-label="Pagination">
-			<span>
-				{cursor && (
-					<a href={`/category/${category}`} class="pill pill--ghost">‹ Newest</a>
-				)}
-			</span>
-			<span>
-				{hasMore && nextCursor && (
-					<a href={`/category/${category}?cursor=${nextCursor}`} class="pill">Older ›</a>
-				)}
-			</span>
-		</nav>
+		<Pagination
+			baseUrl={`/category/${category}`}
+			cursor={cursor}
+			hasMore={hasMore}
+			nextCursor={nextCursor}
+		/>
 
-		<nav class="back-link">
-			<a href="/" class="pill pill--ghost">‹ Back to home</a>
-		</nav>
+		<BackLink href="/" label="Back to home" />
 	</div>
 </Layout>

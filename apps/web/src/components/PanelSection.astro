@@ -1,0 +1,46 @@
+---
+/**
+ * PanelSection — a parchment panel under a carved band heading: the section
+ * marker gem (when the section has a category), the title, and either a
+ * "View all" link or the plain trailing chevrons.
+ */
+import type { Category } from "@hiroba/shared";
+import Gem from "./Gem.astro";
+
+interface Props {
+	title: string;
+	/** Link the title itself (the home page's per-category sections). */
+	titleHref?: string;
+	/** Render a "View all ››" link instead of the bare chevrons. */
+	moreHref?: string;
+	/** Colors the band + gem via data-cat theming. */
+	category?: Category;
+}
+
+const { title, titleHref, moreHref, category } = Astro.props;
+---
+
+<section class="panel" data-cat={category}>
+	<div class="band-heading">
+		{category && <Gem category={category} />}
+		<span class="band-heading__title">
+			{titleHref ? <a href={titleHref}>{title}</a> : title}
+		</span>
+		{moreHref ? (
+			<a class="band-heading__more" href={moreHref}>
+				View all <span class="band-heading__chevrons" aria-hidden="true">››</span>
+			</a>
+		) : (
+			<span class="band-heading__chevrons" aria-hidden="true">››</span>
+		)}
+	</div>
+	<div class="panel__body">
+		<slot />
+	</div>
+</section>
+
+<style>
+	.band-heading__more {
+		flex: none;
+	}
+</style>

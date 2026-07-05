@@ -1,0 +1,29 @@
+---
+/**
+ * Pagination — cursor-based Newest/Older pills for the list pages. "Newest"
+ * appears once the reader has paged (a cursor is set); "Older" appears while
+ * more pages remain.
+ */
+
+interface Props {
+	/** The list page's own URL, without any cursor query. */
+	baseUrl: string;
+	/** The cursor the current page was requested with, if any. */
+	cursor?: string;
+	hasMore: boolean;
+	nextCursor?: string;
+}
+
+const { baseUrl, cursor, hasMore, nextCursor } = Astro.props;
+---
+
+<nav class="pagination" aria-label="Pagination">
+	<span>
+		{cursor && <a href={baseUrl} class="pill pill--ghost">‹ Newest</a>}
+	</span>
+	<span>
+		{hasMore && nextCursor && (
+			<a href={`${baseUrl}?cursor=${encodeURIComponent(nextCursor)}`} class="pill">Older ›</a>
+		)}
+	</span>
+</nav>

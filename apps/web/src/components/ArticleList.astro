@@ -1,0 +1,42 @@
+---
+/**
+ * ArticleList — the parchment ledger of article rows (news items or topics),
+ * each row a localized title (falling back to Japanese) with its publication
+ * date. The "empty" slot customizes the no-items message.
+ */
+import { formatShortDate } from "@hiroba/ui";
+
+interface Props {
+	items: Array<{
+		id: string;
+		titleJa: string;
+		titleEn: string | null;
+		publishedAt: { epochMilliseconds: number };
+	}>;
+	/** Detail-page prefix the row links under: "/news" or "/topics". */
+	hrefBase: string;
+}
+
+const { items, hrefBase } = Astro.props;
+---
+
+{
+	items.length > 0 ? (
+		<ul class="news-list">
+			{items.map((item) => (
+				<li>
+					<a href={`${hrefBase}/${item.id}`}>
+						<span class="news-list__title">{item.titleEn ?? item.titleJa}</span>
+						<time datetime={new Date(item.publishedAt.epochMilliseconds).toISOString()}>
+							{formatShortDate(item.publishedAt.epochMilliseconds)}
+						</time>
+					</a>
+				</li>
+			))}
+		</ul>
+	) : (
+		<slot name="empty">
+			<p class="empty">No dispatches have arrived yet.</p>
+		</slot>
+	)
+}

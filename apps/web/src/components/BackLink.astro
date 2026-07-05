@@ -1,0 +1,14 @@
+---
+/** BackLink — the ghost-pill "‹ Back to …" nav at the foot of a page. */
+
+interface Props {
+	href: string;
+	label: string;
+}
+
+const { href, label } = Astro.props;
+---
+
+<nav class="back-link">
+	<a href={href} class="pill pill--ghost">‹ {label}</a>
+</nav>

@@ -1,7 +1,10 @@
 ---
 import Layout from "../../layouts/Layout.astro";
+import ArticleList from "../../components/ArticleList.astro";
+import BackLink from "../../components/BackLink.astro";
+import Pagination from "../../components/Pagination.astro";
+import PanelSection from "../../components/PanelSection.astro";
 import { createDb, getTopics, type LocalizedTopic } from "@hiroba/db";
-import { formatShortDate } from "@hiroba/ui";
 
 const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
 
@@ -25,53 +28,18 @@ try {
 
 <Layout title="Topics">
 	{/* Gilt identity, distinct from the four news categories. */}
-	<div
-		class="topics"
-		style="--cat: var(--gold-mid); --cat-ink: var(--gold-ink);"
-	>
-		<section class="panel">
-			<div class="band-heading">
-				<span class="band-heading__title">Topics</span>
-				<span class="band-heading__chevrons" aria-hidden="true">››</span>
-			</div>
-			<div class="panel__body">
-				{
-					items.length > 0 ? (
-						<ul class="news-list">
-							{items.map((t) => (
-								<li>
-									<a href={`/topics/${t.id}`}>
-										<span class="news-list__title">{t.titleEn ?? t.titleJa}</span>
-										<time datetime={t.publishedAt.toString()}>
-											{formatShortDate(t.publishedAt.epochMilliseconds)}
-										</time>
-									</a>
-								</li>
-							))}
-						</ul>
-					) : (
-						<p class="empty">
-							No topics yet. Open a topic URL like <code>/topics/&lt;id&gt;</code> to fetch,
-							transcribe and translate it — or seed them from the admin.
-						</p>
-					)
-				}
-			</div>
-		</section>
+	<div data-cat="topic">
+		<PanelSection title="Topics">
+			<ArticleList items={items} hrefBase="/topics">
+				<p class="empty" slot="empty">
+					No topics yet. Open a topic URL like <code>/topics/&lt;id&gt;</code> to fetch,
+					transcribe and translate it — or seed them from the admin.
+				</p>
+			</ArticleList>
+		</PanelSection>
 
-		<nav class="pagination" aria-label="Pagination">
-			<span>
-				{cursor && <a href="/topics" class="pill pill--ghost">‹ Newest</a>}
-			</span>
-			<span>
-				{hasMore && nextCursor && (
-					<a href={`/topics?cursor=${encodeURIComponent(nextCursor)}`} class="pill">Older ›</a>
-				)}
-			</span>
-		</nav>
+		<Pagination baseUrl="/topics" cursor={cursor} hasMore={hasMore} nextCursor={nextCursor} />
 
-		<nav class="back-link">
-			<a href="/" class="pill pill--ghost">‹ Back to home</a>
-		</nav>
+		<BackLink href="/" label="Back to home" />
 	</div>
 </Layout>
