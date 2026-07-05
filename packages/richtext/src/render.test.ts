@@ -134,6 +134,33 @@ describe('renderBlocks', () => {
     );
   });
 
+  it('renders a toc infoBox as a semantic nav', () => {
+    expect(
+      renderBlocks([
+        {
+          type: 'infoBox',
+          variant: 'toc',
+          children: [
+            {
+              type: 'paragraph',
+              children: [{ type: 'strong', children: ['Index'] }],
+            },
+            {
+              type: 'list',
+              ordered: false,
+              items: [
+                { children: [{ type: 'link', href: '#a', children: ['A'] }] },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toBe(
+      '<nav class="rt-toc" aria-label="Contents"><p><strong>Index</strong></p>' +
+        '<ul><li><a href="#a">A</a></li></ul></nav>',
+    );
+  });
+
   it('renders a captioned image as a figure with a figcaption', () => {
     expect(
       renderBlocks([

@@ -198,6 +198,56 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 		text-wrap: balance;
 	}
 
+	/* the source's box_terms box — a gilt frame shared by the TOC nav and the
+	   plain terms/spec boxes (they're the same decorative box in the source) */
+	.news-body .rt-toc,
+	.news-body .rt-infobox[data-variant="terms"] {
+		margin: 1.5rem auto;
+		padding: 0.95rem 1.25rem 1.05rem;
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklch, var(--surface-panel), var(--gold) 4%),
+			color-mix(in oklch, var(--surface-sunken), var(--gold) 8%)
+		);
+		border: 1px solid var(--gold-edge);
+		box-shadow:
+			var(--inset-top),
+			var(--shadow-sm),
+			inset 0 0 0 3px color-mix(in oklch, var(--gold) 20%, transparent);
+	}
+	.news-body .rt-toc > p:first-child {
+		margin: 0 0 0.65rem;
+		text-align: center;
+		font-family: var(--font-display);
+		font-size: 1.15rem;
+		font-weight: 700;
+		color: var(--ink);
+	}
+	.news-body .rt-toc ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.news-body .rt-toc li {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+		padding: 0.2rem 0;
+	}
+	.news-body .rt-toc li::before {
+		content: "";
+		flex: none;
+		align-self: center;
+		width: 0.6em;
+		height: 0.6em;
+		background: linear-gradient(150deg, var(--gold-hi), var(--gold) 50%, var(--gold-edge));
+		clip-path: polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%);
+		filter: drop-shadow(0 1px 0.5px oklch(0% 0 0 / 0.3));
+	}
+	.news-body .rt-toc a {
+		font-weight: 600;
+	}
+
 	/* table → ruled ledger */
 	.news-body .rt-table {
 		border-collapse: collapse;
@@ -215,6 +265,25 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 		font-weight: 650;
 	}
 
+	/* headerless single-column table → a clean borderless stack (layout, not data:
+	   e.g. the box_terms table of contents), so it reads as a list, not a ledger */
+	.news-body .rt-table[data-variant="layout"],
+	.news-body .rt-table[data-variant="layout"] tbody,
+	.news-body .rt-table[data-variant="layout"] tr,
+	.news-body .rt-table[data-variant="layout"] td {
+		display: block;
+		width: auto;
+		font-size: 1rem;
+	}
+	.news-body .rt-table[data-variant="layout"] td {
+		border: none;
+		padding: 0.1rem 0;
+	}
+	/* tighten the airy standalone-heading spacing when items are stacked in a TOC */
+	.news-body .rt-table[data-variant="layout"] :is(.rt-h-icon, h4) {
+		margin-top: 0.4rem;
+	}
+
 	/* badge → red chip */
 	.news-body .rt-badge {
 		display: inline-block;
@@ -226,6 +295,11 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 		color: oklch(99% 0.01 30);
 		background: linear-gradient(180deg, var(--red-9), var(--red-10));
 		border-radius: var(--radius);
+	}
+	/* the "Check" mark (TOC entries) → a gilt chip, not the red "New" flag */
+	.news-body .rt-badge[data-variant="checkmark"] {
+		color: oklch(30% 0.05 70);
+		background: linear-gradient(180deg, var(--gold-hi), var(--gold-mid));
 	}
 
 	.news-body .rt-icon {

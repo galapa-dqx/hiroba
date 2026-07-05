@@ -287,6 +287,29 @@ describe('container blocks', () => {
     ]),
   );
   roundTrips(
+    'toc infoBox (title + list of anchor links)',
+    doc([
+      {
+        type: 'infoBox',
+        variant: 'toc',
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ type: 'strong', children: ['Index'] }],
+          },
+          {
+            type: 'list',
+            ordered: false,
+            items: [
+              { children: [{ type: 'link', href: '#a', children: ['A'] }] },
+              { children: [{ type: 'link', href: '#b', children: ['B'] }] },
+            ],
+          },
+        ],
+      },
+    ]),
+  );
+  roundTrips(
     'section with title + dateline',
     doc([
       {

@@ -158,9 +158,15 @@ function pushElement(el: Element, out: Inline[]): void {
     }
     return;
   }
-  if (/\bico_newsystem\b/.test(classOf(el))) {
-    const text = textOf(el).trim() || 'New';
-    out.push({ type: 'badge', text, variant: 'newsystem' });
+  // Chip glyphs: the "New" flag (ico_newsystem) and the "Check" mark
+  // (ico_checkmark, common in TOC entries) → a badge, so they read as a chip and
+  // don't glue onto the neighbouring text.
+  const badge = classOf(el).match(/\bico_(newsystem|checkmark)\b/);
+  if (badge) {
+    const variant = badge[1];
+    const text =
+      textOf(el).trim() || (variant === 'newsystem' ? 'New' : 'Check');
+    out.push({ type: 'badge', text, variant });
     return;
   }
   if (name === 'a') {

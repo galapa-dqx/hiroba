@@ -145,7 +145,14 @@ export type InfoBoxVariant =
   | 'cork'
   | 'statistics'
   | 'mini'
-  | 'screenshot';
+  | 'screenshot'
+  /**
+   * A table of contents — a `box_terms` whose entries are in-page `#anchor`
+   * links. Its children are a title paragraph + a `list` of those links; the
+   * renderer emits it as a semantic `<nav>` (not a `<div>`/table). Distinct from
+   * 'terms', which is the same box used for plain terms/spec text (no anchors).
+   */
+  | 'toc';
 
 // --- text blocks (Inline children only) ---
 /**
@@ -347,7 +354,12 @@ export type TableCell = {
  */
 export type TableNode = {
   type: 'table';
-  variant?: 'default' | 'contents' | 'tp';
+  /**
+   * 'layout' = a headerless single-column table (each row one cell) — the source
+   * uses these purely for vertical layout (e.g. the box_terms table of contents),
+   * so the renderer drops the ruled-ledger borders and reads it as a clean stack.
+   */
+  variant?: 'default' | 'contents' | 'tp' | 'layout';
   headers?: TableCell[];
   rows: TableCell[][];
 };

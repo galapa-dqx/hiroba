@@ -107,6 +107,9 @@ export function renderBlocks(
       case 'embed':
         return `<div class="rt-embed" data-provider="${escAttr(node.provider)}"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>${node.content ? esc(node.content) : ''}</div>`;
       case 'infoBox':
+        // A table of contents is navigation, not a decorative aside.
+        if (node.variant === 'toc')
+          return `<nav class="rt-toc" aria-label="Contents">${contents(node.children)}</nav>`;
         return `<div class="rt-infobox" data-variant="${escAttr(node.variant)}">${contents(node.children)}</div>`;
       case 'section':
         return (

@@ -54,6 +54,15 @@ describe('parseTopicBody — inline extraction', () => {
         ],
       },
     ]);
+    // ico_checkmark (common on TOC entries) becomes a Check badge too
+    expect(
+      parseTopicBody('<p><span class="ico_checkmark">Check</span></p>'),
+    ).toEqual([
+      {
+        type: 'paragraph',
+        children: [{ type: 'badge', text: 'Check', variant: 'checkmark' }],
+      },
+    ]);
   });
 
   it('keeps a small ordinal/platform icon inline (and absolutizes its src)', () => {
@@ -231,6 +240,51 @@ describe('parseTopicBody — block extraction', () => {
     ]);
   });
 
+  it('a box_terms of #anchor links → a toc infoBox (title + list of links)', () => {
+    expect(
+      parseTopicBody(
+        '<div class="box_terms"><table>' +
+          '<tr><td><b>目次</b></td></tr>' +
+          '<tr><td><h4 class="title_icon01"><a href="#a">First</a></h4></td></tr>' +
+          '<tr><td><h4 class="title_icon01"><a href="#b">Second</a></h4></td></tr>' +
+          '</table></div>',
+      ),
+    ).toEqual([
+      {
+        type: 'infoBox',
+        variant: 'toc',
+        children: [
+          {
+            type: 'paragraph',
+            children: [{ type: 'strong', children: ['目次'] }],
+          },
+          {
+            type: 'list',
+            ordered: false,
+            items: [
+              { children: [{ type: 'link', href: '#a', children: ['First'] }] },
+              {
+                children: [{ type: 'link', href: '#b', children: ['Second'] }],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('a box_terms with no #anchor links stays a plain terms infoBox', () => {
+    expect(
+      parseTopicBody('<div class="box_terms"><p>対応機種 PS4</p></div>'),
+    ).toEqual([
+      {
+        type: 'infoBox',
+        variant: 'terms',
+        children: [{ type: 'paragraph', children: ['対応機種 PS4'] }],
+      },
+    ]);
+  });
+
   it('youtube iframe → video block', () => {
     expect(
       parseTopicBody(
@@ -259,6 +313,37 @@ describe('parseTopicBody — block extraction', () => {
           [{ children: ['c'], colSpan: 2 }],
         ],
       },
+    ]);
+  });
+
+  it('flags a headerless single-column table as layout (the TOC pattern)', () => {
+    expect(
+      parseTopicBody(
+        '<table><tr><td>one</td></tr><tr><td>two</td></tr></table>',
+      ),
+    ).toEqual([
+      {
+        type: 'table',
+        variant: 'layout',
+        rows: [[{ children: ['one'] }], [{ children: ['two'] }]],
+      },
+    ]);
+  });
+
+  it('does not flag multi-column, classed, or spanned tables as layout', () => {
+    // two columns → a real data table
+    expect(
+      parseTopicBody('<table><tr><td>a</td><td>b</td></tr></table>'),
+    ).toEqual([
+      { type: 'table', rows: [[{ children: ['a'] }, { children: ['b'] }]] },
+    ]);
+    // an explicit table class keeps its own variant even when single-column
+    expect(
+      parseTopicBody(
+        '<table class="contentsTable1"><tr><td>x</td></tr></table>',
+      ),
+    ).toEqual([
+      { type: 'table', variant: 'contents', rows: [[{ children: ['x'] }]] },
     ]);
   });
 });

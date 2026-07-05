@@ -560,6 +560,16 @@ const table: Extractor = {
     }
 
     if (!block.rows.length && !block.headers) return null;
+    // A headerless single-column table (one cell per row) is layout, not data —
+    // the source stacks content in it (e.g. the box_terms table of contents).
+    // Flag it so the renderer drops the ruled borders. An explicit table class
+    // (contents/tp) keeps its own variant.
+    if (
+      block.variant === undefined &&
+      !block.headers &&
+      block.rows.every((r) => r.length === 1 && !r[0].colSpan && !r[0].rowSpan)
+    )
+      block.variant = 'layout';
     return block;
   },
 };
@@ -579,6 +589,72 @@ function parseCell(cell: Element, ctx: Ctx): TableCell {
   if (rs && Number(rs) > 1) out.rowSpan = Number(rs);
   return out;
 }
+
+/* ------------------------------------------------------------------ *
+ * Table of contents — a box_terms whose entries are in-page #anchor links
+ * (the box_terms class alone is mostly plain terms/spec text, so we gate on
+ * the anchors). Modelled as an infoBox 'toc' variant holding a title + a list
+ * of links, which the renderer emits as a semantic <nav>.
+ * ------------------------------------------------------------------ */
+
+/** An inline link that points at an in-page anchor (`#section`). */
+const isAnchorLink = (n: Inline): boolean =>
+  typeof n !== 'string' && n.type === 'link' && n.href.startsWith('#');
+
+/** Count `<a href="#…">` in a subtree (no cheerio — usable from canExtract). */
+function anchorLinkCount(el: Element): number {
+  let n = 0;
+  const walk = (e: Element): void => {
+    for (const c of elChildren(e)) {
+      if (nm(c) === 'a') {
+        if ((attr(c, 'href') ?? '').startsWith('#')) n++;
+      } else walk(c);
+    }
+  };
+  walk(el);
+  return n;
+}
+
+/** One inline run per TOC entry: a table's rows, else <br>-split lines. */
+function collectTocEntries(el: Element, ctx: Ctx): Inline[][] {
+  const rows: Inline[][] = [];
+  const push = (nodes: AnyNode[]) => {
+    const inl = trimBreaks(parseInline(nodes));
+    if (meaningfulInline(inl)) rows.push(inl);
+  };
+  const table = q(ctx, el, 'table');
+  if (table) {
+    for (const tr of qa(ctx, table, 'tr')) {
+      const cell = elChildren(tr).find((c) => nm(c) === 'td' || nm(c) === 'th');
+      if (cell) push(cell.children ?? []);
+    }
+  } else {
+    const container = q(ctx, el, '.box_terms_set2') ?? el;
+    for (const group of splitByBreak(container.children ?? [])) push(group);
+  }
+  return rows;
+}
+
+const toc: Extractor = {
+  name: 'toc',
+  canExtract: (el) =>
+    /box_terms(?!_set)/.test(cls(el)) && anchorLinkCount(el) >= 2,
+  extract: (el, ctx) => {
+    const entries = collectTocEntries(el, ctx);
+    let title: Inline[] | undefined;
+    const items: { children: Inline[] }[] = [];
+    for (const entry of entries) {
+      // The first link-free line is the heading; every other line is an entry.
+      if (title === undefined && !entry.some(isAnchorLink)) title = entry;
+      else items.push({ children: entry });
+    }
+    if (items.length < 2) return null;
+    const children: ContentNode[] = [];
+    if (title) children.push({ type: 'paragraph', children: title });
+    children.push({ type: 'list', ordered: false, items });
+    return { type: 'infoBox', variant: 'toc', children };
+  },
+};
 
 const infoBox: Extractor = {
   name: 'infoBox',
@@ -784,6 +860,7 @@ const steps: Extractor = {
 // (handled as the fallback in processBlockElement).
 const BLOCK_EXTRACTORS: Extractor[] = [
   section,
+  toc,
   infoBox,
   accordion,
   interview,
