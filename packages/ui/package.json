@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./format-date": "./src/format-date.ts",
+    "./styles/palette.css": "./src/styles/palette.css",
     "./category-shape": "./src/category-shape.ts",
     "./CategoryDot": "./src/CategoryDot.tsx",
     "./Ornament.astro": "./src/Ornament.astro",

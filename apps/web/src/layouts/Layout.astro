@@ -3,6 +3,8 @@ import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
 import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import ThemeToggle from "@hiroba/ui/ThemeToggle.astro";
+import "@hiroba/ui/styles/palette.css";
+import "../styles/global.css";
 
 interface Props {
 	title: string;
@@ -27,8 +29,6 @@ const active =
 		<meta name="description" content="Dragon Quest X news, translated to English" />
 		<meta name="color-scheme" content="light dark" />
 		<title>{title} | DQX News</title>
-		<link rel="stylesheet" href="/styles/palette.css" />
-		<link rel="stylesheet" href="/styles/global.css" />
 		{/* Apply the saved theme before first paint to avoid a flash. */}
 		<script is:inline>
 			(() => {

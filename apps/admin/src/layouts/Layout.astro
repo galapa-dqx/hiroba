@@ -1,6 +1,8 @@
 ---
 import Rosette from "@hiroba/ui/Rosette.astro";
 import ThemeToggle from "@hiroba/ui/ThemeToggle.astro";
+import "@hiroba/ui/styles/palette.css";
+import "../styles/admin.css";
 
 interface Props {
 	title: string;
@@ -30,8 +32,6 @@ const isActive = (href: string) =>
 		<meta name="robots" content="noindex, nofollow" />
 		<meta name="color-scheme" content="light dark" />
 		<title>{title} | DQX Admin</title>
-		<link rel="stylesheet" href="/styles/palette.css" />
-		<link rel="stylesheet" href="/styles/admin.css" />
 		<script is:inline>
 			(() => {
 				try {
