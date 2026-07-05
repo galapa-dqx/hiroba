@@ -367,9 +367,13 @@ const events = ready ? await getEventsForSource(db, "topic", id, "en") : [];
 		margin-top: 0.4rem;
 	}
 
-	/* button → gilt CTA (echoes .pill) */
+	/* button → gilt CTA (echoes .pill), centered as a standalone block */
 	.topic-body .rt-button {
-		display: inline-block;
+		display: block;
+		width: fit-content;
+		min-width: 60%;
+		margin-inline: auto;
+		text-align: center;
 		padding: 0.45rem 1rem;
 		font-weight: 650;
 		color: oklch(28% 0.05 70);
