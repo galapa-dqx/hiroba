@@ -29,6 +29,17 @@ export function formatLocal(value: DateInput): string {
   return new Date(value).toLocaleString();
 }
 
+/** en-US short date + time ("Jun 26, 2026, 9:00 PM") in the viewer's local zone. */
+export function formatLocalDateTime(value: DateInput): string {
+  return new Date(value).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 /** Format a UTC instant as a date in the viewer's local zone. */
 export function formatLocalDate(value: DateInput): string {
   return new Date(value).toLocaleDateString();

@@ -9,23 +9,28 @@
  * text. The original JST rendering stays discoverable via the title tooltip.
  */
 
-import { formatJst } from '@hiroba/ui/format-date';
+import { formatJst, formatLocalDateTime } from '@hiroba/ui/format-date';
+
+/**
+ * Rewrite one <time> element's text into the viewer's zone, keeping the JST
+ * rendering in the title tooltip. Also used by the events rail for its timed
+ * events.
+ */
+export function localizeTimeElement(el: HTMLTimeElement): void {
+  const dt = el.getAttribute('datetime');
+  if (!dt) return;
+  const date = new Date(dt);
+  if (Number.isNaN(date.getTime())) return;
+  el.title = `${formatJst(date)} JST`;
+  el.textContent = formatLocalDateTime(date);
+}
 
 export function localizeArticleTimes(root: ParentNode = document): void {
   const els = root.querySelectorAll<HTMLTimeElement>('time.rt-time[datetime]');
   for (const el of els) {
     const dt = el.getAttribute('datetime');
     if (!dt || !dt.includes('T')) continue;
-    const date = new Date(dt);
-    if (Number.isNaN(date.getTime())) continue;
-    el.title = `${formatJst(date)} JST`;
-    el.textContent = date.toLocaleString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
+    localizeTimeElement(el);
   }
 }
 

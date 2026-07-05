@@ -154,7 +154,7 @@ function jstText(zdt: EventWithTitle["startTime"], type: string): string {
 </style>
 
 <script>
-	import { formatJst } from "@hiroba/ui/format-date";
+	import { localizeTimeElement } from "../scripts/localize-times";
 
 	// Relocalize timed events to the viewer's zone (date-granular events stay in
 	// JST). Matches the treatment of the inline rt-time annotations.
@@ -163,17 +163,6 @@ function jstText(zdt: EventWithTitle["startTime"], type: string): string {
 	)) {
 		const type = el.dataset.etype;
 		if (type === "multiDay" || type === "allDay") continue;
-		const dt = el.getAttribute("datetime");
-		if (!dt) continue;
-		const date = new Date(dt);
-		if (Number.isNaN(date.getTime())) continue;
-		el.title = `${formatJst(date)} JST`;
-		el.textContent = date.toLocaleString("en-US", {
-			year: "numeric",
-			month: "short",
-			day: "numeric",
-			hour: "numeric",
-			minute: "2-digit",
-		});
+		localizeTimeElement(el);
 	}
 </script>

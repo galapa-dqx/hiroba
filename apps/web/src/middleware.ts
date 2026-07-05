@@ -29,6 +29,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
   // Cache SSR pages for 5 minutes, stale-while-revalidate for 1 hour
   if (
     pathname.startsWith('/news/') ||
+    pathname.startsWith('/topics') ||
     pathname.startsWith('/category/') ||
     pathname === '/'
   ) {
