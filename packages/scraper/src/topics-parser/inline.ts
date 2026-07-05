@@ -109,7 +109,13 @@ function isExternalLink(href: string): boolean {
 /** Collapse ASCII whitespace runs to one space; keep U+3000 (ideographic space). */
 const normText = (s: string): string => s.replace(/[ \t\r\n\f\v]+/g, ' ');
 
-/** Merge adjacent strings and trim the outer edges — canonical inline output. */
+/**
+ * Merge adjacent strings and trim the outer edges — canonical inline output.
+ * Edge whitespace includes U+3000: a mid-text ideographic space is a meaningful
+ * separator (kept by {@link normText}), but at a run's start/end it's only the
+ * source's decorative indentation (e.g. the leading `　` on `title0x` headings)
+ * and, unlike an ASCII space, the browser won't collapse it — so we strip it.
+ */
 function canonicalize(nodes: Inline[]): Inline[] {
   const merged: Inline[] = [];
   for (const n of nodes) {
@@ -118,10 +124,11 @@ function canonicalize(nodes: Inline[]): Inline[] {
       merged[merged.length - 1] = last + n;
     else merged.push(n);
   }
-  if (typeof merged[0] === 'string') merged[0] = merged[0].replace(/^ +/, '');
+  if (typeof merged[0] === 'string')
+    merged[0] = merged[0].replace(/^[ \u3000]+/, '');
   const li = merged.length - 1;
   if (typeof merged[li] === 'string')
-    merged[li] = (merged[li] as string).replace(/ +$/, '');
+    merged[li] = (merged[li] as string).replace(/[ \u3000]+$/, '');
   return merged.filter((n) => n !== '');
 }
 

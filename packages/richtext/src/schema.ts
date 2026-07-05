@@ -168,6 +168,14 @@ export type HeadingNode = {
   children: Inline[];
   /** 'label' = decorative title_icon0x sub-label (downgraded from a real heading). */
   variant?: 'default' | 'icon' | 'quest' | 'label';
+  /**
+   * In-page anchor id lifted from a bare `<a id>`/`<a name>` jump target that
+   * preceded this heading in the source (the section-linking pattern, e.g. a
+   * `<a href="#dra">` button elsewhere in the body). Rendered as `id` on the
+   * heading so `#<anchor>` scrolls to it; non-linguistic, copied through
+   * translation verbatim.
+   */
+  anchor?: string;
 };
 /**
  * CTA button — source `btn01`–`04`, `btn_square` (1,800+ topics).
@@ -219,6 +227,16 @@ export type ImageNode = {
    * text back onto the image later).
    */
   text?: string[];
+  /**
+   * Displayed caption beneath the image — source: the `<center>` (or centered
+   * element) that follows a centered image, or the trailing text inside a
+   * `<center><img>…text</center>`. Inline content, so it keeps its `<a>`/color
+   * runs (whose non-linguistic attrs reconcile restores after translation).
+   * Distinct from {@link text}, which is baked into the image raster; an image
+   * may carry both.
+   * @example https://hiroba.dqx.jp/sc/topics/detail/cabad3b9bc0afe08cd9ec861638ed1d9/
+   */
+  caption?: Inline[];
 };
 /**
  * YouTube embed — source `<iframe src="youtube.com/embed/…">` (135 blocks).

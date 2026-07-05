@@ -182,11 +182,20 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 		max-width: 100%;
 		height: auto;
 	}
-	.news-body h2,
-	.news-body h3 {
-		font-family: var(--font-display);
-		line-height: 1.3;
-		margin-top: 1.5rem;
+
+	/* captioned image → centered figure with a manuscript caption beneath */
+	.news-body .rt-figure {
+		margin: 1.25rem auto;
+		text-align: center;
+	}
+	.news-body .rt-caption {
+		display: block;
+		max-width: 46ch;
+		margin: 0.55rem auto 0;
+		font-size: 0.9em;
+		line-height: 1.5;
+		color: var(--ink-faint);
+		text-wrap: balance;
 	}
 
 	/* table → ruled ledger */

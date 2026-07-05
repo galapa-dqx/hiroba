@@ -162,11 +162,20 @@ const contentHtml = renderBlocks(blocks, { imageSrc: (src: string) => rewriteIma
 		max-width: 100%;
 		height: auto;
 	}
-	.topic-body h2,
-	.topic-body h3 {
-		font-family: var(--font-display);
-		line-height: 1.3;
-		margin-top: 1.5rem;
+
+	/* captioned image → centered figure with a manuscript caption beneath */
+	.topic-body .rt-figure {
+		margin: 1.25rem auto;
+		text-align: center;
+	}
+	.topic-body .rt-caption {
+		display: block;
+		max-width: 46ch;
+		margin: 0.55rem auto 0;
+		font-size: 0.9em;
+		line-height: 1.5;
+		color: var(--ink-faint);
+		text-wrap: balance;
 	}
 
 	/* info box → inset parchment card */

@@ -87,6 +87,28 @@ describe('parseTopicBody — block extraction', () => {
     ]);
   });
 
+  it('trims decorative edge U+3000 on headings but keeps it as a mid-text separator', () => {
+    // leading + trailing ideographic space (source indentation) is stripped
+    expect(
+      parseTopicBody('<h2 class="title02">　公開中のハウジング　</h2>'),
+    ).toEqual([
+      { type: 'heading', level: 2, children: ['公開中のハウジング'] },
+    ]);
+    // a meaningful mid-text ideographic space is preserved
+    expect(
+      parseTopicBody(
+        '<h4 class="title_icon01">　デイジー地区　マイタウンID</h4>',
+      ),
+    ).toEqual([
+      {
+        type: 'heading',
+        level: 4,
+        children: ['デイジー地区　マイタウンID'],
+        variant: 'icon',
+      },
+    ]);
+  });
+
   it('a full content image is a block image, splitting the paragraph (src absolutized)', () => {
     expect(
       parseTopicBody(
@@ -237,6 +259,149 @@ describe('parseTopicBody — block extraction', () => {
           [{ children: ['c'], colSpan: 2 }],
         ],
       },
+    ]);
+  });
+});
+
+describe('parseTopicBody — captioned images', () => {
+  it('split: <div align=center><img> + <center>caption</center> → image.caption', () => {
+    expect(
+      parseTopicBody(
+        '<div align="center"><img src="/dq_resource/imgs/TopicsImages/h.jpg"></div>' +
+          '<center>2番地は<a href="/sc/shop/">ホテル風</a>ハウジングです！</center>',
+      ),
+    ).toEqual([
+      {
+        type: 'image',
+        src: `${CDN}/dq_resource/imgs/TopicsImages/h.jpg`,
+        caption: [
+          '2番地は',
+          { type: 'link', href: `${CDN}/sc/shop/`, children: ['ホテル風'] },
+          'ハウジングです！',
+        ],
+      },
+    ]);
+  });
+
+  it('split: tolerates a spacing <br> between the image and its caption', () => {
+    expect(
+      parseTopicBody(
+        '<div align="center"><img src="/dq_resource/imgs/TopicsImages/h.jpg"></div>' +
+          '<br /><center>キャプション</center>',
+      ),
+    ).toEqual([
+      {
+        type: 'image',
+        src: `${CDN}/dq_resource/imgs/TopicsImages/h.jpg`,
+        caption: ['キャプション'],
+      },
+    ]);
+  });
+
+  it('combined: <center><img><br>caption</center> → image.caption (edge breaks trimmed)', () => {
+    expect(
+      parseTopicBody(
+        '<center><img src="/dq_resource/imgs/TopicsImages/s.jpg"><br>' +
+          '<b>メギストリスの都F-4</b>にいます<br></center>',
+      ),
+    ).toEqual([
+      {
+        type: 'image',
+        src: `${CDN}/dq_resource/imgs/TopicsImages/s.jpg`,
+        caption: [
+          { type: 'strong', children: ['メギストリスの都F-4'] },
+          'にいます',
+        ],
+      },
+    ]);
+  });
+
+  it('a linked banner in a centered box keeps its href and gains the caption', () => {
+    expect(
+      parseTopicBody(
+        '<div align="center"><a href="https://x.com/"><img src="/dq_resource/imgs/TopicsImages/b.jpg"></a></div>' +
+          '<center>Banner caption</center>',
+      ),
+    ).toEqual([
+      {
+        type: 'image',
+        src: `${CDN}/dq_resource/imgs/TopicsImages/b.jpg`,
+        href: 'https://x.com/',
+        external: true,
+        caption: ['Banner caption'],
+      },
+    ]);
+  });
+
+  it('a centered image with no following caption stays a plain block image', () => {
+    expect(
+      parseTopicBody(
+        '<div align="center"><img src="/dq_resource/imgs/TopicsImages/x.jpg"></div>',
+      ),
+    ).toEqual([
+      { type: 'image', src: `${CDN}/dq_resource/imgs/TopicsImages/x.jpg` },
+    ]);
+  });
+
+  it('does not fold a following non-<center> block into a caption', () => {
+    expect(
+      parseTopicBody(
+        '<div align="center"><img src="/dq_resource/imgs/TopicsImages/x.jpg"></div>' +
+          '<h3 class="title02">Next section</h3>',
+      ),
+    ).toEqual([
+      { type: 'image', src: `${CDN}/dq_resource/imgs/TopicsImages/x.jpg` },
+      { type: 'heading', level: 3, children: ['Next section'] },
+    ]);
+  });
+});
+
+describe('parseTopicBody — section anchors', () => {
+  it('lifts a bare <a id> jump target onto the following heading (no stray paragraph)', () => {
+    expect(
+      parseTopicBody(
+        '<br><br><a id="dra"></a><h2 class="title02">章タイトル</h2>',
+      ),
+    ).toEqual([
+      { type: 'heading', level: 2, children: ['章タイトル'], anchor: 'dra' },
+    ]);
+  });
+
+  it('accepts the old <a name> form and skips <br> between the anchor and heading', () => {
+    expect(parseTopicBody('<a name="sec"></a><br><h3>Section</h3>')).toEqual([
+      { type: 'heading', level: 3, children: ['Section'], anchor: 'sec' },
+    ]);
+  });
+
+  it('drops a bare <a id> not followed by a heading (no empty-link paragraph)', () => {
+    expect(parseTopicBody('<a id="x"></a><p>Body text.</p>')).toEqual([
+      { type: 'paragraph', children: ['Body text.'] },
+    ]);
+  });
+
+  it('leaves a normal in-text link alone (it has text, so it is not a bare anchor)', () => {
+    expect(parseTopicBody('<p>go <a id="k" href="/x/">here</a></p>')).toEqual([
+      {
+        type: 'paragraph',
+        children: [
+          'go ',
+          { type: 'link', href: `${CDN}/x/`, children: ['here'] },
+        ],
+      },
+    ]);
+  });
+
+  it('captures an id placed directly on the heading element (e.g. <h2 id="Puu">)', () => {
+    expect(
+      parseTopicBody('<h2 class="title01" id="Puu">タイトル</h2>'),
+    ).toEqual([
+      { type: 'heading', level: 1, children: ['タイトル'], anchor: 'Puu' },
+    ]);
+  });
+
+  it("a heading's own id wins over a preceding bare anchor", () => {
+    expect(parseTopicBody('<a id="dra"></a><h3 id="own">T</h3>')).toEqual([
+      { type: 'heading', level: 3, children: ['T'], anchor: 'own' },
     ]);
   });
 });

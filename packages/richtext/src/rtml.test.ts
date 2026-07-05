@@ -111,6 +111,19 @@ describe('text blocks', () => {
     ]),
   );
   roundTrips(
+    'heading with an anchor id (and with variant)',
+    doc([
+      { type: 'heading', level: 2, children: ['Section'], anchor: 'dra' },
+      {
+        type: 'heading',
+        level: 3,
+        children: ['Q'],
+        variant: 'quest',
+        anchor: 'q1',
+      },
+    ]),
+  );
+  roundTrips(
     'button (+variant)',
     doc([
       { type: 'button', href: '/go/', children: ['Go'] },
@@ -169,6 +182,35 @@ describe('media blocks', () => {
       },
     ]),
   );
+  roundTrips(
+    'image with a caption (keeps the caption’s inline link)',
+    doc([
+      {
+        type: 'image',
+        src: '/dq_resource/house.jpg',
+        caption: [
+          '2番地は',
+          {
+            type: 'link',
+            href: 'https://hiroba.dqx.jp/sc/shop/',
+            children: ['ホテル風'],
+          },
+          'ハウジングです！',
+        ],
+      },
+    ]),
+  );
+  roundTrips(
+    'image carrying both baked-in text and a caption',
+    doc([
+      {
+        type: 'image',
+        src: '/dq_resource/banner.jpg',
+        text: ['開催決定！'],
+        caption: [{ type: 'color', value: '#FF0000', children: ['※注意'] }],
+      },
+    ]),
+  );
 
   it('serializes image text as one <line> per span', () => {
     expect(
@@ -180,6 +222,25 @@ describe('media blocks', () => {
       ),
     ).toBe(
       '<doctitle></doctitle><figure src="/a.jpg"><line>Line one</line><line>Line two</line></figure>',
+    );
+  });
+  it('serializes a caption as a <figcaption> after the <line> spans', () => {
+    expect(
+      serializeToRtml(
+        doc(
+          [
+            {
+              type: 'image',
+              src: '/a.jpg',
+              text: ['Baked'],
+              caption: ['A caption'],
+            },
+          ],
+          '',
+        ),
+      ),
+    ).toBe(
+      '<doctitle></doctitle><figure src="/a.jpg"><line>Baked</line><figcaption>A caption</figcaption></figure>',
     );
   });
   roundTrips(

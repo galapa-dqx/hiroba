@@ -36,6 +36,19 @@ describe('renderBlocks', () => {
         { type: 'heading', level: 2, children: ['H'], variant: 'quest' },
       ]),
     ).toBe('<h2 class="rt-h-quest">H</h2>');
+    // an anchor becomes an id (before class) for in-page linking
+    expect(
+      renderBlocks([
+        { type: 'heading', level: 2, children: ['H'], anchor: 'dra' },
+        {
+          type: 'heading',
+          level: 3,
+          children: ['Q'],
+          variant: 'quest',
+          anchor: 'q1',
+        },
+      ]),
+    ).toBe('<h2 id="dra">H</h2><h3 id="q1" class="rt-h-quest">Q</h3>');
     expect(renderBlocks([{ type: 'divider' }])).toBe('<hr>');
     expect(
       renderBlocks([
@@ -118,6 +131,46 @@ describe('renderBlocks', () => {
       ]),
     ).toBe(
       '<details class="rt-accordion"><summary>open</summary><p>x</p></details>',
+    );
+  });
+
+  it('renders a captioned image as a figure with a figcaption', () => {
+    expect(
+      renderBlocks([
+        {
+          type: 'image',
+          src: 'https://cache.hiroba.dqx.jp/h.jpg',
+          caption: [
+            'See ',
+            {
+              type: 'link',
+              href: 'https://hiroba.dqx.jp/x',
+              children: ['here'],
+            },
+          ],
+        },
+      ]),
+    ).toBe(
+      '<figure class="rt-figure"><img class="rt-image" src="https://cache.hiroba.dqx.jp/h.jpg" alt="">' +
+        '<figcaption class="rt-caption">See <a href="https://hiroba.dqx.jp/x">here</a></figcaption></figure>',
+    );
+  });
+
+  it('wraps a linked captioned image as figure > a > img + figcaption', () => {
+    expect(
+      renderBlocks([
+        {
+          type: 'image',
+          src: '/a.jpg',
+          href: 'https://example.com/',
+          external: true,
+          caption: ['cap'],
+        },
+      ]),
+    ).toBe(
+      '<figure class="rt-figure"><a class="rt-image-link" href="https://example.com/" target="_blank" rel="noopener noreferrer">' +
+        '<img class="rt-image" src="/a.jpg" alt=""></a>' +
+        '<figcaption class="rt-caption">cap</figcaption></figure>',
     );
   });
 });

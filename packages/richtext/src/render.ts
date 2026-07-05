@@ -76,8 +76,12 @@ export function renderBlocks(
             : '';
         return `<p${style}>${inlines(node.children)}</p>`;
       }
-      case 'heading':
-        return `<h${node.level}${node.variant ? ` class="rt-h-${node.variant}"` : ''}>${inlines(node.children)}</h${node.level}>`;
+      case 'heading': {
+        // The anchor id makes `#<anchor>` scroll to this section (source jump target).
+        const id = node.anchor ? ` id="${escAttr(node.anchor)}"` : '';
+        const cls = node.variant ? ` class="rt-h-${node.variant}"` : '';
+        return `<h${node.level}${id}${cls}>${inlines(node.children)}</h${node.level}>`;
+      }
       case 'button':
         return `<a class="rt-button"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} href="${escAttr(node.href)}">${inlines(node.children)}</a>`;
       case 'divider':
@@ -87,11 +91,16 @@ export function renderBlocks(
         // accessibility; hydrate `text` with the displayed language's spans.
         const alt = node.text?.length ? node.text.join(' ') : (node.alt ?? '');
         const img = `<img class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} src="${escAttr(src(node.src))}" alt="${escAttr(alt)}">`;
-        if (!node.href) return img;
         const rel = node.external
           ? ' target="_blank" rel="noopener noreferrer"'
           : '';
-        return `<a class="rt-image-link" href="${escAttr(node.href)}"${rel}>${img}</a>`;
+        const media = node.href
+          ? `<a class="rt-image-link" href="${escAttr(node.href)}"${rel}>${img}</a>`
+          : img;
+        if (!node.caption) return media;
+        // A captioned image is a <figure> so the image and its <figcaption>
+        // center and wrap together as one unit.
+        return `<figure class="rt-figure">${media}<figcaption class="rt-caption">${inlines(node.caption)}</figcaption></figure>`;
       }
       case 'video':
         return `<div class="rt-video"><iframe src="${escAttr(node.src)}" allowfullscreen loading="lazy"></iframe></div>`;

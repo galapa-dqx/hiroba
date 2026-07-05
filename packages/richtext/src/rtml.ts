@@ -117,7 +117,7 @@ function serializeBlock(node: Block): string {
     case 'paragraph':
       return `<p${attr('align', node.align)}>${inlines(node.children)}</p>`;
     case 'heading':
-      return `<h${node.level}${attr('variant', node.variant)}>${inlines(node.children)}</h${node.level}>`;
+      return `<h${node.level}${attr('variant', node.variant)}${attr('anchor', node.anchor)}>${inlines(node.children)}</h${node.level}>`;
     case 'button':
       return `<button${attr('href', node.href)}${attr('variant', node.variant)}>${inlines(node.children)}</button>`;
     case 'divider':
@@ -126,12 +126,19 @@ function serializeBlock(node: Block): string {
       const imgAttrs = `${attr('src', node.src)}${attr('alt', node.alt)}${attr('variant', node.variant)}${attr('href', node.href)}${
         node.external ? ' external' : ''
       }${node.sources ? attr('sources', JSON.stringify(node.sources)) : ''}`;
-      // An image with baked-in text serializes as a non-void <figure> holding one
-      // <line> per transcribed span (so translation keeps them 1:1); a plain image
-      // is a void <img>.
-      if (node.text === undefined) return `<img${imgAttrs}>`;
-      const lines = node.text.map((t) => `<line>${escText(t)}</line>`).join('');
-      return `<figure${imgAttrs}>${lines}</figure>`;
+      // An image with baked-in text and/or a caption serializes as a non-void
+      // <figure>: one <line> per transcribed span (so translation keeps them 1:1),
+      // then a <figcaption> for the displayed caption. A plain image is a void
+      // <img>.
+      if (node.text === undefined && node.caption === undefined)
+        return `<img${imgAttrs}>`;
+      const lines = (node.text ?? [])
+        .map((t) => `<line>${escText(t)}</line>`)
+        .join('');
+      const caption = node.caption
+        ? `<figcaption>${inlines(node.caption)}</figcaption>`
+        : '';
+      return `<figure${imgAttrs}>${lines}${caption}</figure>`;
     }
     case 'video':
       return `<video${attr('provider', node.provider)}${attr('src', node.src)}></video>`;
@@ -391,6 +398,7 @@ function parseBlock(el: Element): Block {
       };
       if (a.variant !== undefined)
         n.variant = a.variant as HeadingNode['variant'];
+      if (a.anchor !== undefined) n.anchor = a.anchor;
       return n;
     }
     case 'button': {
@@ -414,14 +422,15 @@ function parseBlock(el: Element): Block {
       if (a.sources !== undefined)
         n.sources = JSON.parse(a.sources) as ImageSource[];
       if (el.name === 'figure') {
+        const caption = childEl(el, 'figcaption');
+        if (caption) n.caption = parseInlines(caption.children);
         const lines = childEls(el, 'line');
-        // Prefer explicit <line> spans; fall back to raw content if the model
-        // emitted the text without them.
-        n.text = lines.length
-          ? lines.map((l) => textOf(l))
-          : textOf(el).trim()
-            ? [textOf(el).trim()]
-            : [];
+        // Prefer explicit <line> spans for the baked-in text; with neither <line>s
+        // nor a caption, fall back to raw content (a model that emitted the text
+        // without <line> wrappers). A caption-only figure carries no baked text.
+        if (lines.length) n.text = lines.map((l) => textOf(l));
+        else if (!caption)
+          n.text = textOf(el).trim() ? [textOf(el).trim()] : [];
       }
       return n;
     }
