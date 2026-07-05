@@ -609,20 +609,26 @@ export async function listTopicsAdmin(
 }
 
 /**
- * Get the localized title + block tree for a topic, if translated.
- * The `content` translation stores the block tree as a JSON blob.
+ * Get the localized title + block tree for an article (news item or topic), if
+ * translated. The `content` translation stores the block tree as a JSON blob.
+ * `translatedAt` is the content row's timestamp (falling back to the title's).
  */
-export async function getTopicTranslations(
+export async function getArticleTranslations(
   db: Database,
+  itemType: 'news' | 'topic',
   id: string,
   language: string = 'en',
-): Promise<{ title: string | null; blocks: Block[] | null }> {
+): Promise<{
+  title: string | null;
+  blocks: Block[] | null;
+  translatedAt: Temporal.Instant | null;
+}> {
   const rows = await db
     .select()
     .from(translations)
     .where(
       and(
-        eq(translations.itemType, 'topic'),
+        eq(translations.itemType, itemType),
         eq(translations.itemId, id),
         eq(translations.language, language),
       ),
@@ -633,19 +639,23 @@ export async function getTopicTranslations(
   // which is still the best thing to render. Only value-less rows are skipped.
   let title: string | null = null;
   let blocks: Block[] | null = null;
+  let titleAt: Temporal.Instant | null = null;
+  let contentAt: Temporal.Instant | null = null;
   for (const row of rows) {
     if (row.value === null) continue;
     if (row.field === 'title') {
       title = row.value;
+      titleAt = row.translatedAt;
     } else if (row.field === 'content') {
       try {
         blocks = JSON.parse(row.value) as Block[];
+        contentAt = row.translatedAt;
       } catch {
         blocks = null;
       }
     }
   }
-  return { title, blocks };
+  return { title, blocks, translatedAt: contentAt ?? titleAt };
 }
 
 /** An extracted event with its English title translation merged in (null when
@@ -690,7 +700,7 @@ export async function getEventsForSource(
       .all(),
   );
   // Stale-while-revalidate: keep a running re-translation's prior value; skip
-  // only value-less rows (mirrors getTopicTranslations).
+  // only value-less rows (mirrors getArticleTranslations).
   const byId = new Map(
     trans.filter((t) => t.value !== null).map((t) => [t.itemId, t.value]),
   );

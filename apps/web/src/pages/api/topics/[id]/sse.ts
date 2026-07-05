@@ -1,27 +1,10 @@
 /**
- * SSE endpoint for topics workflow progress. Proxies to the WorkflowManager DO,
- * namespaced by `topic:` so it doesn't collide with the news DO of the same id.
+ * SSE endpoint for topics workflow progress — proxies to the WorkflowManager DO.
  */
 
 import type { APIRoute } from 'astro';
 
-export const GET: APIRoute = async ({ locals, params }) => {
-  const runtime = locals.runtime;
-  const id = params.id!;
+import { proxyWorkflowSse } from '../../../../lib/workflow';
 
-  const doId = runtime.env.WORKFLOW_MANAGER.idFromName(`topic:${id}`);
-  const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
-
-  const res = await stub.fetch(
-    `http://internal/sse?itemId=${id}&itemType=topic`,
-  );
-
-  return new Response(res.body, {
-    status: res.status,
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
-  });
-};
+export const GET: APIRoute = ({ locals, params }) =>
+  proxyWorkflowSse(locals.runtime, 'topic', params.id!);

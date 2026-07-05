@@ -9,6 +9,7 @@ import { createDb, getEventsForSource, getNewsItem, translations as translations
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { CATEGORY_LABELS, type Category } from "@hiroba/shared";
 import { and, eq } from "drizzle-orm";
+import { triggerWorkflow } from "../../lib/workflow";
 
 const { id } = Astro.params;
 
@@ -50,18 +51,7 @@ const hasContent = !!item.blocksJa;
 // If no content or unfinished translations, trigger workflow (fire and forget;
 // the DO ignores the trigger when a run is already in flight).
 if (!hasContent || !hasTranslations) {
-	try {
-		const doId = runtime.env.WORKFLOW_MANAGER.idFromName(id);
-		const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
-
-		stub.fetch("http://internal/trigger", {
-			method: "POST",
-			body: JSON.stringify({ itemId: id }),
-			headers: { "Content-Type": "application/json" },
-		});
-	} catch (error) {
-		console.error(`Workflow trigger failed for ${id}:`, error);
-	}
+	triggerWorkflow(runtime, "news", id);
 }
 
 // Use translations if available, otherwise fall back to Japanese. The value
