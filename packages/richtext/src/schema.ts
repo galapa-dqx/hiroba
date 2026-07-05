@@ -286,6 +286,13 @@ export type VideoNode = {
   type: 'video';
   provider: 'youtube' | 'other';
   src: string;
+  /**
+   * Displayed caption beneath the embed — same source shapes as
+   * {@link ImageNode.caption} (a trailing run inside the centered box, e.g.
+   * `<p align="center"><iframe>…<br><span>＜ … ＞</span></p>`).
+   * @example https://hiroba.dqx.jp/sc/topics/detail/63cb524a9f51b7858733e1108bf556fa/
+   */
+  caption?: Inline[];
 };
 /**
  * Twitter/X widget — follow button, tweet, timeline, or hashtag (84 blocks).

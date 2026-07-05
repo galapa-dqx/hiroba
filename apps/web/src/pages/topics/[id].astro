@@ -4,7 +4,7 @@ import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import EventsRail from "../../components/EventsRail.astro";
 import { computeSnapshot, createDb, getEventsForSource, getImagesByKeys, getImageTranslations, getTopic, getTopicTranslations } from "@hiroba/db";
-import { collectImages, imageKey, renderBlocks, rewriteImageSrc, type Block } from "@hiroba/richtext";
+import { collectImages, imageKey, renderBlocks, rewriteArticleHref, rewriteImageSrc, type Block } from "@hiroba/richtext";
 import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
 
 const { id } = Astro.params;
@@ -89,7 +89,7 @@ const imageSrc = (src: string): string => {
 	const base = isTranslated && key && localizedKeys.has(key) ? "/img/l10n/en" : originalBase;
 	return rewriteImageSrc(src, base);
 };
-const contentHtml = renderBlocks(blocks, { imageSrc });
+const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHref });
 
 // Events extracted from this topic (only meaningful once the body is shown).
 const events = ready ? await getEventsForSource(db, "topic", id, "en") : [];

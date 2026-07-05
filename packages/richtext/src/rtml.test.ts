@@ -372,6 +372,42 @@ describe('media blocks', () => {
     ]),
   );
   roundTrips(
+    'video with a caption (keeps the caption’s color run)',
+    doc([
+      {
+        type: 'video',
+        provider: 'youtube',
+        src: 'https://youtube.com/embed/x',
+        caption: [
+          {
+            type: 'color',
+            value: '#993300',
+            children: ['＜ ゼネシアトランプ ＞'],
+          },
+        ],
+      },
+    ]),
+  );
+  it('serializes a video caption as a <figcaption> child', () => {
+    expect(
+      serializeToRtml(
+        doc(
+          [
+            {
+              type: 'video',
+              provider: 'youtube',
+              src: 'https://youtube.com/embed/x',
+              caption: ['A caption'],
+            },
+          ],
+          '',
+        ),
+      ),
+    ).toBe(
+      '<doctitle></doctitle><video provider="youtube" src="https://youtube.com/embed/x"><figcaption>A caption</figcaption></video>',
+    );
+  });
+  roundTrips(
     'embed variants',
     doc([
       { type: 'embed', provider: 'twitter', variant: 'button' },

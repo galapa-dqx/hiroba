@@ -5,7 +5,7 @@ import Ornament from "@hiroba/ui/Ornament.astro";
 import CategoryDot from "@hiroba/ui/CategoryDot.astro";
 import EventsRail from "../../components/EventsRail.astro";
 import { createDb, getEventsForSource, getNewsItem, translations as translationsTable } from "@hiroba/db";
-import { renderBlocks, type Block } from "@hiroba/richtext";
+import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { CATEGORY_LABELS, type Category } from "@hiroba/shared";
 import { and, eq } from "drizzle-orm";
 
@@ -79,7 +79,7 @@ if (contentTranslation?.value) {
 	}
 }
 const blocks: Block[] = enBlocks ?? (item.blocksJa as Block[] | null) ?? [];
-const contentHtml = renderBlocks(blocks);
+const contentHtml = renderBlocks(blocks, { linkHref: rewriteArticleHref });
 
 // Events extracted from this article (only present once its body was fetched).
 const events = hasContent ? await getEventsForSource(db, "news", id, "en") : [];

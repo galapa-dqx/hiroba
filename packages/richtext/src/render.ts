@@ -19,6 +19,11 @@ import {
 
 export type RenderOptions = {
   imageSrc?: (src: string) => string;
+  /**
+   * Rewrites link/button/image `href`s (pass `rewriteArticleHref` to point
+   * article cross-links at our own routes; defaults to identity).
+   */
+  linkHref?: (href: string) => string;
 };
 
 const esc = (s: string): string =>
@@ -30,6 +35,7 @@ export function renderBlocks(
   opts: RenderOptions = {},
 ): string {
   const src = opts.imageSrc ?? ((s: string) => s);
+  const href = opts.linkHref ?? ((h: string) => h);
 
   const inlines = (nodes: Inline[]): string => nodes.map(inline).join('');
   const contents = (nodes: ContentNode[]): string =>
@@ -51,7 +57,7 @@ export function renderBlocks(
         const rel = node.external
           ? ' target="_blank" rel="noopener noreferrer"'
           : '';
-        return `<a href="${escAttr(node.href)}"${rel}>${inlines(node.children)}</a>`;
+        return `<a href="${escAttr(href(node.href))}"${rel}>${inlines(node.children)}</a>`;
       }
       case 'badge':
         return `<span class="rt-badge"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>${esc(node.text)}</span>`;
@@ -91,7 +97,7 @@ export function renderBlocks(
         return `<h${node.level}${id}${cls}>${inlines(node.children)}</h${node.level}>`;
       }
       case 'button':
-        return `<a class="rt-button"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} href="${escAttr(node.href)}">${inlines(node.children)}</a>`;
+        return `<a class="rt-button"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} href="${escAttr(href(node.href))}">${inlines(node.children)}</a>`;
       case 'divider':
         return '<hr>';
       case 'image': {
@@ -103,15 +109,20 @@ export function renderBlocks(
           ? ' target="_blank" rel="noopener noreferrer"'
           : '';
         const media = node.href
-          ? `<a class="rt-image-link" href="${escAttr(node.href)}"${rel}>${img}</a>`
+          ? `<a class="rt-image-link" href="${escAttr(href(node.href))}"${rel}>${img}</a>`
           : img;
         if (!node.caption) return media;
         // A captioned image is a <figure> so the image and its <figcaption>
         // center and wrap together as one unit.
         return `<figure class="rt-figure">${media}<figcaption class="rt-caption">${inlines(node.caption)}</figcaption></figure>`;
       }
-      case 'video':
-        return `<div class="rt-video"><iframe src="${escAttr(node.src)}" allowfullscreen loading="lazy"></iframe></div>`;
+      case 'video': {
+        const media = `<div class="rt-video"><iframe src="${escAttr(node.src)}" allowfullscreen loading="lazy"></iframe></div>`;
+        if (!node.caption) return media;
+        // Same figure treatment as a captioned image, so the embed and its
+        // <figcaption> center and wrap together as one unit.
+        return `<figure class="rt-figure">${media}<figcaption class="rt-caption">${inlines(node.caption)}</figcaption></figure>`;
+      }
       case 'embed':
         return `<div class="rt-embed" data-provider="${escAttr(node.provider)}"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>${node.content ? esc(node.content) : ''}</div>`;
       case 'infoBox':

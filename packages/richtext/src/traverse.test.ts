@@ -24,7 +24,7 @@ const kitchenSink = (): Block[] => [
       { type: 'icon', src: 'capicon.gif' },
     ],
   },
-  { type: 'video', provider: 'youtube', src: 'v' },
+  { type: 'video', provider: 'youtube', src: 'v', caption: ['vcap'] },
   { type: 'embed', provider: 'twitter', content: 'tw' },
   {
     type: 'infoBox',
@@ -95,6 +95,7 @@ const ALL_LEAVES = [
   'btn',
   'cap ',
   'caplink',
+  'vcap',
   'ib',
   'ibp',
   'st',

@@ -55,7 +55,6 @@ export function mapChildren<T extends ContentNode>(
       case 'badge':
       case 'icon':
       case 'divider':
-      case 'video':
       case 'embed':
         return n;
       // Inline containers and inline-only blocks: `children: Inline[]`.
@@ -70,6 +69,7 @@ export function mapChildren<T extends ContentNode>(
       case 'button':
         return { ...n, children: fn(n.children) as Inline[] };
       case 'image':
+      case 'video':
         return n.caption ? { ...n, caption: fn(n.caption) as Inline[] } : n;
       case 'infoBox':
       case 'speechBubble':

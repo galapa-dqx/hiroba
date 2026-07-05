@@ -289,23 +289,40 @@ const linkedImage: Extractor = {
 };
 
 /* ------------------------------------------------------------------ *
- * Captioned image — a centered image plus the caption that follows it.
+ * Captioned media — a centered image or YouTube embed plus the caption
+ * that follows it.
  * ------------------------------------------------------------------ */
 
 /** A centered wrapper: a <center>, or a div/p aligned center. */
 const isCenteredContainer = (el: Element): boolean =>
   nm(el) === 'center' || alignOf(el) === 'center';
 
+/** A YouTube embed iframe (the only iframe the video extractor claims). */
+const isYoutubeIframe = (el: Element): boolean =>
+  nm(el) === 'iframe' && /youtube|youtu\.be/.test(attr(el, 'src') ?? '');
+
+/** A media element that can carry a caption: a content image or a YouTube embed. */
+const isCaptionableMedia = (el: Element): boolean =>
+  isContentImage(el) || isYoutubeIframe(el);
+
+/**
+ * The source's figure classes (`img_newspaper`/`newsImage`): visually a centered
+ * boxed image, so a trailing run inside one is a caption even without an
+ * explicit align/center.
+ */
+const hasFigureClass = (el: Element): boolean =>
+  /img_newspaper|newsImage/.test(cls(el));
+
 /** Off-site after absolutization (mirrors the inline link test). */
 const isExternalHref = (href: string): boolean =>
   /^https?:\/\//i.test(href) && !/hiroba\.dqx\.jp/i.test(href);
 
-/** Every content (non-icon) image in the subtree, in document order. */
-function contentImagesIn(el: Element): Element[] {
+/** Every captionable media element in the subtree, in document order. */
+function captionableMediaIn(el: Element): Element[] {
   const out: Element[] = [];
   const walk = (e: Element): void => {
     for (const c of elChildren(e)) {
-      if (isContentImage(c)) out.push(c);
+      if (isCaptionableMedia(c)) out.push(c);
       else walk(c);
     }
   };
@@ -314,7 +331,7 @@ function contentImagesIn(el: Element): Element[] {
 }
 
 /** Concatenated text preceding `img` in document order within `el`. */
-function textBeforeImage(el: Element, img: Element): string {
+function textBeforeMedia(el: Element, img: Element): string {
   let before = '';
   let done = false;
   const walk = (e: Element): void => {
@@ -363,7 +380,7 @@ function isBlockish(n: AnyNode): boolean {
 /** An inline-only <center> usable as a split caption (text, no block content). */
 const isInlineCaption = (el: Element): boolean =>
   !hasBlockChildren(el) &&
-  !hasDescendant(el, isContentImage) &&
+  !hasBlockMedia(el) &&
   hasText(el) &&
   !(el.children ?? []).some(isBlockish);
 
@@ -381,65 +398,83 @@ function nextSignificant(el: Element): AnyNode | undefined {
   return undefined;
 }
 
-type CaptionMatch = { img: Element; caption: Inline[]; sibling?: Element };
+type CaptionMatch = { media: Element; caption: Inline[]; sibling?: Element };
 
 /**
- * Recognize the two shapes of a captioned image and return the image + caption:
+ * Recognize the two shapes of captioned media (an image or a YouTube embed)
+ * and return the media element + caption:
  *   • combined — `<center><img>…caption…</center>`   (caption trails in the box)
  *   • split    — `<div align=center><img></div><center>caption</center>`
- * Requires a single, *leading* content image — text before it means the box is
+ * The container is a centered wrapper or one of the source's figure classes
+ * (`img_newspaper`, which boxes the image without an explicit align).
+ * Requires a single, *leading* media element — text before it means the box is
  * prose that happens to contain an image (the brownroundBox case in parse.test),
  * not a caption. Trailing *block* content (a table/list/button after the image)
  * means it's a layout container, not a figure, so we bail there too and let it
  * recurse normally rather than flatten the block into caption text.
  */
-function matchCaptionedImage(el: Element): CaptionMatch | null {
-  if (!isCenteredContainer(el)) return null;
-  const imgs = contentImagesIn(el);
-  if (imgs.length !== 1) return null;
-  const img = imgs[0];
-  if (textBeforeImage(el, img).trim() !== '') return null;
+function matchCaptionedMedia(el: Element): CaptionMatch | null {
+  if (!isCenteredContainer(el) && !hasFigureClass(el)) return null;
+  const all = captionableMediaIn(el);
+  if (all.length !== 1) return null;
+  const media = all[0];
+  if (textBeforeMedia(el, media).trim() !== '') return null;
 
-  // Locate the direct child of `el` that holds the image. The image must be that
+  // Locate the direct child of `el` that holds the media. The media must be that
   // child directly, or wrapped only in an inline element (an <a> banner, a
   // <span>) — never reached *through* a structural wrapper like a table cell or
-  // list item, where lifting the image out would strand the rest of the
+  // list item, where lifting the media out would strand the rest of the
   // structure. That wrapper must also carry no stray text of its own.
   const kids = el.children ?? [];
   const wrapIdx = kids.findIndex(
-    (k) => k === img || (isTag(k) && hasDescendant(k, (c) => c === img)),
+    (k) => k === media || (isTag(k) && hasDescendant(k, (c) => c === media)),
   );
   const wrapper = kids[wrapIdx];
-  if (isTag(wrapper) && wrapper !== img) {
+  if (isTag(wrapper) && wrapper !== media) {
     if (!INLINE_TAGS.has(nm(wrapper)) || textOf(wrapper).trim() !== '')
       return null;
   }
 
-  // Combined: a purely-inline caption trailing the image in the same box.
+  // Combined: a purely-inline caption trailing the media in the same box.
   const after = kids.slice(wrapIdx + 1);
   if (after.some(isBlockish)) return null;
   const trailing = trimBreaks(parseInline(after));
-  if (meaningfulInline(trailing)) return { img, caption: trailing };
+  if (meaningfulInline(trailing)) return { media, caption: trailing };
 
-  // Split: the image sits alone in its box; a sibling <center> holds the caption.
+  // Split: the media sits alone in its box; a sibling <center> holds the caption.
   const sib = nextSignificant(el);
   if (sib && isTag(sib) && nm(sib) === 'center' && isInlineCaption(sib)) {
     const caption = trimBreaks(parseInline(sib.children));
-    if (meaningfulInline(caption)) return { img, caption, sibling: sib };
+    if (meaningfulInline(caption)) return { media, caption, sibling: sib };
   }
   return null;
 }
 
-const captionedImage: Extractor = {
-  name: 'captionedImage',
-  canExtract: (el) => matchCaptionedImage(el) !== null,
+const captionedMedia: Extractor = {
+  name: 'captionedMedia',
+  canExtract: (el) => matchCaptionedMedia(el) !== null,
   extract: (el, ctx) => {
-    const match = matchCaptionedImage(el);
+    const match = matchCaptionedMedia(el);
     if (!match) return null;
-    const node = imageNode(match.img);
+
+    if (isYoutubeIframe(match.media)) {
+      const src = attr(match.media, 'src');
+      if (!src) return null;
+      if (match.sibling) markProcessed(ctx, match.sibling);
+      return {
+        type: 'video',
+        provider: 'youtube',
+        src,
+        caption: match.caption,
+      };
+    }
+
+    const node = imageNode(match.media);
     if (!node || node.type !== 'image') return null;
+    // The container's figure class carries the variant (as in the image extractor).
+    if (!node.variant && hasFigureClass(el)) node.variant = 'newspaper';
     // A banner wrapped in <a> inside the centered box carries its link.
-    const a = ctx.$(match.img).closest('a')[0] as Element | undefined;
+    const a = ctx.$(match.media).closest('a')[0] as Element | undefined;
     if (a && a !== el) {
       const href = absolutize(attr(a, 'href') ?? '');
       if (href) {
@@ -691,8 +726,9 @@ const infoBox: Extractor = {
 
 const section: Extractor = {
   name: 'section',
+  // img_newspaper is a figure (a boxed image), not the newspaper section.
   canExtract: (el) =>
-    /newspaper/.test(cls(el)) && !/newspaper_[hf]/.test(cls(el)),
+    /newspaper/.test(cls(el)) && !/newspaper_[hf]|img_newspaper/.test(cls(el)),
   extract: (el, ctx) => {
     const variant = /tit_newspaper_report/.test(cls(el))
       ? 'report'
@@ -873,7 +909,7 @@ const BLOCK_EXTRACTORS: Extractor[] = [
   list,
   heading,
   button,
-  captionedImage,
+  captionedMedia,
   linkedImage,
   divider,
   video,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { rewriteArticleHref } from './link-url';
 import { renderBlocks } from './render';
 import type { Block } from './schema';
 
@@ -72,6 +73,47 @@ describe('renderBlocks', () => {
     ).toBe(
       '<a class="rt-image-link" href="https://example.com/" target="_blank" rel="noopener noreferrer">' +
         '<img class="rt-image" src="/a.jpg" alt=""></a>',
+    );
+  });
+
+  it('wraps a captioned video in a figure like a captioned image', () => {
+    expect(
+      renderBlocks([
+        {
+          type: 'video',
+          provider: 'youtube',
+          src: 'https://www.youtube.com/embed/x',
+          caption: [
+            { type: 'color', value: '#993300', children: ['＜ 映像 ＞'] },
+          ],
+        },
+      ]),
+    ).toBe(
+      '<figure class="rt-figure">' +
+        '<div class="rt-video"><iframe src="https://www.youtube.com/embed/x" allowfullscreen loading="lazy"></iframe></div>' +
+        '<figcaption class="rt-caption"><span style="color:#993300">＜ 映像 ＞</span></figcaption>' +
+        '</figure>',
+    );
+  });
+
+  it('applies the linkHref transform to links, buttons, and linked images', () => {
+    const id = '63cb524a9f51b7858733e1108bf556fa';
+    const detail = `https://hiroba.dqx.jp/sc/topics/detail/${id}/`;
+    const out = renderBlocks(
+      [
+        {
+          type: 'paragraph',
+          children: [{ type: 'link', href: detail, children: ['前回の記事'] }],
+        },
+        { type: 'button', href: detail, children: ['詳細'] },
+        { type: 'image', src: '/a.jpg', href: detail },
+      ],
+      { linkHref: rewriteArticleHref },
+    );
+    expect(out).toBe(
+      `<p><a href="/topics/${id}">前回の記事</a></p>` +
+        `<a class="rt-button" href="/topics/${id}">詳細</a>` +
+        `<a class="rt-image-link" href="/topics/${id}"><img class="rt-image" src="/a.jpg" alt=""></a>`,
     );
   });
 

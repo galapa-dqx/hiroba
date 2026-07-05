@@ -10,5 +10,6 @@ export * from './traverse';
 export * from './rtml';
 export * from './render';
 export * from './image-url';
+export * from './link-url';
 export * from './reconcile';
 export * from './annotate';

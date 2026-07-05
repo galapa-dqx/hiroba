@@ -144,8 +144,14 @@ function serializeBlock(node: Block): string {
         : '';
       return `<figure${imgAttrs}>${lines}${caption}</figure>`;
     }
-    case 'video':
-      return `<video${attr('provider', node.provider)}${attr('src', node.src)}></video>`;
+    case 'video': {
+      // A captioned video carries a <figcaption> child (same shape as figure);
+      // a bare video is an empty element with an explicit close tag.
+      const caption = node.caption
+        ? `<figcaption>${inlines(node.caption)}</figcaption>`
+        : '';
+      return `<video${attr('provider', node.provider)}${attr('src', node.src)}>${caption}</video>`;
+    }
     case 'embed':
       return `<embed${attr('provider', node.provider)}${attr('variant', node.variant)}${attr('content', node.content)}>`;
     case 'infoBox':
@@ -521,12 +527,16 @@ function parseBlock(el: Element): Block {
       }
       return n;
     }
-    case 'video':
-      return {
+    case 'video': {
+      const n: VideoNode = {
         type: 'video',
         provider: a.provider as VideoNode['provider'],
         src: a.src,
       };
+      const caption = childEl(el, 'figcaption');
+      if (caption) n.caption = parseInlines(caption.children);
+      return n;
+    }
     case 'embed': {
       const n: EmbedNode = {
         type: 'embed',

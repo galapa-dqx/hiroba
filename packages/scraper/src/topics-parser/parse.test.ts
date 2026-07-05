@@ -439,6 +439,113 @@ describe('parseTopicBody — captioned images', () => {
       { type: 'heading', level: 3, children: ['Next section'] },
     ]);
   });
+
+  it('img_newspaper box: <p class="img_newspaper"><img><br><span>…</span></p> → image.caption', () => {
+    expect(
+      parseTopicBody(
+        '<p class="img_newspaper"><img src="/dq_resource/imgs/TopicsImages/g.jpg"><br>' +
+          '<span style="color:#993300">＜ 威光の女神の背景　通常 ＞</span></p>',
+      ),
+    ).toEqual([
+      {
+        type: 'image',
+        src: `${CDN}/dq_resource/imgs/TopicsImages/g.jpg`,
+        variant: 'newspaper',
+        caption: [
+          {
+            type: 'color',
+            value: '#993300',
+            children: ['＜ 威光の女神の背景　通常 ＞'],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('an img_newspaper box with no trailing text stays a plain block image', () => {
+    expect(
+      parseTopicBody(
+        '<p class="img_newspaper"><img src="/dq_resource/imgs/TopicsImages/g.jpg"></p>',
+      ),
+    ).toEqual([
+      {
+        type: 'image',
+        src: `${CDN}/dq_resource/imgs/TopicsImages/g.jpg`,
+        variant: 'newspaper',
+      },
+    ]);
+  });
+});
+
+describe('parseTopicBody — captioned videos', () => {
+  it('centered youtube iframe + trailing span → video.caption', () => {
+    expect(
+      parseTopicBody(
+        '<p align="center"><iframe width="480" height="270" src="https://www.youtube.com/embed/0z9muBkP5KM?rel=0" allowfullscreen></iframe><br>' +
+          '<span style="color:#993300">＜ ゼネシアトランプ　（CV:川村万梨阿） ＞</span></p>',
+      ),
+    ).toEqual([
+      {
+        type: 'video',
+        provider: 'youtube',
+        src: 'https://www.youtube.com/embed/0z9muBkP5KM?rel=0',
+        caption: [
+          {
+            type: 'color',
+            value: '#993300',
+            children: ['＜ ゼネシアトランプ　（CV:川村万梨阿） ＞'],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('split: a sibling <center> captions a centered youtube iframe', () => {
+    expect(
+      parseTopicBody(
+        '<div align="center"><iframe src="https://www.youtube.com/embed/abc"></iframe></div>' +
+          '<center>プロモーション映像</center>',
+      ),
+    ).toEqual([
+      {
+        type: 'video',
+        provider: 'youtube',
+        src: 'https://www.youtube.com/embed/abc',
+        caption: ['プロモーション映像'],
+      },
+    ]);
+  });
+
+  it('a centered youtube iframe with no caption stays a plain video block', () => {
+    expect(
+      parseTopicBody(
+        '<p align="center"><iframe src="https://www.youtube.com/embed/abc"></iframe></p>',
+      ),
+    ).toEqual([
+      {
+        type: 'video',
+        provider: 'youtube',
+        src: 'https://www.youtube.com/embed/abc',
+      },
+    ]);
+  });
+
+  it('an image and an iframe in one box is layout, not a captioned figure', () => {
+    expect(
+      parseTopicBody(
+        '<div align="center"><img src="/dq_resource/imgs/TopicsImages/x.jpg">' +
+          '<iframe src="https://www.youtube.com/embed/abc"></iframe>テキスト</div>',
+      ),
+    ).toEqual([
+      { type: 'image', src: `${CDN}/dq_resource/imgs/TopicsImages/x.jpg` },
+      {
+        type: 'video',
+        provider: 'youtube',
+        src: 'https://www.youtube.com/embed/abc',
+      },
+      { type: 'paragraph', children: ['テキスト'] },
+    ]);
+  });
 });
 
 describe('parseTopicBody — section anchors', () => {
