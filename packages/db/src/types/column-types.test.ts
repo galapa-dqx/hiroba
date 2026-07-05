@@ -46,7 +46,9 @@ describe('instant column', () => {
       .get();
 
     expect(row?.publishedAt).toBeInstanceOf(Temporal.Instant);
-    expect(row?.publishedAt.epochMilliseconds).toBe(publishedAt.epochMilliseconds);
+    expect(row?.publishedAt.epochMilliseconds).toBe(
+      publishedAt.epochMilliseconds,
+    );
     expect(row?.publishedAt.equals(publishedAt)).toBe(true);
   });
 

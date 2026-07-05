@@ -12,16 +12,34 @@ import { decode, encode } from 'fast-png';
 /** R,G,B all ≥ this ⇒ background (white / off-white). */
 const BG_THRESHOLD = 240;
 
-export type Raster = { data: Uint8Array; width: number; height: number; channels: number };
+export type Raster = {
+  data: Uint8Array;
+  width: number;
+  height: number;
+  channels: number;
+};
 export type Box = { x: number; y: number; width: number; height: number };
 
 /** Read pixel dimensions straight from a file header (PNG / GIF / JPEG). */
-export function imageDimensions(bytes: Uint8Array): { width: number; height: number } | null {
+export function imageDimensions(
+  bytes: Uint8Array,
+): { width: number; height: number } | null {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+  if (
+    bytes.length >= 24 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
     return { width: dv.getUint32(16), height: dv.getUint32(20) };
   }
-  if (bytes.length >= 10 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+  if (
+    bytes.length >= 10 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46
+  ) {
     return { width: dv.getUint16(6, true), height: dv.getUint16(8, true) };
   }
   if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8) {
@@ -32,8 +50,14 @@ export function imageDimensions(bytes: Uint8Array): { width: number; height: num
         continue;
       }
       const marker = bytes[o + 1];
-      const isSof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
-      if (isSof) return { height: dv.getUint16(o + 5), width: dv.getUint16(o + 7) };
+      const isSof =
+        marker >= 0xc0 &&
+        marker <= 0xcf &&
+        marker !== 0xc4 &&
+        marker !== 0xc8 &&
+        marker !== 0xcc;
+      if (isSof)
+        return { height: dv.getUint16(o + 5), width: dv.getUint16(o + 7) };
       o += 2 + dv.getUint16(o + 2);
     }
   }
@@ -44,7 +68,9 @@ export function imageDimensions(bytes: Uint8Array): { width: number; height: num
 export function contentBox(r: Raster, threshold = BG_THRESHOLD): Box {
   const { data, width, height, channels } = r;
   const isBg = (px: number): boolean =>
-    data[px] >= threshold && data[px + 1] >= threshold && data[px + 2] >= threshold;
+    data[px] >= threshold &&
+    data[px + 1] >= threshold &&
+    data[px + 2] >= threshold;
 
   let minX = width;
   let minY = height;
@@ -96,7 +122,10 @@ export function crop(r: Raster, box: Box): Raster {
  * Trim the added border off `outputPng` and crop it to the aspect ratio of
  * `originalBytes`. Falls back to the input on any decode/encode issue.
  */
-export function trimToAspect(outputPng: Uint8Array, originalBytes: Uint8Array): Uint8Array {
+export function trimToAspect(
+  outputPng: Uint8Array,
+  originalBytes: Uint8Array,
+): Uint8Array {
   let decoded;
   try {
     decoded = decode(outputPng);
@@ -114,15 +143,27 @@ export function trimToAspect(outputPng: Uint8Array, originalBytes: Uint8Array): 
 
   let box = contentBox(raster);
   const dims = imageDimensions(originalBytes);
-  if (dims && dims.width && dims.height) box = fitAspect(box, dims.width / dims.height);
+  if (dims && dims.width && dims.height)
+    box = fitAspect(box, dims.width / dims.height);
 
-  if (box.x === 0 && box.y === 0 && box.width === raster.width && box.height === raster.height) {
+  if (
+    box.x === 0 &&
+    box.y === 0 &&
+    box.width === raster.width &&
+    box.height === raster.height
+  ) {
     return outputPng; // nothing to trim
   }
 
   const cropped = crop(raster, box);
   try {
-    return encode({ width: cropped.width, height: cropped.height, data: cropped.data, channels: cropped.channels, depth: 8 });
+    return encode({
+      width: cropped.width,
+      height: cropped.height,
+      data: cropped.data,
+      channels: cropped.channels,
+      depth: 8,
+    });
   } catch {
     return outputPng;
   }

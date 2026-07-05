@@ -6,12 +6,12 @@
  * prompt, parses the response, and saves events to the events table.
  */
 
-import { Temporal } from 'temporal-polyfill';
 import { eq } from 'drizzle-orm';
+import { Temporal } from 'temporal-polyfill';
 import { z } from 'zod';
 
-import { serializeToRtml, type Block } from '@hiroba/richtext';
 import { events, newsItems, type Database, type EventType } from '@hiroba/db';
+import { serializeToRtml, type Block } from '@hiroba/richtext';
 
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import type { ExtractEventsResult } from '../types';

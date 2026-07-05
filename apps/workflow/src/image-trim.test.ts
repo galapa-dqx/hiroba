@@ -1,7 +1,14 @@
 import { encode } from 'fast-png';
 import { describe, expect, it } from 'vitest';
 
-import { contentBox, crop, fitAspect, imageDimensions, trimToAspect, type Raster } from './image-trim';
+import {
+  contentBox,
+  crop,
+  fitAspect,
+  imageDimensions,
+  trimToAspect,
+  type Raster,
+} from './image-trim';
 
 /** Solid-white RGBA raster. */
 function whiteRaster(width: number, height: number): Raster {
@@ -9,7 +16,14 @@ function whiteRaster(width: number, height: number): Raster {
   return { data, width, height, channels: 4 };
 }
 
-function fillRect(r: Raster, x0: number, y0: number, w: number, h: number, rgb: [number, number, number]) {
+function fillRect(
+  r: Raster,
+  x0: number,
+  y0: number,
+  w: number,
+  h: number,
+  rgb: [number, number, number],
+) {
   for (let y = y0; y < y0 + h; y++) {
     for (let x = x0; x < x0 + w; x++) {
       const p = (y * r.width + x) * r.channels;
@@ -22,7 +36,13 @@ function fillRect(r: Raster, x0: number, y0: number, w: number, h: number, rgb: 
 }
 
 const pngOf = (r: Raster): Uint8Array =>
-  encode({ width: r.width, height: r.height, data: r.data, channels: r.channels, depth: 8 });
+  encode({
+    width: r.width,
+    height: r.height,
+    data: r.data,
+    channels: r.channels,
+    depth: 8,
+  });
 
 describe('contentBox', () => {
   it('finds the non-white bounding box', () => {
@@ -39,19 +59,39 @@ describe('contentBox', () => {
   });
 
   it('returns the full frame when everything is background', () => {
-    expect(contentBox(whiteRaster(5, 6))).toEqual({ x: 0, y: 0, width: 5, height: 6 });
+    expect(contentBox(whiteRaster(5, 6))).toEqual({
+      x: 0,
+      y: 0,
+      width: 5,
+      height: 6,
+    });
   });
 });
 
 describe('fitAspect', () => {
   it('narrows a too-wide box (center-crop width)', () => {
-    expect(fitAspect({ x: 0, y: 0, width: 10, height: 4 }, 1)).toEqual({ x: 3, y: 0, width: 4, height: 4 });
+    expect(fitAspect({ x: 0, y: 0, width: 10, height: 4 }, 1)).toEqual({
+      x: 3,
+      y: 0,
+      width: 4,
+      height: 4,
+    });
   });
   it('shortens a too-tall box (center-crop height)', () => {
-    expect(fitAspect({ x: 0, y: 0, width: 4, height: 10 }, 1)).toEqual({ x: 0, y: 3, width: 4, height: 4 });
+    expect(fitAspect({ x: 0, y: 0, width: 4, height: 10 }, 1)).toEqual({
+      x: 0,
+      y: 3,
+      width: 4,
+      height: 4,
+    });
   });
   it('leaves a matching box unchanged', () => {
-    expect(fitAspect({ x: 1, y: 1, width: 6, height: 3 }, 2)).toEqual({ x: 1, y: 1, width: 6, height: 3 });
+    expect(fitAspect({ x: 1, y: 1, width: 6, height: 3 }, 2)).toEqual({
+      x: 1,
+      y: 1,
+      width: 6,
+      height: 3,
+    });
   });
 });
 

@@ -55,8 +55,11 @@
 
   /* — elevation — */
   --shadow-sm: 0 1px 2px oklch(30% 0.03 70 / 0.12);
-  --shadow-md: 0 2px 6px oklch(30% 0.03 70 / 0.14), 0 8px 24px oklch(30% 0.03 70 / 0.08);
-  --shadow-band: inset 0 1px 0 oklch(100% 0 0 / 0.16), inset 0 -2px 4px oklch(0% 0 0 / 0.28), 0 1px 2px oklch(0% 0 0 / 0.2);
+  --shadow-md:
+    0 2px 6px oklch(30% 0.03 70 / 0.14), 0 8px 24px oklch(30% 0.03 70 / 0.08);
+  --shadow-band:
+    inset 0 1px 0 oklch(100% 0 0 / 0.16), inset 0 -2px 4px oklch(0% 0 0 / 0.28),
+    0 1px 2px oklch(0% 0 0 / 0.2);
   --inset-top: inset 0 1px 0 oklch(100% 0 0 / 0.55);
 
   /* — geometry — */
@@ -100,7 +103,8 @@
     --gold: oklch(80% 0.135 84);
     --gold-mid: oklch(72% 0.135 80);
     --gold-edge: oklch(60% 0.12 74);
-    --shadow-md: 0 2px 6px oklch(0% 0 0 / 0.3), 0 10px 28px oklch(0% 0 0 / 0.22);
+    --shadow-md:
+      0 2px 6px oklch(0% 0 0 / 0.3), 0 10px 28px oklch(0% 0 0 / 0.22);
     --inset-top: inset 0 1px 0 oklch(100% 0 0 / 0.08);
   }
 }
@@ -136,7 +140,11 @@ body {
   overflow-x: hidden;
   /* Warm depth: two soft radial pools of light over the base parchment. */
   background-image:
-    radial-gradient(120% 80% at 50% -10%, oklch(100% 0.02 86 / 0.5), transparent 60%),
+    radial-gradient(
+      120% 80% at 50% -10%,
+      oklch(100% 0.02 86 / 0.5),
+      transparent 60%
+    ),
     radial-gradient(90% 60% at 100% 100%, var(--neutral-3), transparent 70%);
   background-attachment: fixed;
 }
@@ -173,10 +181,13 @@ body::before {
  * 3. Typography
  * ========================================================================== */
 :root {
-  --font-display: 'Iowan Old Style', 'Palatino Linotype', 'Palatino', 'Book Antiqua',
+  --font-display:
+    'Iowan Old Style', 'Palatino Linotype', 'Palatino', 'Book Antiqua',
     'Hiragino Mincho ProN', 'Yu Mincho', Georgia, 'Times New Roman', serif;
-  --font-body: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
-    'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, Arial, sans-serif;
+  --font-body:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, Arial,
+    sans-serif;
 }
 
 h1,
@@ -310,12 +321,22 @@ a:hover {
   color: var(--ink-soft);
   text-decoration: none;
   border-radius: var(--radius-sm);
-  transition: color 0.15s ease, background 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
 }
-.nav__link[data-cat='news'] { --cat: var(--blue-9); }
-.nav__link[data-cat='event'] { --cat: var(--purple-9); }
-.nav__link[data-cat='update'] { --cat: var(--green-9); }
-.nav__link[data-cat='maintenance'] { --cat: var(--red-9); }
+.nav__link[data-cat='news'] {
+  --cat: var(--blue-9);
+}
+.nav__link[data-cat='event'] {
+  --cat: var(--purple-9);
+}
+.nav__link[data-cat='update'] {
+  --cat: var(--green-9);
+}
+.nav__link[data-cat='maintenance'] {
+  --cat: var(--red-9);
+}
 .nav__link::after {
   content: '';
   position: absolute;
@@ -482,7 +503,9 @@ main {
 .framed {
   position: relative;
   border-color: var(--gold-edge);
-  box-shadow: var(--shadow-md), inset 0 0 0 1px var(--surface-panel),
+  box-shadow:
+    var(--shadow-md),
+    inset 0 0 0 1px var(--surface-panel),
     inset 0 0 0 3px color-mix(in oklch, var(--gold) 50%, var(--surface-panel));
 }
 .framed::before,
@@ -547,9 +570,17 @@ main {
   cursor: pointer;
   border: 1px solid var(--gold-edge);
   border-radius: 0;
-  background: linear-gradient(180deg, var(--gold-hi), var(--gold-mid) 55%, var(--gold-edge));
+  background: linear-gradient(
+    180deg,
+    var(--gold-hi),
+    var(--gold-mid) 55%,
+    var(--gold-edge)
+  );
   box-shadow: var(--inset-top), var(--shadow-sm);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
 }
 .pill:hover {
   color: oklch(24% 0.05 70);
@@ -563,7 +594,11 @@ main {
 }
 /* ghost / secondary — parchment face, gilt outline */
 .pill--ghost {
-  background: linear-gradient(180deg, var(--surface-panel), var(--surface-panel-2));
+  background: linear-gradient(
+    180deg,
+    var(--surface-panel),
+    var(--surface-panel-2)
+  );
   color: var(--ink-soft);
   border-color: var(--border-strong);
   box-shadow: var(--inset-top), var(--shadow-sm);
@@ -753,11 +788,18 @@ a.chip:hover {
 }
 
 @keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  60%, 100% { transform: translateX(100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
 }
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* --- scroll: the article body, set like a page of parchment --- */
@@ -778,7 +820,13 @@ a.chip:hover {
   left: clamp(0.6rem, 1.6vw, 1.1rem);
   width: 2px;
   border-radius: 0;
-  background: linear-gradient(180deg, transparent, var(--cat-line, var(--rule)) 12%, var(--cat-line, var(--rule)) 88%, transparent);
+  background: linear-gradient(
+    180deg,
+    transparent,
+    var(--cat-line, var(--rule)) 12%,
+    var(--cat-line, var(--rule)) 88%,
+    transparent
+  );
   opacity: 0.5;
 }
 .scroll__content {

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseRtml, parseTranslation, serializeForTranslation, serializeToRtml, type RtmlDocument } from './rtml';
+import {
+  parseRtml,
+  parseTranslation,
+  serializeForTranslation,
+  serializeToRtml,
+  type RtmlDocument,
+} from './rtml';
 import type { Block } from './schema';
 
 /**
@@ -18,21 +24,45 @@ const roundTrips = (label: string, doc: RtmlDocument) =>
     expect(parseRtml(markup)).toEqual(doc);
   });
 
-const doc = (blocks: Block[], title = 'Title'): RtmlDocument => ({ title, blocks });
+const doc = (blocks: Block[], title = 'Title'): RtmlDocument => ({
+  title,
+  blocks,
+});
 
 describe('inline nodes', () => {
-  roundTrips('plain text', doc([{ type: 'paragraph', children: ['Hello world'] }]));
-  roundTrips('break', doc([{ type: 'paragraph', children: ['a', { type: 'break' }, 'b'] }]));
+  roundTrips(
+    'plain text',
+    doc([{ type: 'paragraph', children: ['Hello world'] }]),
+  );
+  roundTrips(
+    'break',
+    doc([{ type: 'paragraph', children: ['a', { type: 'break' }, 'b'] }]),
+  );
   roundTrips(
     'nested strong > color > text',
     doc([
       {
         type: 'paragraph',
-        children: [{ type: 'strong', children: [{ type: 'color', value: '#CC0033', children: ['red bold'] }] }],
+        children: [
+          {
+            type: 'strong',
+            children: [
+              { type: 'color', value: '#CC0033', children: ['red bold'] },
+            ],
+          },
+        ],
       },
     ]),
   );
-  roundTrips('emphasis', doc([{ type: 'paragraph', children: [{ type: 'emphasis', children: ['italic'] }] }]));
+  roundTrips(
+    'emphasis',
+    doc([
+      {
+        type: 'paragraph',
+        children: [{ type: 'emphasis', children: ['italic'] }],
+      },
+    ]),
+  );
   roundTrips(
     'link (internal + external)',
     doc([
@@ -40,7 +70,12 @@ describe('inline nodes', () => {
         type: 'paragraph',
         children: [
           { type: 'link', href: '/sc/topics/detail/x/', children: ['here'] },
-          { type: 'link', href: 'https://example.com', external: true, children: ['there'] },
+          {
+            type: 'link',
+            href: 'https://example.com',
+            external: true,
+            children: ['there'],
+          },
         ],
       },
     ]),
@@ -62,7 +97,10 @@ describe('inline nodes', () => {
 });
 
 describe('text blocks', () => {
-  roundTrips('paragraph align', doc([{ type: 'paragraph', align: 'center', children: ['centered'] }]));
+  roundTrips(
+    'paragraph align',
+    doc([{ type: 'paragraph', align: 'center', children: ['centered'] }]),
+  );
   roundTrips(
     'headings all levels + variant',
     doc([
@@ -83,7 +121,10 @@ describe('text blocks', () => {
 });
 
 describe('media blocks', () => {
-  roundTrips('image minimal', doc([{ type: 'image', src: 'https://cache.hiroba.dqx.jp/a.jpg' }]));
+  roundTrips(
+    'image minimal',
+    doc([{ type: 'image', src: 'https://cache.hiroba.dqx.jp/a.jpg' }]),
+  );
   roundTrips(
     'image with alt/variant/sources',
     doc([
@@ -101,25 +142,66 @@ describe('media blocks', () => {
   );
   roundTrips(
     'image with baked-in text serializes as <figure> with <line> spans',
-    doc([{ type: 'image', src: '/dq_resource/banner.jpg', variant: 'newsImage', text: ['夏の大型アップデート', '開催決定！'] }]),
+    doc([
+      {
+        type: 'image',
+        src: '/dq_resource/banner.jpg',
+        variant: 'newsImage',
+        text: ['夏の大型アップデート', '開催決定！'],
+      },
+    ]),
   );
-  roundTrips('linked image (internal)', doc([{ type: 'image', src: '/a.jpg', href: 'https://hiroba.dqx.jp/sc/x/' }]));
+  roundTrips(
+    'linked image (internal)',
+    doc([
+      { type: 'image', src: '/a.jpg', href: 'https://hiroba.dqx.jp/sc/x/' },
+    ]),
+  );
   roundTrips(
     'linked external image with baked-in text',
-    doc([{ type: 'image', src: '/a.jpg', href: 'https://example.com/', external: true, text: ['Click here!'] }]),
+    doc([
+      {
+        type: 'image',
+        src: '/a.jpg',
+        href: 'https://example.com/',
+        external: true,
+        text: ['Click here!'],
+      },
+    ]),
   );
 
   it('serializes image text as one <line> per span', () => {
-    expect(serializeToRtml(doc([{ type: 'image', src: '/a.jpg', text: ['Line one', 'Line two'] }], ''))).toBe(
+    expect(
+      serializeToRtml(
+        doc(
+          [{ type: 'image', src: '/a.jpg', text: ['Line one', 'Line two'] }],
+          '',
+        ),
+      ),
+    ).toBe(
       '<doctitle></doctitle><figure src="/a.jpg"><line>Line one</line><line>Line two</line></figure>',
     );
   });
-  roundTrips('video', doc([{ type: 'video', provider: 'youtube', src: 'https://youtube.com/embed/x' }]));
+  roundTrips(
+    'video',
+    doc([
+      {
+        type: 'video',
+        provider: 'youtube',
+        src: 'https://youtube.com/embed/x',
+      },
+    ]),
+  );
   roundTrips(
     'embed variants',
     doc([
       { type: 'embed', provider: 'twitter', variant: 'button' },
-      { type: 'embed', provider: 'twitter', variant: 'hashtag', content: '#DQX10th' },
+      {
+        type: 'embed',
+        provider: 'twitter',
+        variant: 'hashtag',
+        content: '#DQX10th',
+      },
     ]),
   );
 });
@@ -134,7 +216,11 @@ describe('container blocks', () => {
         children: [
           { type: 'paragraph', children: ['line'] },
           'bare inline text',
-          { type: 'infoBox', variant: 'mini', children: [{ type: 'paragraph', children: ['nested'] }] },
+          {
+            type: 'infoBox',
+            variant: 'mini',
+            children: [{ type: 'paragraph', children: ['nested'] }],
+          },
         ],
       },
     ]),
@@ -164,15 +250,31 @@ describe('container blocks', () => {
   roundTrips(
     'speechBubble',
     doc([
-      { type: 'speechBubble', speaker: 'ラベンタ', icon: '/dq_resource/npc.png', children: [{ type: 'paragraph', children: ['hi'] }] },
-      { type: 'speechBubble', children: [{ type: 'paragraph', children: ['anon'] }] },
+      {
+        type: 'speechBubble',
+        speaker: 'ラベンタ',
+        icon: '/dq_resource/npc.png',
+        children: [{ type: 'paragraph', children: ['hi'] }],
+      },
+      {
+        type: 'speechBubble',
+        children: [{ type: 'paragraph', children: ['anon'] }],
+      },
     ]),
   );
   roundTrips(
     'messageBox',
     doc([
-      { type: 'messageBox', name: '山田', role: 'ディレクター', children: [{ type: 'paragraph', children: ['msg'] }] },
-      { type: 'messageBox', children: [{ type: 'paragraph', children: ['msg'] }] },
+      {
+        type: 'messageBox',
+        name: '山田',
+        role: 'ディレクター',
+        children: [{ type: 'paragraph', children: ['msg'] }],
+      },
+      {
+        type: 'messageBox',
+        children: [{ type: 'paragraph', children: ['msg'] }],
+      },
     ]),
   );
 });
@@ -181,9 +283,22 @@ describe('structured blocks', () => {
   roundTrips(
     'list ordered/unordered + caution',
     doc([
-      { type: 'list', ordered: false, items: [{ children: ['a'] }, { children: ['b'] }] },
-      { type: 'list', ordered: true, items: [{ children: [{ type: 'paragraph', children: ['step'] }] }] },
-      { type: 'list', ordered: false, variant: 'caution', items: [{ children: ['※ note'] }] },
+      {
+        type: 'list',
+        ordered: false,
+        items: [{ children: ['a'] }, { children: ['b'] }],
+      },
+      {
+        type: 'list',
+        ordered: true,
+        items: [{ children: [{ type: 'paragraph', children: ['step'] }] }],
+      },
+      {
+        type: 'list',
+        ordered: false,
+        variant: 'caution',
+        items: [{ children: ['※ note'] }],
+      },
     ]),
   );
   roundTrips(
@@ -192,7 +307,10 @@ describe('structured blocks', () => {
       {
         type: 'table',
         variant: 'contents',
-        headers: [{ children: ['Name'], header: true }, { children: ['Value'], header: true }],
+        headers: [
+          { children: ['Name'], header: true },
+          { children: ['Value'], header: true },
+        ],
         rows: [
           [{ children: ['row header'], header: true }, { children: ['x'] }],
           [{ children: ['span'], colSpan: 2, rowSpan: 2 }],
@@ -202,7 +320,9 @@ describe('structured blocks', () => {
   );
   roundTrips(
     'table without headers',
-    doc([{ type: 'table', rows: [[{ children: ['a'] }, { children: ['b'] }]] }]),
+    doc([
+      { type: 'table', rows: [[{ children: ['a'] }, { children: ['b'] }]] },
+    ]),
   );
   roundTrips(
     'interview',
@@ -214,7 +334,10 @@ describe('structured blocks', () => {
         exchanges: [
           {
             question: ['What is new?', { type: 'break' }],
-            answer: [{ type: 'paragraph', children: ['A lot.'] }, { type: 'paragraph', children: ['Really.'] }],
+            answer: [
+              { type: 'paragraph', children: ['A lot.'] },
+              { type: 'paragraph', children: ['Really.'] },
+            ],
           },
         ],
       },
@@ -251,18 +374,30 @@ describe('structured blocks', () => {
 describe('escaping & whitespace', () => {
   roundTrips(
     'special chars in text',
-    doc([{ type: 'paragraph', children: ['A & B < C > D "quoted" & more'] }], 'Title & <tag>'),
+    doc(
+      [{ type: 'paragraph', children: ['A & B < C > D "quoted" & more'] }],
+      'Title & <tag>',
+    ),
   );
   roundTrips(
     'ampersand in href and color value',
     doc([
       {
         type: 'paragraph',
-        children: [{ type: 'link', href: 'https://x.test/?a=1&b=2', children: [{ type: 'color', value: '#333', children: ['x'] }] }],
+        children: [
+          {
+            type: 'link',
+            href: 'https://x.test/?a=1&b=2',
+            children: [{ type: 'color', value: '#333', children: ['x'] }],
+          },
+        ],
       },
     ]),
   );
-  roundTrips('multiline text preserved', doc([{ type: 'paragraph', children: ['line1\nline2\n  indented'] }]));
+  roundTrips(
+    'multiline text preserved',
+    doc([{ type: 'paragraph', children: ['line1\nline2\n  indented'] }]),
+  );
 });
 
 describe('full document', () => {
@@ -270,8 +405,15 @@ describe('full document', () => {
     'a representative topic',
     doc(
       [
-        { type: 'image', src: 'https://cache.hiroba.dqx.jp/dq_resource/imgs/banner.jpg' },
-        { type: 'heading', level: 2, children: ['ショップポイントを受けとってみよう！'] },
+        {
+          type: 'image',
+          src: 'https://cache.hiroba.dqx.jp/dq_resource/imgs/banner.jpg',
+        },
+        {
+          type: 'heading',
+          level: 2,
+          children: ['ショップポイントを受けとってみよう！'],
+        },
         {
           type: 'infoBox',
           variant: 'highlight',
@@ -280,17 +422,40 @@ describe('full document', () => {
               type: 'paragraph',
               children: [
                 '毎月 ',
-                { type: 'strong', children: [{ type: 'color', value: '#CC0033', children: ['メギストリスの都'] }] },
+                {
+                  type: 'strong',
+                  children: [
+                    {
+                      type: 'color',
+                      value: '#CC0033',
+                      children: ['メギストリスの都'],
+                    },
+                  ],
+                },
                 ' に登場！ 詳しくは ',
-                { type: 'link', href: '/sc/topics/detail/x/', children: ['こちら'] },
+                {
+                  type: 'link',
+                  href: '/sc/topics/detail/x/',
+                  children: ['こちら'],
+                },
                 { type: 'badge', text: 'New', variant: 'newsystem' },
               ],
             },
           ],
         },
         { type: 'divider' },
-        { type: 'list', ordered: false, variant: 'caution', items: [{ children: ['※ 1回のみ受け取れます。'] }] },
-        { type: 'button', href: '/sc/shop/', children: ['ショップへ'], variant: 'square' },
+        {
+          type: 'list',
+          ordered: false,
+          variant: 'caution',
+          items: [{ children: ['※ 1回のみ受け取れます。'] }],
+        },
+        {
+          type: 'button',
+          href: '/sc/shop/',
+          children: ['ショップへ'],
+          variant: 'square',
+        },
       ],
       'ショップポイント配布のお知らせ',
     ),
@@ -299,7 +464,10 @@ describe('full document', () => {
 
 describe('parse robustness', () => {
   it('empty document', () => {
-    expect(parseRtml(serializeToRtml({ title: '', blocks: [] }))).toEqual({ title: '', blocks: [] });
+    expect(parseRtml(serializeToRtml({ title: '', blocks: [] }))).toEqual({
+      title: '',
+      blocks: [],
+    });
   });
 });
 
@@ -310,7 +478,9 @@ describe('parse robustness', () => {
 describe('translation wire format', () => {
   const trips = (label: string, d: RtmlDocument) =>
     // eslint-disable-next-line vitest/valid-title -- label is a typed string param
-    it(label, () => expect(parseTranslation(serializeForTranslation(d))).toEqual(d));
+    it(label, () =>
+      expect(parseTranslation(serializeForTranslation(d))).toEqual(d),
+    );
 
   trips(
     'title + body with inline formatting',
@@ -319,18 +489,36 @@ describe('translation wire format', () => {
         { type: 'heading', level: 2, children: ['見出し'] },
         {
           type: 'paragraph',
-          children: ['本文 ', { type: 'strong', children: [{ type: 'color', value: '#CC0033', children: ['赤字'] }] }],
+          children: [
+            '本文 ',
+            {
+              type: 'strong',
+              children: [
+                { type: 'color', value: '#CC0033', children: ['赤字'] },
+              ],
+            },
+          ],
         },
-        { type: 'list', ordered: false, variant: 'caution', items: [{ children: ['※ 注意'] }] },
+        {
+          type: 'list',
+          ordered: false,
+          variant: 'caution',
+          items: [{ children: ['※ 注意'] }],
+        },
       ],
       'お知らせ',
     ),
   );
-  trips('title with special characters', doc([{ type: 'paragraph', children: ['x'] }], 'A & B <tag> "q"'));
+  trips(
+    'title with special characters',
+    doc([{ type: 'paragraph', children: ['x'] }], 'A & B <tag> "q"'),
+  );
   trips('empty body', doc([], 'Just a title'));
 
   it('emits the title as <title> and the body inside <article>', () => {
-    const markup = serializeForTranslation(doc([{ type: 'paragraph', children: ['hi'] }], 'T'));
+    const markup = serializeForTranslation(
+      doc([{ type: 'paragraph', children: ['hi'] }], 'T'),
+    );
     expect(markup).toBe('<title>T</title><article><p>hi</p></article>');
   });
 });
@@ -345,31 +533,92 @@ describe('print (exact serialization)', () => {
     // eslint-disable-next-line vitest/valid-title -- label is a typed string param
     it(label, () => expect(serializeToRtml(doc)).toBe(expected));
 
-  golden('paragraph', doc([{ type: 'paragraph', children: ['Hi'] }], 'T'), '<doctitle>T</doctitle><p>Hi</p>');
+  golden(
+    'paragraph',
+    doc([{ type: 'paragraph', children: ['Hi'] }], 'T'),
+    '<doctitle>T</doctitle><p>Hi</p>',
+  );
   golden(
     'nested inline',
-    doc([{ type: 'paragraph', children: [{ type: 'strong', children: [{ type: 'color', value: '#c03', children: ['red'] }] }] }], 'T'),
+    doc(
+      [
+        {
+          type: 'paragraph',
+          children: [
+            {
+              type: 'strong',
+              children: [{ type: 'color', value: '#c03', children: ['red'] }],
+            },
+          ],
+        },
+      ],
+      'T',
+    ),
     '<doctitle>T</doctitle><p><strong><color value="#c03">red</color></strong></p>',
   );
   golden(
     'external link is a boolean attribute',
-    doc([{ type: 'paragraph', children: [{ type: 'link', href: 'https://x', external: true, children: ['go'] }] }], 'T'),
+    doc(
+      [
+        {
+          type: 'paragraph',
+          children: [
+            {
+              type: 'link',
+              href: 'https://x',
+              external: true,
+              children: ['go'],
+            },
+          ],
+        },
+      ],
+      'T',
+    ),
     '<doctitle>T</doctitle><p><a href="https://x" external>go</a></p>',
   );
   golden(
     'text and attribute escaping',
-    doc([{ type: 'paragraph', children: ['A & B <x>', { type: 'link', href: 'u?a=1&b=2', children: ['"q"'] }] }], 'T & U'),
+    doc(
+      [
+        {
+          type: 'paragraph',
+          children: [
+            'A & B <x>',
+            { type: 'link', href: 'u?a=1&b=2', children: ['"q"'] },
+          ],
+        },
+      ],
+      'T & U',
+    ),
     // Quotes are escaped only in attribute values, not in text content.
     '<doctitle>T &amp; U</doctitle><p>A &amp; B &lt;x&gt;<a href="u?a=1&amp;b=2">"q"</a></p>',
   );
   golden(
     'table structure (thead/tbody, no injected attrs)',
-    doc([{ type: 'table', headers: [{ children: ['H'], header: true }], rows: [[{ children: ['c'] }]] }], 'T'),
+    doc(
+      [
+        {
+          type: 'table',
+          headers: [{ children: ['H'], header: true }],
+          rows: [[{ children: ['c'] }]],
+        },
+      ],
+      'T',
+    ),
     '<doctitle>T</doctitle><table><thead><tr><th>H</th></tr></thead><tbody><tr><td>c</td></tr></tbody></table>',
   );
   golden(
     'image sources ride a JSON attribute',
-    doc([{ type: 'image', src: '/a.jpg', sources: [{ src: '/b.jpg', minWidth: 1920 }] }], 'T'),
+    doc(
+      [
+        {
+          type: 'image',
+          src: '/a.jpg',
+          sources: [{ src: '/b.jpg', minWidth: 1920 }],
+        },
+      ],
+      'T',
+    ),
     '<doctitle>T</doctitle><img src="/a.jpg" sources="[{&quot;src&quot;:&quot;/b.jpg&quot;,&quot;minWidth&quot;:1920}]">',
   );
 });
@@ -380,7 +629,8 @@ describe('print (exact serialization)', () => {
  */
 describe('parse tolerance (LLM-shaped input)', () => {
   it('drops formatting whitespace between block elements', () => {
-    const markup = '<doctitle>T</doctitle><infobox variant="highlight">\n  <p>hi</p>\n  <p>bye</p>\n</infobox>';
+    const markup =
+      '<doctitle>T</doctitle><infobox variant="highlight">\n  <p>hi</p>\n  <p>bye</p>\n</infobox>';
     expect(parseRtml(markup)).toEqual(
       doc(
         [
@@ -401,7 +651,21 @@ describe('parse tolerance (LLM-shaped input)', () => {
   it('accepts self-closed atoms without swallowing siblings', () => {
     const markup = '<doctitle></doctitle><p>a<icon src="i.png"/>b<br/>c</p>';
     expect(parseRtml(markup)).toEqual(
-      doc([{ type: 'paragraph', children: ['a', { type: 'icon', src: 'i.png' }, 'b', { type: 'break' }, 'c'] }], ''),
+      doc(
+        [
+          {
+            type: 'paragraph',
+            children: [
+              'a',
+              { type: 'icon', src: 'i.png' },
+              'b',
+              { type: 'break' },
+              'c',
+            ],
+          },
+        ],
+        '',
+      ),
     );
   });
 
@@ -412,16 +676,20 @@ describe('parse tolerance (LLM-shaped input)', () => {
   });
 
   it('ignores unknown attributes on known tags', () => {
-    expect(parseRtml('<doctitle></doctitle><p class="foo" data-x="1">hi</p>')).toEqual(
-      doc([{ type: 'paragraph', children: ['hi'] }], ''),
-    );
+    expect(
+      parseRtml('<doctitle></doctitle><p class="foo" data-x="1">hi</p>'),
+    ).toEqual(doc([{ type: 'paragraph', children: ['hi'] }], ''));
   });
 
   it('ignores stray text at the top level', () => {
-    expect(parseRtml('<doctitle>T</doctitle>  \n  <p>x</p>')).toEqual(doc([{ type: 'paragraph', children: ['x'] }], 'T'));
+    expect(parseRtml('<doctitle>T</doctitle>  \n  <p>x</p>')).toEqual(
+      doc([{ type: 'paragraph', children: ['x'] }], 'T'),
+    );
   });
 
   it('throws on an unknown tag (so the pipeline falls back to JA)', () => {
-    expect(() => parseRtml('<doctitle></doctitle><bogus>x</bogus>')).toThrow(/unknown block tag/i);
+    expect(() => parseRtml('<doctitle></doctitle><bogus>x</bogus>')).toThrow(
+      /unknown block tag/i,
+    );
   });
 });

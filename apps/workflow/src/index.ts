@@ -18,7 +18,11 @@ import {
   upsertTopicListItems,
   type Database,
 } from '@hiroba/db';
-import { fetchGlossary, scrapeNewsList, scrapeTopicsList } from '@hiroba/scraper';
+import {
+  fetchGlossary,
+  scrapeNewsList,
+  scrapeTopicsList,
+} from '@hiroba/scraper';
 import { CATEGORIES } from '@hiroba/shared';
 
 import type { Env } from './types';
@@ -71,7 +75,10 @@ export default Sentry.withSentry(
 
       // Trigger workflow for a specific item (news by default, or topics)
       if (url.pathname === '/trigger' && request.method === 'POST') {
-        const body = (await request.json()) as { itemId: string; itemType?: 'news' | 'topic' };
+        const body = (await request.json()) as {
+          itemId: string;
+          itemType?: 'news' | 'topic';
+        };
         const { itemId } = body;
         const itemType = body.itemType ?? 'news';
 
@@ -251,7 +258,10 @@ async function refreshTopics(db: Database, env: Env): Promise<void> {
 
           workflowsTriggered++;
         } catch (error) {
-          console.error(`Failed to trigger topics workflow for ${item.id}:`, error);
+          console.error(
+            `Failed to trigger topics workflow for ${item.id}:`,
+            error,
+          );
         }
       }
     }

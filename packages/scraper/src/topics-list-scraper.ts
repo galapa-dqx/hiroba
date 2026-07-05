@@ -114,7 +114,11 @@ export function parseTopicsListPage(
     const titleJa = $(el).text().trim();
     if (!titleJa) return;
 
-    items.push({ id, titleJa, publishedAt: extractDateFromTitle(titleJa, fallback) });
+    items.push({
+      id,
+      titleJa,
+      publishedAt: extractDateFromTitle(titleJa, fallback),
+    });
   });
 
   return items;
@@ -147,7 +151,11 @@ export async function listBacknumberMonths(): Promise<TopicsMonth[]> {
     const key = `${year}-${month}`;
     if (seen.has(key)) return;
     seen.add(key);
-    months.push({ year, month, url: `${BASE_URL}/sc/topics/backnumber/${year}/${month}/` });
+    months.push({
+      year,
+      month,
+      url: `${BASE_URL}/sc/topics/backnumber/${year}/${month}/`,
+    });
   });
 
   months.sort((a, b) => b.year - a.year || b.month - a.month);

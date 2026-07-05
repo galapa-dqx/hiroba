@@ -32,7 +32,10 @@ export const images = sqliteTable(
     updatedAt: instant('updated_at').notNull(),
   },
   (table) => [
-    check('images_texts_ja_json', sql`${table.textsJa} IS NULL OR json_valid(${table.textsJa})`),
+    check(
+      'images_texts_ja_json',
+      sql`${table.textsJa} IS NULL OR json_valid(${table.textsJa})`,
+    ),
   ],
 );
 

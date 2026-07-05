@@ -48,8 +48,11 @@
 
   /* elevation */
   --shadow-sm: 0 1px 2px oklch(30% 0.03 70 / 0.12);
-  --shadow-md: 0 2px 6px oklch(30% 0.03 70 / 0.14), 0 8px 24px oklch(30% 0.03 70 / 0.08);
-  --shadow-band: inset 0 1px 0 oklch(100% 0 0 / 0.16), inset 0 -2px 4px oklch(0% 0 0 / 0.28), 0 1px 2px oklch(0% 0 0 / 0.2);
+  --shadow-md:
+    0 2px 6px oklch(30% 0.03 70 / 0.14), 0 8px 24px oklch(30% 0.03 70 / 0.08);
+  --shadow-band:
+    inset 0 1px 0 oklch(100% 0 0 / 0.16), inset 0 -2px 4px oklch(0% 0 0 / 0.28),
+    0 1px 2px oklch(0% 0 0 / 0.2);
   --inset-top: inset 0 1px 0 oklch(100% 0 0 / 0.55);
 
   /* geometry */
@@ -57,10 +60,13 @@
   --radius-sm: 0px;
   --sidebar-width: 232px;
 
-  --font-display: 'Iowan Old Style', 'Palatino Linotype', 'Palatino', 'Book Antiqua',
+  --font-display:
+    'Iowan Old Style', 'Palatino Linotype', 'Palatino', 'Book Antiqua',
     'Hiragino Mincho ProN', 'Yu Mincho', Georgia, 'Times New Roman', serif;
-  --font-body: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
-    'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, Arial, sans-serif;
+  --font-body:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, Arial,
+    sans-serif;
 }
 
 .dark,
@@ -88,7 +94,8 @@
     --gold: oklch(80% 0.135 84);
     --gold-mid: oklch(72% 0.135 80);
     --gold-edge: oklch(60% 0.12 74);
-    --shadow-md: 0 2px 6px oklch(0% 0 0 / 0.3), 0 10px 28px oklch(0% 0 0 / 0.22);
+    --shadow-md:
+      0 2px 6px oklch(0% 0 0 / 0.3), 0 10px 28px oklch(0% 0 0 / 0.22);
     --inset-top: inset 0 1px 0 oklch(100% 0 0 / 0.08);
   }
 }
@@ -115,7 +122,11 @@ body {
   color: var(--ink);
   background-color: var(--surface-page);
   background-image:
-    radial-gradient(120% 80% at 50% -10%, oklch(100% 0.02 86 / 0.5), transparent 60%),
+    radial-gradient(
+      120% 80% at 50% -10%,
+      oklch(100% 0.02 86 / 0.5),
+      transparent 60%
+    ),
     radial-gradient(90% 60% at 100% 100%, var(--neutral-3), transparent 70%);
   background-attachment: fixed;
 }
@@ -188,7 +199,14 @@ a {
   bottom: 0;
   left: calc(var(--sidebar-width) - 2px);
   width: 2px;
-  background: linear-gradient(180deg, transparent, var(--gold-edge) 12%, var(--gold-hi) 50%, var(--gold-edge) 88%, transparent);
+  background: linear-gradient(
+    180deg,
+    transparent,
+    var(--gold-edge) 12%,
+    var(--gold-hi) 50%,
+    var(--gold-edge) 88%,
+    transparent
+  );
   opacity: 0.85;
   pointer-events: none;
 }
@@ -243,7 +261,9 @@ a {
   color: var(--band-ink-soft);
   text-decoration: none;
   font-weight: 550;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 .sidebar a::before {
   content: '';
@@ -307,7 +327,14 @@ main {
   right: 0;
   bottom: -1px;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--gold-edge) 8%, var(--gold-hi) 50%, var(--gold-edge) 92%, transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--gold-edge) 8%,
+    var(--gold-hi) 50%,
+    var(--gold-edge) 92%,
+    transparent
+  );
   opacity: 0.7;
 }
 .page-header h2 {
@@ -361,7 +388,12 @@ main {
   position: absolute;
   inset: 0 0 auto 0;
   height: 3px;
-  background: linear-gradient(90deg, var(--gold-edge), var(--gold-hi), var(--gold-edge));
+  background: linear-gradient(
+    90deg,
+    var(--gold-edge),
+    var(--gold-hi),
+    var(--gold-edge)
+  );
   opacity: 0.8;
 }
 .stat-card h3 {
@@ -486,9 +518,17 @@ button,
   cursor: pointer;
   border: 1px solid var(--gold-edge);
   border-radius: 0;
-  background: linear-gradient(180deg, var(--gold-hi), var(--gold-mid) 55%, var(--gold-edge));
+  background: linear-gradient(
+    180deg,
+    var(--gold-hi),
+    var(--gold-mid) 55%,
+    var(--gold-edge)
+  );
   box-shadow: var(--inset-top), var(--shadow-sm);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    filter 0.12s ease;
 }
 button:hover:not(:disabled),
 .btn:hover,
@@ -519,7 +559,11 @@ button:disabled {
 .btn-danger,
 .btn-cancel {
   color: var(--red-11);
-  background: linear-gradient(180deg, var(--surface-panel), var(--surface-panel-2));
+  background: linear-gradient(
+    180deg,
+    var(--surface-panel),
+    var(--surface-panel-2)
+  );
   border-color: color-mix(in oklch, var(--red-8) 60%, var(--border-strong));
 }
 .btn-danger:hover:not(:disabled) {
@@ -552,13 +596,17 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: inset 0 1px 2px oklch(0% 0 0 / 0.06);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--gold-edge);
-  box-shadow: inset 0 1px 2px oklch(0% 0 0 / 0.06), 0 0 0 3px color-mix(in oklch, var(--gold) 30%, transparent);
+  box-shadow:
+    inset 0 1px 2px oklch(0% 0 0 / 0.06),
+    0 0 0 3px color-mix(in oklch, var(--gold) 30%, transparent);
   outline: none;
 }
 input::placeholder,
@@ -676,19 +724,31 @@ textarea::placeholder {
 }
 .category-badge.news,
 .type-badge.multiDay {
-  --_c: var(--blue-9); --_ink: var(--blue-11); --_soft: var(--blue-3); --_line: var(--blue-7);
+  --_c: var(--blue-9);
+  --_ink: var(--blue-11);
+  --_soft: var(--blue-3);
+  --_line: var(--blue-7);
 }
 .category-badge.event,
 .type-badge.allDay {
-  --_c: var(--purple-9); --_ink: var(--purple-11); --_soft: var(--purple-3); --_line: var(--purple-7);
+  --_c: var(--purple-9);
+  --_ink: var(--purple-11);
+  --_soft: var(--purple-3);
+  --_line: var(--purple-7);
 }
 .category-badge.update,
 .type-badge.span {
-  --_c: var(--green-9); --_ink: var(--green-11); --_soft: var(--green-3); --_line: var(--green-7);
+  --_c: var(--green-9);
+  --_ink: var(--green-11);
+  --_soft: var(--green-3);
+  --_line: var(--green-7);
 }
 .category-badge.maintenance,
 .type-badge.mark {
-  --_c: var(--red-9); --_ink: var(--red-11); --_soft: var(--red-3); --_line: var(--red-7);
+  --_c: var(--red-9);
+  --_ink: var(--red-11);
+  --_soft: var(--red-3);
+  --_line: var(--red-7);
 }
 
 /* --------------------------------------------------- filters & queue bar --- */
@@ -742,7 +802,9 @@ textarea::placeholder {
   color: var(--gold);
 }
 @media (prefers-color-scheme: dark) {
-  :root:not(.light) .workflow-status { color: var(--gold); }
+  :root:not(.light) .workflow-status {
+    color: var(--gold);
+  }
 }
 
 .overdue {
@@ -766,7 +828,8 @@ textarea::placeholder {
 }
 
 .jp-text {
-  font-family: 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, var(--font-body);
+  font-family:
+    'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, var(--font-body);
 }
 
 .loading {
@@ -843,7 +906,14 @@ hr.divider {
   border: none;
   height: 2px;
   margin: 1.8rem 0;
-  background: linear-gradient(90deg, transparent, var(--gold-edge) 12%, var(--gold-hi) 50%, var(--gold-edge) 88%, transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--gold-edge) 12%,
+    var(--gold-hi) 50%,
+    var(--gold-edge) 88%,
+    transparent
+  );
   opacity: 0.8;
 }
 

@@ -74,13 +74,13 @@ hiroba/
 
 ## The two content types
 
-|  | **News** (`news_items`) | **Topics** (`topics`) |
-|---|---|---|
-| Source | 4 category list pages (news, event, update, maintenance) | `/sc/topics/` + monthly backnumber archives |
-| Body format | Plain text (HTML stripped) | Rich-text `Block[]` tree (17 block types) |
-| Translation model | gpt-4o, CSV batch format | gemini-3.1-flash-lite, whole-document RTML |
-| Extras | Calendar event extraction | Image mirroring, OCR, and on-image text localization |
-| Workflow | `NewsWorkflow` (3 steps) | `TopicsWorkflow` (5 steps) |
+|                   | **News** (`news_items`)                                  | **Topics** (`topics`)                                |
+| ----------------- | -------------------------------------------------------- | ---------------------------------------------------- |
+| Source            | 4 category list pages (news, event, update, maintenance) | `/sc/topics/` + monthly backnumber archives          |
+| Body format       | Plain text (HTML stripped)                               | Rich-text `Block[]` tree (17 block types)            |
+| Translation model | gpt-4o, CSV batch format                                 | gemini-3.1-flash-lite, whole-document RTML           |
+| Extras            | Calendar event extraction                                | Image mirroring, OCR, and on-image text localization |
+| Workflow          | `NewsWorkflow` (3 steps)                                 | `TopicsWorkflow` (5 steps)                           |
 
 ## Translation pipelines
 
@@ -216,14 +216,14 @@ flowchart LR
 
 Entry: `src/index.ts` (fetch handler + cron `scheduled()`). Key modules:
 
-| Module | Role |
-|---|---|
-| `news-workflow.ts` / `topics-workflow.ts` | Workflow classes and step sequencing |
-| `steps/*.ts` | One file per pipeline step (fetch, extract, translate, mirror, transcribe, localize) |
-| `workflow-manager.ts` | Durable Object: per-item run dedupe, status polling, SSE fan-out |
-| `gemini.ts` | Gemini via its OpenAI-compatible endpoint |
-| `image-edit.ts` / `image-trim.ts` | gpt-image-2 wrapper + PNG/JPEG/GIF header parsing and padding trim |
-| `migrations/` | The D1 migrations (10 so far) — applied via root `pnpm db:migrate:*` scripts |
+| Module                                    | Role                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| `news-workflow.ts` / `topics-workflow.ts` | Workflow classes and step sequencing                                                 |
+| `steps/*.ts`                              | One file per pipeline step (fetch, extract, translate, mirror, transcribe, localize) |
+| `workflow-manager.ts`                     | Durable Object: per-item run dedupe, status polling, SSE fan-out                     |
+| `gemini.ts`                               | Gemini via its OpenAI-compatible endpoint                                            |
+| `image-edit.ts` / `image-trim.ts`         | gpt-image-2 wrapper + PNG/JPEG/GIF header parsing and padding trim                   |
+| `migrations/`                             | The D1 migrations (10 so far) — applied via root `pnpm db:migrate:*` scripts         |
 
 ### apps/web — public site
 
@@ -243,12 +243,12 @@ freshness recheck queue.
 
 ## Packages
 
-| Package | What it is |
-|---|---|
-| `@hiroba/db` | Drizzle schema (6 tables), `createDb(d1)`, and all query helpers. Custom column types for `Temporal.Instant`, `Temporal.ZonedDateTime`, and validated JSON. |
+| Package            | What it is                                                                                                                                                                                                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@hiroba/db`       | Drizzle schema (6 tables), `createDb(d1)`, and all query helpers. Custom column types for `Temporal.Instant`, `Temporal.ZonedDateTime`, and validated JSON.                                                                                                                           |
 | `@hiroba/richtext` | The typed document model: 7 inline node types, 17 block types (headings, infoboxes, accordions, interviews, rankings, steps, speech bubbles, tables…). RTML serializer/parser for translation, HTML renderer for display, `imageKey`/`collectImageUrls` utilities. No workspace deps. |
-| `@hiroba/scraper` | Cheerio-based scrapers for news lists/bodies and topics lists/bodies (including monthly backnumber archives), plus the glossary CSV fetcher. The topics parser maps ~30 DQX CSS classes to block types via 17 prioritized extractors. |
-| `@hiroba/shared` | `CATEGORIES` + JP→EN category mapping, JST date parsing, and the age-based freshness/recheck interval rules. |
+| `@hiroba/scraper`  | Cheerio-based scrapers for news lists/bodies and topics lists/bodies (including monthly backnumber archives), plus the glossary CSV fetcher. The topics parser maps ~30 DQX CSS classes to block types via 17 prioritized extractors.                                                 |
+| `@hiroba/shared`   | `CATEGORIES` + JP→EN category mapping, JST date parsing, and the age-based freshness/recheck interval rules.                                                                                                                                                                          |
 
 Dependency direction: `richtext` and `shared` are leaves; `db` depends on both;
 `scraper` depends on all three; apps depend on everything.

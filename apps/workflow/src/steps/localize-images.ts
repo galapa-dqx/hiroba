@@ -10,7 +10,6 @@
  * Only images that were translated (i.e. had Japanese) are candidates.
  */
 
-import { collectImages, imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   getImagesByKeys,
   getImageTranslations,
@@ -18,6 +17,12 @@ import {
   upsertImageTranslation,
   type Database,
 } from '@hiroba/db';
+import {
+  collectImages,
+  imageKey,
+  imageUpstreamUrl,
+  type Block,
+} from '@hiroba/richtext';
 
 import { editImage, IMAGE_MODEL } from '../image-edit';
 import { trimToAspect } from '../image-trim';
@@ -68,12 +73,18 @@ async function loadOriginal(
 ): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
   const obj = await bucket.get(key);
   if (obj) {
-    return { bytes: new Uint8Array(await obj.arrayBuffer()), mimeType: obj.httpMetadata?.contentType ?? 'image/jpeg' };
+    return {
+      bytes: new Uint8Array(await obj.arrayBuffer()),
+      mimeType: obj.httpMetadata?.contentType ?? 'image/jpeg',
+    };
   }
   try {
     const res = await fetch(imageUpstreamUrl(key), { headers: FETCH_HEADERS });
     if (!res.ok) return null;
-    return { bytes: new Uint8Array(await res.arrayBuffer()), mimeType: res.headers.get('content-type') ?? 'image/jpeg' };
+    return {
+      bytes: new Uint8Array(await res.arrayBuffer()),
+      mimeType: res.headers.get('content-type') ?? 'image/jpeg',
+    };
   } catch {
     return null;
   }
@@ -89,7 +100,11 @@ export async function localizeImages(
   blocks: Block[],
 ): Promise<LocalizeResult> {
   const keys = [
-    ...new Set(collectImages(blocks).map((i) => imageKey(i.src)).filter((k): k is string => !!k)),
+    ...new Set(
+      collectImages(blocks)
+        .map((i) => imageKey(i.src))
+        .filter((k): k is string => !!k),
+    ),
   ];
   if (keys.length === 0) return { localized: 0, skipped: 0, failed: 0 };
 

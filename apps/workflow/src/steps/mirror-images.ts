@@ -9,7 +9,12 @@
  * transcribe step can read the bytes back from R2 (one CDN fetch per image ever).
  */
 
-import { collectImageUrls, imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
+import {
+  collectImageUrls,
+  imageKey,
+  imageUpstreamUrl,
+  type Block,
+} from '@hiroba/richtext';
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -32,7 +37,10 @@ export type MirrorResult = {
  * Mirror all mirrorable images in `blocks` to `bucket`. Fetches each missing key
  * from the DQX CDN once and streams it into R2 with a content type + long TTL.
  */
-export async function mirrorImages(bucket: R2Bucket, blocks: Block[]): Promise<MirrorResult> {
+export async function mirrorImages(
+  bucket: R2Bucket,
+  blocks: Block[],
+): Promise<MirrorResult> {
   // Dedup to distinct storage keys (many srcs collapse to one key via aliasing).
   const keys = new Set<string>();
   for (const src of collectImageUrls(blocks)) {
@@ -50,14 +58,17 @@ export async function mirrorImages(bucket: R2Bucket, blocks: Block[]): Promise<M
       continue;
     }
     try {
-      const res = await fetch(imageUpstreamUrl(key), { headers: FETCH_HEADERS });
+      const res = await fetch(imageUpstreamUrl(key), {
+        headers: FETCH_HEADERS,
+      });
       if (!res.ok || !res.body) {
         failed++;
         continue;
       }
       await bucket.put(key, res.body, {
         httpMetadata: {
-          contentType: res.headers.get('content-type') ?? 'application/octet-stream',
+          contentType:
+            res.headers.get('content-type') ?? 'application/octet-stream',
           cacheControl: CACHE_CONTROL,
         },
       });

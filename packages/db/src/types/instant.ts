@@ -1,5 +1,5 @@
-import { Temporal } from 'temporal-polyfill';
 import { customType } from 'drizzle-orm/sqlite-core';
+import { Temporal } from 'temporal-polyfill';
 
 /**
  * Store a Temporal.Instant as a millisecond-precision timestamp in the db

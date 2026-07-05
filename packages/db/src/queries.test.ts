@@ -45,7 +45,9 @@ describe('upsertListItems', () => {
 
     const inserted = await upsertListItems(ctx.db, items);
 
-    expect(inserted.map((i) => i.id).sort()).toEqual(items.map((i) => i.id).sort());
+    expect(inserted.map((i) => i.id).sort()).toEqual(
+      items.map((i) => i.id).sort(),
+    );
     const count = await ctx.db.select().from(newsItems).all();
     expect(count).toHaveLength(3);
   });
@@ -64,9 +66,7 @@ describe('upsertListItems', () => {
   it('does not clobber an existing row (onConflictDoNothing)', async () => {
     await upsertListItems(ctx.db, [listItem(1, 1)]);
 
-    await upsertListItems(ctx.db, [
-      { ...listItem(1, 1), titleJa: '書き換え' },
-    ]);
+    await upsertListItems(ctx.db, [{ ...listItem(1, 1), titleJa: '書き換え' }]);
 
     const row = await ctx.db
       .select()
@@ -163,7 +163,11 @@ describe('upsertTopic', () => {
       publishedAt: publishedAt.add({ hours: 1 }),
     });
 
-    const row = await ctx.db.select().from(topics).where(eq(topics.id, id)).get();
+    const row = await ctx.db
+      .select()
+      .from(topics)
+      .where(eq(topics.id, id))
+      .get();
     expect(row?.titleJa).toBe('トピック（更新）');
     expect(row?.blocksJa).not.toBeNull(); // block tree survived
     expect(row?.bodyFetchedAt).not.toBeNull();
@@ -182,7 +186,11 @@ describe('upsertTopic', () => {
       blocksJa: newBlocks,
     });
 
-    const row = await ctx.db.select().from(topics).where(eq(topics.id, id)).get();
+    const row = await ctx.db
+      .select()
+      .from(topics)
+      .where(eq(topics.id, id))
+      .get();
     expect(row?.blocksJa).toEqual(newBlocks);
   });
 });

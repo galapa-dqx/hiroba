@@ -7,7 +7,8 @@
 import OpenAI from 'openai';
 
 export const GEMINI_MODEL = 'gemini-3.1-flash-lite';
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
+const GEMINI_BASE_URL =
+  'https://generativelanguage.googleapis.com/v1beta/openai/';
 
 export function createGemini(apiKey: string): OpenAI {
   return new OpenAI({ apiKey, baseURL: GEMINI_BASE_URL });

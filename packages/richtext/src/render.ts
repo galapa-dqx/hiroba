@@ -9,17 +9,26 @@
  * inspection).
  */
 
-import { isInline, type Block, type ContentNode, type Inline, type TableCell  } from './schema';
+import {
+  isInline,
+  type Block,
+  type ContentNode,
+  type Inline,
+  type TableCell,
+} from './schema';
 
 export type RenderOptions = {
   imageSrc?: (src: string) => string;
-}
+};
 
 const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const escAttr = (s: string): string => esc(s).replace(/"/g, '&quot;');
 
-export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string {
+export function renderBlocks(
+  blocks: Block[],
+  opts: RenderOptions = {},
+): string {
   const src = opts.imageSrc ?? ((s: string) => s);
 
   const inlines = (nodes: Inline[]): string => nodes.map(inline).join('');
@@ -39,7 +48,9 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
       case 'color':
         return `<span style="color:${escAttr(node.value)}">${inlines(node.children)}</span>`;
       case 'link': {
-        const rel = node.external ? ' target="_blank" rel="noopener noreferrer"' : '';
+        const rel = node.external
+          ? ' target="_blank" rel="noopener noreferrer"'
+          : '';
         return `<a href="${escAttr(node.href)}"${rel}>${inlines(node.children)}</a>`;
       }
       case 'badge':
@@ -59,7 +70,10 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
   function block(node: Block): string {
     switch (node.type) {
       case 'paragraph': {
-        const style = node.align && node.align !== 'left' ? ` style="text-align:${node.align}"` : '';
+        const style =
+          node.align && node.align !== 'left'
+            ? ` style="text-align:${node.align}"`
+            : '';
         return `<p${style}>${inlines(node.children)}</p>`;
       }
       case 'heading':
@@ -74,7 +88,9 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
         const alt = node.text?.length ? node.text.join(' ') : (node.alt ?? '');
         const img = `<img class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} src="${escAttr(src(node.src))}" alt="${escAttr(alt)}">`;
         if (!node.href) return img;
-        const rel = node.external ? ' target="_blank" rel="noopener noreferrer"' : '';
+        const rel = node.external
+          ? ' target="_blank" rel="noopener noreferrer"'
+          : '';
         return `<a class="rt-image-link" href="${escAttr(node.href)}"${rel}>${img}</a>`;
       }
       case 'video':
@@ -86,8 +102,12 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
       case 'section':
         return (
           `<section class="rt-section"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>` +
-          (node.title ? `<div class="rt-section-title">${inlines(node.title)}</div>` : '') +
-          (node.dateline ? `<div class="rt-dateline">${inlines(node.dateline)}</div>` : '') +
+          (node.title
+            ? `<div class="rt-section-title">${inlines(node.title)}</div>`
+            : '') +
+          (node.dateline
+            ? `<div class="rt-dateline">${inlines(node.dateline)}</div>`
+            : '') +
           `${contents(node.children)}</section>`
         );
       case 'accordion':
@@ -95,15 +115,23 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
       case 'speechBubble':
         return (
           `<div class="rt-speech">` +
-          (node.icon ? `<img class="rt-speech-icon" src="${escAttr(src(node.icon))}" alt="">` : '') +
-          (node.speaker !== undefined ? `<div class="rt-speaker">${esc(node.speaker)}</div>` : '') +
+          (node.icon
+            ? `<img class="rt-speech-icon" src="${escAttr(src(node.icon))}" alt="">`
+            : '') +
+          (node.speaker !== undefined
+            ? `<div class="rt-speaker">${esc(node.speaker)}</div>`
+            : '') +
           `<div class="rt-speech-body">${contents(node.children)}</div></div>`
         );
       case 'messageBox':
         return (
           `<div class="rt-message">` +
-          (node.name !== undefined ? `<div class="rt-name">${esc(node.name)}</div>` : '') +
-          (node.role !== undefined ? `<div class="rt-role">${esc(node.role)}</div>` : '') +
+          (node.name !== undefined
+            ? `<div class="rt-name">${esc(node.name)}</div>`
+            : '') +
+          (node.role !== undefined
+            ? `<div class="rt-role">${esc(node.role)}</div>`
+            : '') +
           `<div class="rt-message-body">${contents(node.children)}</div></div>`
         );
       case 'list': {
@@ -112,16 +140,25 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
         return `<${tag}${cls}>${node.items.map((it) => `<li>${contents(it.children)}</li>`).join('')}</${tag}>`;
       }
       case 'table': {
-        const head = node.headers ? `<thead><tr>${node.headers.map(cell).join('')}</tr></thead>` : '';
+        const head = node.headers
+          ? `<thead><tr>${node.headers.map(cell).join('')}</tr></thead>`
+          : '';
         const body = `<tbody>${node.rows.map((r) => `<tr>${r.map(cell).join('')}</tr>`).join('')}</tbody>`;
         return `<table class="rt-table"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>${head}${body}</table>`;
       }
       case 'interview': {
         const head =
-          (node.title ? `<div class="rt-interview-title">${esc(node.title)}</div>` : '') +
-          (node.writer ? `<div class="rt-writer">${esc(node.writer)}</div>` : '');
+          (node.title
+            ? `<div class="rt-interview-title">${esc(node.title)}</div>`
+            : '') +
+          (node.writer
+            ? `<div class="rt-writer">${esc(node.writer)}</div>`
+            : '');
         const qas = node.exchanges
-          .map((e) => `<div class="rt-qa"><div class="rt-q">${inlines(e.question)}</div><div class="rt-a">${blocksHtml(e.answer)}</div></div>`)
+          .map(
+            (e) =>
+              `<div class="rt-qa"><div class="rt-q">${inlines(e.question)}</div><div class="rt-a">${blocksHtml(e.answer)}</div></div>`,
+          )
           .join('');
         return `<div class="rt-interview">${head}${qas}</div>`;
       }
@@ -129,7 +166,10 @@ export function renderBlocks(blocks: Block[], opts: RenderOptions = {}): string 
         return `<ol class="rt-steps"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>${node.items.map((s) => `<li${s.n ? ` value="${s.n}"` : ''}>${blocksHtml(s.children)}</li>`).join('')}</ol>`;
       case 'ranking':
         return `<ol class="rt-ranking"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>${node.items
-          .map((i) => `<li value="${i.rank}"><span class="rt-rank-title">${inlines(i.title)}</span>${i.count ? `<span class="rt-rank-count">${esc(i.count)}</span>` : ''}</li>`)
+          .map(
+            (i) =>
+              `<li value="${i.rank}"><span class="rt-rank-title">${inlines(i.title)}</span>${i.count ? `<span class="rt-rank-count">${esc(i.count)}</span>` : ''}</li>`,
+          )
           .join('')}</ol>`;
     }
   }

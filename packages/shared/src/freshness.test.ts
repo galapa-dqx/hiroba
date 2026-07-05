@@ -66,9 +66,9 @@ describe('freshness', () => {
       // Interval for 1-day-old article = 1 hour
       // Next check = bodyFetchedAt + 1 hour = 1 hour ago
       const expected = bodyFetchedAt.epochMilliseconds + 1 * 60 * 60 * 1000;
-      expect(getNextCheckTime(publishedAt, bodyFetchedAt).epochMilliseconds).toBe(
-        expected,
-      );
+      expect(
+        getNextCheckTime(publishedAt, bodyFetchedAt).epochMilliseconds,
+      ).toBe(expected);
     });
 
     it('calculates next check time correctly for older article', () => {
@@ -77,9 +77,9 @@ describe('freshness', () => {
       // Interval for 7-day-old article = 7 hours
       // Next check = bodyFetchedAt + 7 hours = 3 hours from now
       const expected = bodyFetchedAt.epochMilliseconds + 7 * 60 * 60 * 1000;
-      expect(getNextCheckTime(publishedAt, bodyFetchedAt).epochMilliseconds).toBe(
-        expected,
-      );
+      expect(
+        getNextCheckTime(publishedAt, bodyFetchedAt).epochMilliseconds,
+      ).toBe(expected);
     });
   });
 

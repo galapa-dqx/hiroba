@@ -45,7 +45,10 @@ const ICON_CLASS_RE = /\bimg_(?:2nd|3rd|4th|5th|smt|3ds)\b/;
  * banners, screenshots — is a block image.
  */
 export function isInlineIcon(el: Element): boolean {
-  return ICON_SRC_RE.test(el.attribs?.src ?? '') || ICON_CLASS_RE.test(el.attribs?.class ?? '');
+  return (
+    ICON_SRC_RE.test(el.attribs?.src ?? '') ||
+    ICON_CLASS_RE.test(el.attribs?.class ?? '')
+  );
 }
 
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -70,7 +73,8 @@ function toHex(raw: string | undefined): HexColor | undefined {
   if (c in NAMED_COLORS) return NAMED_COLORS[c] as HexColor;
   const rgb = c.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
   if (rgb) {
-    const h = (n: string) => Math.min(255, parseInt(n, 10)).toString(16).padStart(2, '0');
+    const h = (n: string) =>
+      Math.min(255, parseInt(n, 10)).toString(16).padStart(2, '0');
     return `#${h(rgb[1])}${h(rgb[2])}${h(rgb[3])}`.toUpperCase() as HexColor;
   }
   return undefined;
@@ -110,12 +114,14 @@ function canonicalize(nodes: Inline[]): Inline[] {
   const merged: Inline[] = [];
   for (const n of nodes) {
     const last = merged[merged.length - 1];
-    if (typeof n === 'string' && typeof last === 'string') merged[merged.length - 1] = last + n;
+    if (typeof n === 'string' && typeof last === 'string')
+      merged[merged.length - 1] = last + n;
     else merged.push(n);
   }
   if (typeof merged[0] === 'string') merged[0] = merged[0].replace(/^ +/, '');
   const li = merged.length - 1;
-  if (typeof merged[li] === 'string') merged[li] = (merged[li] as string).replace(/ +$/, '');
+  if (typeof merged[li] === 'string')
+    merged[li] = (merged[li] as string).replace(/ +$/, '');
   return merged.filter((n) => n !== '');
 }
 
@@ -152,7 +158,11 @@ function pushElement(el: Element, out: Inline[]): void {
   }
   if (name === 'a') {
     const href = absolutize(el.attribs?.href ?? '');
-    const link: Inline = { type: 'link', href, children: parseInline(el.children) };
+    const link: Inline = {
+      type: 'link',
+      href,
+      children: parseInline(el.children),
+    };
     if (isExternalLink(href)) link.external = true;
     out.push(link);
     return;

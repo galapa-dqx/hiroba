@@ -13,16 +13,21 @@
 import type OpenAI from 'openai';
 
 import {
+  getImagesByKeys,
+  upsertImageTranscription,
+  type Database,
+} from '@hiroba/db';
+import {
   collectImages,
   imageKey,
   imageUpstreamUrl,
   type Block,
 } from '@hiroba/richtext';
-import { getImagesByKeys, upsertImageTranscription, type Database } from '@hiroba/db';
 
 import { createGemini, GEMINI_MODEL } from '../gemini';
 
-const TRANSCRIBE_PROMPT = 'Transcribe the spans of text in this image verbatim, combining connected strings.';
+const TRANSCRIBE_PROMPT =
+  'Transcribe the spans of text in this image verbatim, combining connected strings.';
 
 const TRANSCRIBE_SCHEMA = {
   type: 'object',
@@ -40,28 +45,44 @@ const IMAGE_FETCH_HEADERS = {
 function toDataUrl(type: string, buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i++)
+    binary += String.fromCharCode(bytes[i]);
   return `data:${type};base64,${btoa(binary)}`;
 }
 
 /** Load an image by key as a base64 data URL — from the R2 mirror, else the CDN. */
-async function loadByKey(key: string, bucket: R2Bucket): Promise<string | null> {
+async function loadByKey(
+  key: string,
+  bucket: R2Bucket,
+): Promise<string | null> {
   try {
     const obj = await bucket.get(key);
-    if (obj) return toDataUrl(obj.httpMetadata?.contentType ?? 'image/jpeg', await obj.arrayBuffer());
+    if (obj)
+      return toDataUrl(
+        obj.httpMetadata?.contentType ?? 'image/jpeg',
+        await obj.arrayBuffer(),
+      );
   } catch {
     // fall through to a direct fetch
   }
   try {
-    const res = await fetch(imageUpstreamUrl(key), { headers: IMAGE_FETCH_HEADERS });
+    const res = await fetch(imageUpstreamUrl(key), {
+      headers: IMAGE_FETCH_HEADERS,
+    });
     if (!res.ok) return null;
-    return toDataUrl(res.headers.get('content-type') ?? 'image/jpeg', await res.arrayBuffer());
+    return toDataUrl(
+      res.headers.get('content-type') ?? 'image/jpeg',
+      await res.arrayBuffer(),
+    );
   } catch {
     return null;
   }
 }
 
-async function transcribeOne(client: OpenAI, imageUrl: string): Promise<string[]> {
+async function transcribeOne(
+  client: OpenAI,
+  imageUrl: string,
+): Promise<string[]> {
   const response = await client.chat.completions.create({
     model: GEMINI_MODEL,
     messages: [
@@ -98,12 +119,18 @@ export async function transcribeImages(
   bucket: R2Bucket,
 ): Promise<number> {
   const keys = [
-    ...new Set(collectImages(blocks).map((img) => imageKey(img.src)).filter((k): k is string => !!k)),
+    ...new Set(
+      collectImages(blocks)
+        .map((img) => imageKey(img.src))
+        .filter((k): k is string => !!k),
+    ),
   ];
   if (keys.length === 0) return 0;
 
   const existing = await getImagesByKeys(db, keys);
-  const done = new Set(existing.filter((r) => r.textsJa !== null).map((r) => r.key));
+  const done = new Set(
+    existing.filter((r) => r.textsJa !== null).map((r) => r.key),
+  );
 
   const client = createGemini(apiKey);
   let transcribed = 0;
@@ -112,7 +139,11 @@ export async function transcribeImages(
     const dataUrl = await loadByKey(key, bucket);
     if (!dataUrl) continue;
     const spans = await transcribeOne(client, dataUrl);
-    await upsertImageTranscription(db, { key, textsJa: spans, model: GEMINI_MODEL });
+    await upsertImageTranscription(db, {
+      key,
+      textsJa: spans,
+      model: GEMINI_MODEL,
+    });
     transcribed++;
   }
   return transcribed;

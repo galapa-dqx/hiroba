@@ -11,7 +11,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-
 import { Miniflare } from 'miniflare';
 
 import { createDb, type Database } from './client';

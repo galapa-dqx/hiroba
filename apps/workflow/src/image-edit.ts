@@ -26,7 +26,9 @@ export async function editImage(
 ): Promise<Uint8Array | null> {
   const client = new OpenAI({ apiKey });
   try {
-    const file = await toFile(input.imageBytes, 'input', { type: input.mimeType });
+    const file = await toFile(input.imageBytes, 'input', {
+      type: input.mimeType,
+    });
     const response = await client.images.edit({
       model: IMAGE_MODEL,
       image: file,

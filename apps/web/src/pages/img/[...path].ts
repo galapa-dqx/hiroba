@@ -12,7 +12,8 @@
 
 import type { APIRoute } from 'astro';
 
-const isAllowedHost = (host: string): boolean => host === 'dqx.jp' || host.endsWith('.dqx.jp');
+const isAllowedHost = (host: string): boolean =>
+  host === 'dqx.jp' || host.endsWith('.dqx.jp');
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -42,11 +43,14 @@ export const GET: APIRoute = async ({ params, locals }) => {
 
   // 1. Preferred object: the localized one if this is an l10n request, else the
   //    original. 2. Fall back to the original (an image that was never localized).
-  const hit = (localized ? await bucket.get(path) : null) ?? (await bucket.get(originalKey));
+  const hit =
+    (localized ? await bucket.get(path) : null) ??
+    (await bucket.get(originalKey));
   if (hit) {
     return new Response(hit.body, {
       headers: {
-        'Content-Type': hit.httpMetadata?.contentType ?? 'application/octet-stream',
+        'Content-Type':
+          hit.httpMetadata?.contentType ?? 'application/octet-stream',
         'Cache-Control': CACHE_CONTROL,
         ETag: hit.httpEtag,
       },
@@ -58,11 +62,15 @@ export const GET: APIRoute = async ({ params, locals }) => {
   if (!res.ok) {
     return new Response('Upstream error', { status: res.status });
   }
-  const contentType = res.headers.get('content-type') ?? 'application/octet-stream';
+  const contentType =
+    res.headers.get('content-type') ?? 'application/octet-stream';
   const body = await res.arrayBuffer();
 
   await bucket.put(originalKey, body, {
-    httpMetadata: { contentType, cacheControl: 'public, max-age=31536000, immutable' },
+    httpMetadata: {
+      contentType,
+      cacheControl: 'public, max-age=31536000, immutable',
+    },
   });
 
   return new Response(body, {

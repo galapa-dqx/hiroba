@@ -22,61 +22,75 @@
  * RCDATA and swallow its markup).
  */
 
+import {
+  isTag,
+  isText,
+  type ChildNode,
+  type Document,
+  type Element,
+} from 'domhandler';
 import { parseDocument } from 'htmlparser2';
-import { isTag, isText, type ChildNode, type Document, type Element } from 'domhandler';
 
-import { isInline,
+import {
+  isInline,
+  type AccordionNode,
   type Align,
   type Block,
-  type ContentNode,
-  type ImageSource,
-  type Inline,
-  type InfoBoxVariant,
-  type ParagraphNode,
-  type HeadingNode,
   type ButtonNode,
-  type ImageNode,
-  type VideoNode,
+  type ContentNode,
   type EmbedNode,
+  type HeadingNode,
+  type ImageNode,
+  type ImageSource,
   type InfoBoxNode,
-  type SectionNode,
-  type AccordionNode,
-  type SpeechBubbleNode,
-  type MessageBoxNode,
-  type ListNode,
-  type TableNode,
-  type TableCell,
-  type InterviewNode,
+  type InfoBoxVariant,
+  type Inline,
   type InterviewExchange,
-  type StepsNode,
-  type StepItem,
+  type InterviewNode,
+  type ListNode,
+  type MessageBoxNode,
+  type ParagraphNode,
+  type RankingItem,
   type RankingNode,
-  type RankingItem } from './schema';
+  type SectionNode,
+  type SpeechBubbleNode,
+  type StepItem,
+  type StepsNode,
+  type TableCell,
+  type TableNode,
+  type VideoNode,
+} from './schema';
 
 /** A translatable document: the topic title plus its block tree. */
 export type RtmlDocument = {
   title: string;
   blocks: Block[];
-}
+};
 
 /* ------------------------------------------------------------------ *
  * Serialize: block tree → RTML
  * ------------------------------------------------------------------ */
 
-const escText = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const escAttr = (s: string): string => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+const escText = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escAttr = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 
 /** ` name="value"`, or `''` when the value is undefined. */
 const attr = (name: string, value: string | number | undefined): string =>
   value === undefined ? '' : ` ${name}="${escAttr(String(value))}"`;
 
 /** ` name` when `on` is true, else `''` (boolean attribute). */
-const boolAttr = (name: string, on: boolean | undefined): string => (on ? ` ${name}` : '');
+const boolAttr = (name: string, on: boolean | undefined): string =>
+  on ? ` ${name}` : '';
 
-const inlines = (nodes: Inline[]): string => nodes.map(serializeInline).join('');
+const inlines = (nodes: Inline[]): string =>
+  nodes.map(serializeInline).join('');
 const blocks = (nodes: Block[]): string => nodes.map(serializeBlock).join('');
 const contents = (nodes: ContentNode[]): string =>
-  nodes.map((n) => (isInline(n) ? serializeInline(n) : serializeBlock(n))).join('');
+  nodes
+    .map((n) => (isInline(n) ? serializeInline(n) : serializeBlock(n)))
+    .join('');
 
 function serializeInline(node: Inline): string {
   if (typeof node === 'string') return escText(node);
@@ -128,8 +142,12 @@ function serializeBlock(node: Block): string {
     case 'section':
       return (
         `<section${attr('variant', node.variant)}>` +
-        (node.title ? `<sectiontitle>${inlines(node.title)}</sectiontitle>` : '') +
-        (node.dateline ? `<dateline>${inlines(node.dateline)}</dateline>` : '') +
+        (node.title
+          ? `<sectiontitle>${inlines(node.title)}</sectiontitle>`
+          : '') +
+        (node.dateline
+          ? `<dateline>${inlines(node.dateline)}</dateline>`
+          : '') +
         `${contents(node.children)}</section>`
       );
     case 'accordion':
@@ -137,7 +155,9 @@ function serializeBlock(node: Block): string {
     case 'speechBubble':
       return (
         `<speech${attr('icon', node.icon)}>` +
-        (node.speaker !== undefined ? `<speaker>${escText(node.speaker)}</speaker>` : '') +
+        (node.speaker !== undefined
+          ? `<speaker>${escText(node.speaker)}</speaker>`
+          : '') +
         `${contents(node.children)}</speech>`
       );
     case 'messageBox':
@@ -149,7 +169,9 @@ function serializeBlock(node: Block): string {
       );
     case 'list': {
       const tag = node.ordered ? 'ol' : 'ul';
-      const items = node.items.map((it) => `<li>${contents(it.children)}</li>`).join('');
+      const items = node.items
+        .map((it) => `<li>${contents(it.children)}</li>`)
+        .join('');
       return `<${tag}${attr('variant', node.variant)}>${items}</${tag}>`;
     }
     case 'table':
@@ -157,12 +179,17 @@ function serializeBlock(node: Block): string {
     case 'interview':
       return serializeInterview(node);
     case 'steps': {
-      const items = node.items.map((s) => `<step${attr('n', s.n)}>${blocks(s.children)}</step>`).join('');
+      const items = node.items
+        .map((s) => `<step${attr('n', s.n)}>${blocks(s.children)}</step>`)
+        .join('');
       return `<steps${attr('variant', node.variant)}>${items}</steps>`;
     }
     case 'ranking': {
       const items = node.items
-        .map((i) => `<rank${attr('n', i.rank)}${attr('count', i.count)}>${inlines(i.title)}</rank>`)
+        .map(
+          (i) =>
+            `<rank${attr('n', i.rank)}${attr('count', i.count)}>${inlines(i.title)}</rank>`,
+        )
         .join('');
       return `<ranking${attr('variant', node.variant)}>${items}</ranking>`;
     }
@@ -176,7 +203,8 @@ function serializeCell(c: TableCell): string {
 
 function serializeTable(node: TableNode): string {
   let out = `<table${attr('variant', node.variant)}>`;
-  if (node.headers) out += `<thead><tr>${node.headers.map(serializeCell).join('')}</tr></thead>`;
+  if (node.headers)
+    out += `<thead><tr>${node.headers.map(serializeCell).join('')}</tr></thead>`;
   out += `<tbody>${node.rows.map((r) => `<tr>${r.map(serializeCell).join('')}</tr>`).join('')}</tbody>`;
   return out + '</table>';
 }
@@ -190,8 +218,12 @@ function serializeInterview(node: InterviewNode): string {
     .join('');
   return (
     `<interview>` +
-    (node.title !== undefined ? `<inttitle>${escText(node.title)}</inttitle>` : '') +
-    (node.writer !== undefined ? `<writer>${escText(node.writer)}</writer>` : '') +
+    (node.title !== undefined
+      ? `<inttitle>${escText(node.title)}</inttitle>`
+      : '') +
+    (node.writer !== undefined
+      ? `<writer>${escText(node.writer)}</writer>`
+      : '') +
     `${exchanges}</interview>`
   );
 }
@@ -215,12 +247,23 @@ export function serializeForTranslation(doc: RtmlDocument): string {
  * Parse: RTML → block tree
  * ------------------------------------------------------------------ */
 
-const INLINE_TAGS: ReadonlySet<string> = new Set(['br', 'strong', 'em', 'color', 'a', 'badge', 'icon']);
+const INLINE_TAGS: ReadonlySet<string> = new Set([
+  'br',
+  'strong',
+  'em',
+  'color',
+  'a',
+  'badge',
+  'icon',
+]);
 
 const childEls = (el: Element | Document, name?: string): Element[] =>
-  el.children.filter((c): c is Element => isTag(c) && (name === undefined || c.name === name));
+  el.children.filter(
+    (c): c is Element => isTag(c) && (name === undefined || c.name === name),
+  );
 
-const childEl = (el: Element | Document, name: string): Element | undefined => childEls(el, name)[0];
+const childEl = (el: Element | Document, name: string): Element | undefined =>
+  childEls(el, name)[0];
 
 /** Concatenated text of all descendants — for plain-string fields. */
 function textOf(el: Element): string {
@@ -251,9 +294,17 @@ function parseInlineTag(el: Element): Inline {
     case 'em':
       return { type: 'emphasis', children: parseInlines(el.children) };
     case 'color':
-      return { type: 'color', value: a.value, children: parseInlines(el.children) };
+      return {
+        type: 'color',
+        value: a.value,
+        children: parseInlines(el.children),
+      };
     case 'a': {
-      const n: Inline = { type: 'link', href: a.href, children: parseInlines(el.children) };
+      const n: Inline = {
+        type: 'link',
+        href: a.href,
+        children: parseInlines(el.children),
+      };
       if ('external' in a) n.external = true;
       return n;
     }
@@ -288,7 +339,9 @@ function parseContent(nodes: ChildNode[]): ContentNode[] {
       const prev = out[out.length - 1];
       const prevInline = prev !== undefined && isInline(prev);
       const next = nextSignificant(nodes, i + 1);
-      const nextInline = next !== undefined && (isText(next) || (isTag(next) && INLINE_TAGS.has(next.name)));
+      const nextInline =
+        next !== undefined &&
+        (isText(next) || (isTag(next) && INLINE_TAGS.has(next.name)));
       if (prevInline || nextInline) out.push(c.data);
     } else if (isTag(c)) {
       out.push(INLINE_TAGS.has(c.name) ? parseInlineTag(c) : parseBlock(c));
@@ -298,7 +351,10 @@ function parseContent(nodes: ChildNode[]): ContentNode[] {
 }
 
 /** The next tag or non-blank text node at or after index `from`. */
-function nextSignificant(nodes: ChildNode[], from: number): ChildNode | undefined {
+function nextSignificant(
+  nodes: ChildNode[],
+  from: number,
+): ChildNode | undefined {
   for (let j = from; j < nodes.length; j++) {
     const n = nodes[j];
     if (isTag(n) || (isText(n) && n.data.trim() !== '')) return n;
@@ -317,7 +373,10 @@ function parseBlock(el: Element): Block {
   const a = el.attribs;
   switch (el.name) {
     case 'p': {
-      const n: ParagraphNode = { type: 'paragraph', children: parseInlines(el.children) };
+      const n: ParagraphNode = {
+        type: 'paragraph',
+        children: parseInlines(el.children),
+      };
       if (a.align !== undefined) n.align = a.align as Align;
       return n;
     }
@@ -330,11 +389,16 @@ function parseBlock(el: Element): Block {
         level: Number(el.name[1]) as HeadingNode['level'],
         children: parseInlines(el.children),
       };
-      if (a.variant !== undefined) n.variant = a.variant as HeadingNode['variant'];
+      if (a.variant !== undefined)
+        n.variant = a.variant as HeadingNode['variant'];
       return n;
     }
     case 'button': {
-      const n: ButtonNode = { type: 'button', href: a.href, children: parseInlines(el.children) };
+      const n: ButtonNode = {
+        type: 'button',
+        href: a.href,
+        children: parseInlines(el.children),
+      };
       if (a.variant !== undefined) n.variant = a.variant;
       return n;
     }
@@ -347,25 +411,42 @@ function parseBlock(el: Element): Block {
       if (a.variant !== undefined) n.variant = a.variant;
       if (a.href !== undefined) n.href = a.href;
       if ('external' in a) n.external = true;
-      if (a.sources !== undefined) n.sources = JSON.parse(a.sources) as ImageSource[];
+      if (a.sources !== undefined)
+        n.sources = JSON.parse(a.sources) as ImageSource[];
       if (el.name === 'figure') {
         const lines = childEls(el, 'line');
         // Prefer explicit <line> spans; fall back to raw content if the model
         // emitted the text without them.
-        n.text = lines.length ? lines.map((l) => textOf(l)) : textOf(el).trim() ? [textOf(el).trim()] : [];
+        n.text = lines.length
+          ? lines.map((l) => textOf(l))
+          : textOf(el).trim()
+            ? [textOf(el).trim()]
+            : [];
       }
       return n;
     }
     case 'video':
-      return { type: 'video', provider: a.provider as VideoNode['provider'], src: a.src };
+      return {
+        type: 'video',
+        provider: a.provider as VideoNode['provider'],
+        src: a.src,
+      };
     case 'embed': {
-      const n: EmbedNode = { type: 'embed', provider: a.provider as EmbedNode['provider'] };
-      if (a.variant !== undefined) n.variant = a.variant as EmbedNode['variant'];
+      const n: EmbedNode = {
+        type: 'embed',
+        provider: a.provider as EmbedNode['provider'],
+      };
+      if (a.variant !== undefined)
+        n.variant = a.variant as EmbedNode['variant'];
       if (a.content !== undefined) n.content = a.content;
       return n;
     }
     case 'infobox': {
-      const n: InfoBoxNode = { type: 'infoBox', variant: a.variant as InfoBoxVariant, children: parseContent(el.children) };
+      const n: InfoBoxNode = {
+        type: 'infoBox',
+        variant: a.variant as InfoBoxVariant,
+        children: parseContent(el.children),
+      };
       return n;
     }
     case 'section':
@@ -381,7 +462,9 @@ function parseBlock(el: Element): Block {
       const n: ListNode = {
         type: 'list',
         ordered: el.name === 'ol',
-        items: childEls(el, 'li').map((li) => ({ children: parseContent(li.children) })),
+        items: childEls(el, 'li').map((li) => ({
+          children: parseContent(li.children),
+        })),
       };
       if (a.variant !== undefined) n.variant = a.variant as ListNode['variant'];
       return n;
@@ -399,19 +482,24 @@ function parseBlock(el: Element): Block {
           return item;
         }),
       };
-      if (a.variant !== undefined) n.variant = a.variant as StepsNode['variant'];
+      if (a.variant !== undefined)
+        n.variant = a.variant as StepsNode['variant'];
       return n;
     }
     case 'ranking': {
       const n: RankingNode = {
         type: 'ranking',
         items: childEls(el, 'rank').map((r) => {
-          const item: RankingItem = { rank: Number(r.attribs.n), title: parseInlines(r.children) };
+          const item: RankingItem = {
+            rank: Number(r.attribs.n),
+            title: parseInlines(r.children),
+          };
           if (r.attribs.count !== undefined) item.count = r.attribs.count;
           return item;
         }),
       };
-      if (a.variant !== undefined) n.variant = a.variant as RankingNode['variant'];
+      if (a.variant !== undefined)
+        n.variant = a.variant as RankingNode['variant'];
       return n;
     }
     default:
@@ -420,20 +508,28 @@ function parseBlock(el: Element): Block {
 }
 
 /** Split a container's children into named special elements + the rest (content). */
-function partition(el: Element, special: ReadonlySet<string>): { specials: Map<string, Element>; rest: ChildNode[] } {
+function partition(
+  el: Element,
+  special: ReadonlySet<string>,
+): { specials: Map<string, Element>; rest: ChildNode[] } {
   const specials = new Map<string, Element>();
   const rest: ChildNode[] = [];
   for (const c of el.children) {
-    if (isTag(c) && special.has(c.name) && !specials.has(c.name)) specials.set(c.name, c);
+    if (isTag(c) && special.has(c.name) && !specials.has(c.name))
+      specials.set(c.name, c);
     else rest.push(c);
   }
   return { specials, rest };
 }
 
 function parseSection(el: Element): SectionNode {
-  const { specials, rest } = partition(el, new Set(['sectiontitle', 'dateline']));
+  const { specials, rest } = partition(
+    el,
+    new Set(['sectiontitle', 'dateline']),
+  );
   const n: SectionNode = { type: 'section', children: parseContent(rest) };
-  if (el.attribs.variant !== undefined) n.variant = el.attribs.variant as SectionNode['variant'];
+  if (el.attribs.variant !== undefined)
+    n.variant = el.attribs.variant as SectionNode['variant'];
   const t = specials.get('sectiontitle');
   if (t) n.title = parseInlines(t.children);
   const d = specials.get('dateline');
@@ -444,12 +540,19 @@ function parseSection(el: Element): SectionNode {
 function parseAccordion(el: Element): AccordionNode {
   const { specials, rest } = partition(el, new Set(['summary']));
   const s = specials.get('summary');
-  return { type: 'accordion', summary: s ? parseInlines(s.children) : [], children: parseContent(rest) };
+  return {
+    type: 'accordion',
+    summary: s ? parseInlines(s.children) : [],
+    children: parseContent(rest),
+  };
 }
 
 function parseSpeech(el: Element): SpeechBubbleNode {
   const { specials, rest } = partition(el, new Set(['speaker']));
-  const n: SpeechBubbleNode = { type: 'speechBubble', children: parseContent(rest) };
+  const n: SpeechBubbleNode = {
+    type: 'speechBubble',
+    children: parseContent(rest),
+  };
   if (el.attribs.icon !== undefined) n.icon = el.attribs.icon;
   const sp = specials.get('speaker');
   if (sp) n.speaker = textOf(sp);
@@ -458,7 +561,10 @@ function parseSpeech(el: Element): SpeechBubbleNode {
 
 function parseMessage(el: Element): MessageBoxNode {
   const { specials, rest } = partition(el, new Set(['name', 'role']));
-  const n: MessageBoxNode = { type: 'messageBox', children: parseContent(rest) };
+  const n: MessageBoxNode = {
+    type: 'messageBox',
+    children: parseContent(rest),
+  };
   const name = specials.get('name');
   if (name) n.name = textOf(name);
   const role = specials.get('role');
@@ -478,14 +584,16 @@ const isCell = (el: Element): boolean => el.name === 'th' || el.name === 'td';
 
 function parseTable(el: Element): TableNode {
   const n: TableNode = { type: 'table', rows: [] };
-  if (el.attribs.variant !== undefined) n.variant = el.attribs.variant as TableNode['variant'];
+  if (el.attribs.variant !== undefined)
+    n.variant = el.attribs.variant as TableNode['variant'];
   const thead = childEl(el, 'thead');
   if (thead) {
     const tr = childEl(thead, 'tr');
     if (tr) n.headers = childEls(tr).filter(isCell).map(parseCell);
   }
   const body = childEl(el, 'tbody') ?? el;
-  for (const tr of childEls(body, 'tr')) n.rows.push(childEls(tr).filter(isCell).map(parseCell));
+  for (const tr of childEls(body, 'tr'))
+    n.rows.push(childEls(tr).filter(isCell).map(parseCell));
   return n;
 }
 

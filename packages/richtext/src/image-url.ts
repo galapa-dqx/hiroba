@@ -26,7 +26,13 @@
  * query rather than part of the object key).
  */
 
-import { isBlock, type Block, type ContentNode, type ImageNode, type Inline } from './schema';
+import {
+  isBlock,
+  type Block,
+  type ContentNode,
+  type ImageNode,
+  type Inline,
+} from './schema';
 
 /** The canonical DQX CDN host that mirrors `/dq_resource` assets. */
 const CDN = 'cache.hiroba.dqx.jp';
@@ -38,8 +44,10 @@ const CDN_ALIASES: ReadonlySet<string> = new Set([
   'hiroba.dqx.jp',
 ]);
 
-const isDqxHost = (host: string): boolean => host === 'dqx.jp' || host.endsWith('.dqx.jp');
-const canonicalHost = (host: string): string => (CDN_ALIASES.has(host) ? CDN : host);
+const isDqxHost = (host: string): boolean =>
+  host === 'dqx.jp' || host.endsWith('.dqx.jp');
+const canonicalHost = (host: string): string =>
+  CDN_ALIASES.has(host) ? CDN : host;
 
 /**
  * The stable storage key for a DQX image URL: `<canonical-host>/<path>` with no
@@ -53,7 +61,8 @@ export function imageKey(src: string): string | null {
   if (/^https?:\/\//i.test(src) || src.startsWith('//')) {
     try {
       const url = new URL(src.startsWith('//') ? `https:${src}` : src);
-      if (isDqxHost(url.hostname)) return `${canonicalHost(url.hostname)}${url.pathname}`;
+      if (isDqxHost(url.hostname))
+        return `${canonicalHost(url.hostname)}${url.pathname}`;
     } catch {
       // unparseable — not keyable
     }
@@ -117,7 +126,9 @@ export function collectImages(blocks: Block[]): ImageNode[] {
         break;
       case 'table':
         node.headers?.forEach((c) => c.children.forEach(visitContent));
-        node.rows.forEach((row) => row.forEach((c) => c.children.forEach(visitContent)));
+        node.rows.forEach((row) =>
+          row.forEach((c) => c.children.forEach(visitContent)),
+        );
         break;
       case 'interview':
         node.exchanges.forEach((e) => e.answer.forEach(visitBlock));
@@ -164,7 +175,8 @@ export function collectImageUrls(blocks: Block[]): string[] {
     }
   };
 
-  const visitContent = (n: ContentNode) => (isBlock(n) ? visitBlock(n) : visitInline(n));
+  const visitContent = (n: ContentNode) =>
+    isBlock(n) ? visitBlock(n) : visitInline(n);
 
   const visitBlock = (node: Block) => {
     switch (node.type) {
@@ -198,7 +210,9 @@ export function collectImageUrls(blocks: Block[]): string[] {
         break;
       case 'table':
         node.headers?.forEach((c) => c.children.forEach(visitContent));
-        node.rows.forEach((row) => row.forEach((c) => c.children.forEach(visitContent)));
+        node.rows.forEach((row) =>
+          row.forEach((c) => c.children.forEach(visitContent)),
+        );
         break;
       case 'interview':
         node.exchanges.forEach((e) => {

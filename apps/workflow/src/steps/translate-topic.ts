@@ -14,13 +14,6 @@
  */
 
 import {
-  collectImages,
-  imageKey,
-  parseTranslation,
-  serializeForTranslation,
-  type Block,
-} from '@hiroba/richtext';
-import {
   findMatchingGlossaryEntries,
   getImagesByKeys,
   getTopic,
@@ -29,6 +22,13 @@ import {
   upsertTopicTranslation,
   type Database,
 } from '@hiroba/db';
+import {
+  collectImages,
+  imageKey,
+  parseTranslation,
+  serializeForTranslation,
+  type Block,
+} from '@hiroba/richtext';
 
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import { hasJapanese } from '../japanese';
@@ -42,7 +42,11 @@ const TRANSLATION_SYSTEM_PROMPT =
 /**
  * Translate a topic and save its EN title + content, plus per-image EN text.
  */
-export async function translateTopic(db: Database, apiKey: string, topicId: string): Promise<TranslateResult> {
+export async function translateTopic(
+  db: Database,
+  apiKey: string,
+  topicId: string,
+): Promise<TranslateResult> {
   const topic = await getTopic(db, topicId);
   if (!topic) {
     console.error(`Topic ${topicId} not found`);
@@ -57,15 +61,27 @@ export async function translateTopic(db: Database, apiKey: string, topicId: stri
   // Hydrate image text from the images table, injecting spans only for localizable
   // images not already translated to the target language.
   const blockImages = collectImages(blocks);
-  const keys = [...new Set(blockImages.map((i) => imageKey(i.src)).filter((k): k is string => !!k))];
+  const keys = [
+    ...new Set(
+      blockImages.map((i) => imageKey(i.src)).filter((k): k is string => !!k),
+    ),
+  ];
   const imageRows = await getImagesByKeys(db, keys);
   const byKey = new Map(imageRows.map((r) => [r.key, r]));
-  const alreadyTranslated = await getTranslatedImageIds(db, imageRows.map((r) => r.id), TARGET_LANGUAGE);
+  const alreadyTranslated = await getTranslatedImageIds(
+    db,
+    imageRows.map((r) => r.id),
+    TARGET_LANGUAGE,
+  );
 
   for (const img of blockImages) {
     const key = imageKey(img.src);
     const row = key ? byKey.get(key) : undefined;
-    if (row?.textsJa && hasJapanese(row.textsJa) && !alreadyTranslated.has(row.id)) {
+    if (
+      row?.textsJa &&
+      hasJapanese(row.textsJa) &&
+      !alreadyTranslated.has(row.id)
+    ) {
       img.text = row.textsJa;
     } else {
       delete img.text;
@@ -74,7 +90,11 @@ export async function translateTopic(db: Database, apiKey: string, topicId: stri
 
   const markup = serializeForTranslation({ title: topic.titleJa, blocks });
 
-  const glossary = await findMatchingGlossaryEntries(db, `${topic.titleJa}\n${markup}`, TARGET_LANGUAGE);
+  const glossary = await findMatchingGlossaryEntries(
+    db,
+    `${topic.titleJa}\n${markup}`,
+    TARGET_LANGUAGE,
+  );
   const glossarySection =
     glossary.length > 0
       ? `\n\nTranslation glossary (use these exact translations):\n${glossary

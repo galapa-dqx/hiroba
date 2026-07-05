@@ -16,17 +16,17 @@ import { eq, inArray } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import {
-  parseTranslation,
-  serializeForTranslation,
-  type Block,
-} from '@hiroba/richtext';
-import {
   events,
   findMatchingGlossaryEntries,
   newsItems,
   translations,
   type Database,
 } from '@hiroba/db';
+import {
+  parseTranslation,
+  serializeForTranslation,
+  type Block,
+} from '@hiroba/richtext';
 
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import type { TranslateResult } from '../types';
@@ -128,7 +128,10 @@ export async function translateAndSave(
       model: GEMINI_MODEL,
       temperature: 0.3,
       messages: [
-        { role: 'system', content: BODY_SYSTEM_PROMPT + glossarySection(glossary) },
+        {
+          role: 'system',
+          content: BODY_SYSTEM_PROMPT + glossarySection(glossary),
+        },
         { role: 'user', content: markup },
       ],
     });
@@ -181,7 +184,10 @@ export async function translateAndSave(
       model: GEMINI_MODEL,
       temperature: 0.3,
       messages: [
-        { role: 'system', content: TITLE_SYSTEM_PROMPT + glossarySection(glossary) },
+        {
+          role: 'system',
+          content: TITLE_SYSTEM_PROMPT + glossarySection(glossary),
+        },
         { role: 'user', content: event.titleJa },
       ],
     });

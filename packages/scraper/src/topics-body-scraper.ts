@@ -22,12 +22,15 @@ export async function fetchTopicBody(id: string): Promise<TopicBody> {
 
   const response = await fetch(url, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     },
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch topic detail page ${id}: ${response.status}`);
+    throw new Error(
+      `Failed to fetch topic detail page ${id}: ${response.status}`,
+    );
   }
 
   return parseTopicPage(await response.text());

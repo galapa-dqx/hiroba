@@ -16,7 +16,10 @@ import { DurableObject } from 'cloudflare:workers';
 
 import type { Env, ItemType, WorkflowBinding } from './types';
 
-function getProgressMessage(output: Record<string, unknown> | undefined, itemType: ItemType): string {
+function getProgressMessage(
+  output: Record<string, unknown> | undefined,
+  itemType: ItemType,
+): string {
   if (!output) return 'Starting...';
   if (itemType === 'topic') {
     if ('localize' in output) return 'Finishing up...';
@@ -39,7 +42,9 @@ export class WorkflowManager extends DurableObject<Env> {
   private activeWorkflows = new Map<string, Active>();
 
   private workflowFor(itemType: ItemType): WorkflowBinding<{ itemId: string }> {
-    return itemType === 'topic' ? this.env.TOPICS_WORKFLOW : this.env.NEWS_WORKFLOW;
+    return itemType === 'topic'
+      ? this.env.TOPICS_WORKFLOW
+      : this.env.NEWS_WORKFLOW;
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -53,7 +58,8 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     if (url.pathname === '/status') {
       const itemId = url.searchParams.get('itemId');
-      if (!itemId) return Response.json({ error: 'itemId required' }, { status: 400 });
+      if (!itemId)
+        return Response.json({ error: 'itemId required' }, { status: 400 });
       return this.handleStatus(itemId);
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
@@ -70,7 +76,9 @@ export class WorkflowManager extends DurableObject<Env> {
     const stream = new ReadableStream({
       start: async (controller) => {
         const send = (event: Record<string, unknown>) => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+          );
         };
 
         const active = this.activeWorkflows.get(itemId);
@@ -108,7 +116,10 @@ export class WorkflowManager extends DurableObject<Env> {
 
             send({
               type: 'progress',
-              message: getProgressMessage(status.output as Record<string, unknown> | undefined, active.itemType),
+              message: getProgressMessage(
+                status.output as Record<string, unknown> | undefined,
+                active.itemType,
+              ),
             });
           } catch (error) {
             console.error('Error polling workflow status:', error);
@@ -135,7 +146,10 @@ export class WorkflowManager extends DurableObject<Env> {
 
   /** Handle workflow trigger request. */
   private async handleTrigger(request: Request): Promise<Response> {
-    const body = (await request.json()) as { itemId: string; itemType?: ItemType };
+    const body = (await request.json()) as {
+      itemId: string;
+      itemType?: ItemType;
+    };
     const { itemId } = body;
     const itemType: ItemType = body.itemType ?? 'news';
 
@@ -151,7 +165,10 @@ export class WorkflowManager extends DurableObject<Env> {
       const instance = await workflow.get(existing.instanceId);
       const status = await instance.status();
       if (status.status === 'running' || status.status === 'queued') {
-        return Response.json({ status: 'already_processing', instanceId: existing.instanceId });
+        return Response.json({
+          status: 'already_processing',
+          instanceId: existing.instanceId,
+        });
       }
     }
 
@@ -166,9 +183,16 @@ export class WorkflowManager extends DurableObject<Env> {
     if (!active) return Response.json({ status: 'idle' });
 
     try {
-      const instance = await this.workflowFor(active.itemType).get(active.instanceId);
+      const instance = await this.workflowFor(active.itemType).get(
+        active.instanceId,
+      );
       const status = await instance.status();
-      return Response.json({ status: status.status, instanceId: active.instanceId, output: status.output, error: status.error });
+      return Response.json({
+        status: status.status,
+        instanceId: active.instanceId,
+        output: status.output,
+        error: status.error,
+      });
     } catch {
       this.activeWorkflows.delete(itemId);
       return Response.json({ status: 'idle' });

@@ -44,7 +44,9 @@ describe('findMatchingGlossaryEntries', () => {
       'en',
     );
 
-    expect(matches).toEqual([{ sourceText: 'ドラゴン', translatedText: 'Dragon' }]);
+    expect(matches).toEqual([
+      { sourceText: 'ドラゴン', translatedText: 'Dragon' },
+    ]);
   });
 
   it('matches multiple terms present in the text', async () => {
@@ -67,7 +69,11 @@ describe('findMatchingGlossaryEntries', () => {
   it('returns nothing when no term appears in the text', async () => {
     await seed([{ source: 'ドラゴン', lang: 'en', translated: 'Dragon' }]);
 
-    const matches = await findMatchingGlossaryEntries(ctx.db, 'こんにちは', 'en');
+    const matches = await findMatchingGlossaryEntries(
+      ctx.db,
+      'こんにちは',
+      'en',
+    );
 
     expect(matches).toEqual([]);
   });

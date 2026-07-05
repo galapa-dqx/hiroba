@@ -41,7 +41,8 @@
 import { type tags } from 'typia';
 
 /** CSS hex color, e.g. "#CC0033" or "#333". */
-export type HexColor = string & tags.Pattern<'^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$'>;
+export type HexColor = string &
+  tags.Pattern<'^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$'>;
 /** A positive integer count (span sizes, widths). */
 export type Count = number & tags.Type<'uint32'> & tags.Minimum<1>;
 
@@ -60,7 +61,7 @@ export type TextNode = string;
  */
 export type BreakNode = {
   type: 'break';
-}
+};
 /**
  * Bold run — source `bold_red` / `<b>` / font-weight (~97% of topics).
  * @example https://hiroba.dqx.jp/sc/topics/detail/0188e8b8b014829e2fa0f430f0a95961/
@@ -69,7 +70,7 @@ export type BreakNode = {
 export type StrongNode = {
   type: 'strong';
   children: Inline[];
-}
+};
 /**
  * Italic run — source `<em>` / `<i>` / font-style:italic (rare).
  * @example https://hiroba.dqx.jp/sc/topics/detail/371bce7dc83817b7893bcdeed13799b5/
@@ -78,7 +79,7 @@ export type StrongNode = {
 export type EmphasisNode = {
   type: 'emphasis';
   children: Inline[];
-}
+};
 /**
  * Inline color — source `<span style="color:…">` (~90% of topics).
  * @example https://hiroba.dqx.jp/sc/topics/detail/0084ae4bc24c0795d1e6a4f58444d39b/
@@ -88,7 +89,7 @@ export type ColorNode = {
   type: 'color';
   value: HexColor;
   children: Inline[];
-}
+};
 /**
  * Inline link — source in-prose `<a href>` (~90% of topics; the big fidelity win).
  * @example https://hiroba.dqx.jp/sc/topics/detail/0060ef47b12160b9198302ebdb144dcf/
@@ -100,7 +101,7 @@ export type LinkNode = {
   /** true when the href points off-site (renderer adds rel/target) */
   external?: boolean;
   children: Inline[];
-}
+};
 /**
  * Atomic inline label, e.g. the "New" chip — source `ico_newsystem` (688 topics).
  * @example https://hiroba.dqx.jp/sc/topics/detail/00ac8ed3b4327bdd4ebbebcb2ba10a00/
@@ -110,7 +111,7 @@ export type BadgeNode = {
   type: 'badge';
   text: string;
   variant?: string;
-}
+};
 /**
  * Atomic inline image/glyph, e.g. platform/ordinal icons — source `ico_2nd`…`ico_5th`.
  * @example https://hiroba.dqx.jp/sc/topics/detail/0353ab4cbed5beae847a7ff6e220b5cf/
@@ -120,7 +121,7 @@ export type IconNode = {
   type: 'icon';
   src: string;
   alt?: string;
-}
+};
 
 export type Inline =
   | TextNode
@@ -155,7 +156,7 @@ export type ParagraphNode = {
   type: 'paragraph';
   children: Inline[];
   align?: Align;
-}
+};
 /**
  * Heading — source `title01`–`04`, `title_icon0x`, `title_quest`.
  * @example https://hiroba.dqx.jp/sc/topics/detail/0060ef47b12160b9198302ebdb144dcf/
@@ -167,7 +168,7 @@ export type HeadingNode = {
   children: Inline[];
   /** 'label' = decorative title_icon0x sub-label (downgraded from a real heading). */
   variant?: 'default' | 'icon' | 'quest' | 'label';
-}
+};
 /**
  * CTA button — source `btn01`–`04`, `btn_square` (1,800+ topics).
  * @example https://hiroba.dqx.jp/sc/topics/detail/006f52e9102a8d3be2fe5614f42ba989/
@@ -178,7 +179,7 @@ export type ButtonNode = {
   href: string;
   children: Inline[];
   variant?: string;
-}
+};
 /**
  * Horizontal divider — source `lineType1`, an empty bordered `<p>` (275 topics).
  * @example https://hiroba.dqx.jp/sc/topics/detail/020c8bfac8de160d4c5543b96d1fdede/
@@ -186,14 +187,14 @@ export type ButtonNode = {
  */
 export type DividerNode = {
   type: 'divider';
-}
+};
 
 // --- media / leaf blocks ---
 /** Responsive image variant (source `size1920`/`size1280`/…); occurs inside {@link ImageNode}. */
 export type ImageSource = {
   src: string;
   minWidth?: Count;
-}
+};
 /**
  * Block image — source `TopicsImages`/`newsImage` `<img>` (ubiquitous, 28k images).
  * @example https://hiroba.dqx.jp/sc/topics/detail/0060ef47b12160b9198302ebdb144dcf/
@@ -218,7 +219,7 @@ export type ImageNode = {
    * text back onto the image later).
    */
   text?: string[];
-}
+};
 /**
  * YouTube embed — source `<iframe src="youtube.com/embed/…">` (135 blocks).
  * @example https://hiroba.dqx.jp/sc/topics/detail/7143d7fbadfa4693b9eec507d9d37443/
@@ -228,7 +229,7 @@ export type VideoNode = {
   type: 'video';
   provider: 'youtube' | 'other';
   src: string;
-}
+};
 /**
  * Twitter/X widget — follow button, tweet, timeline, or hashtag (84 blocks).
  * @example https://hiroba.dqx.jp/sc/topics/detail/f87e955fd6b89f8963b6934beb077d6e/ (follow button)
@@ -239,7 +240,7 @@ export type EmbedNode = {
   provider: 'twitter';
   variant?: 'tweet' | 'timeline' | 'button' | 'hashtag';
   content?: string;
-}
+};
 
 // --- container blocks (Block or Inline children) ---
 /**
@@ -251,7 +252,7 @@ export type InfoBoxNode = {
   type: 'infoBox';
   variant: InfoBoxVariant;
   children: ContentNode[];
-}
+};
 /**
  * "Astoltia Report" newspaper section — source `newspaper`; `dateline` is `.news_date`.
  * @example https://hiroba.dqx.jp/sc/topics/detail/1728efbda81692282ba642aafd57be3a/ (アストルティア通信 + dateline)
@@ -264,7 +265,7 @@ export type SectionNode = {
   /** publication byline, e.g. "アストルティア通信 2014年5月27日 発行" (.news_date) */
   dateline?: Inline[];
   children: ContentNode[];
-}
+};
 /**
  * Collapsible section — source `ad_menu` + `btn_ad_menu` toggle (541 topics).
  * @example https://hiroba.dqx.jp/sc/topics/detail/0084ae4bc24c0795d1e6a4f58444d39b/
@@ -274,7 +275,7 @@ export type AccordionNode = {
   type: 'accordion';
   summary: Inline[];
   children: ContentNode[];
-}
+};
 /**
  * Speech bubble with speaker portrait — source `hukiBox` (rare, ~3 topics).
  * @example https://hiroba.dqx.jp/sc/topics/detail/598b3e71ec378bd83e0a727608b5db01/
@@ -285,7 +286,7 @@ export type SpeechBubbleNode = {
   speaker?: string;
   icon?: string;
   children: ContentNode[];
-}
+};
 /**
  * Attributed message/quote — source `*_msgBox`/`inbox` (1 topic: 1st-anniversary voices).
  * @example https://hiroba.dqx.jp/sc/topics/detail/89f0fd5c927d466d6ec9a21b9ac34ffa/
@@ -295,13 +296,13 @@ export type MessageBoxNode = {
   name?: string;
   role?: string;
   children: ContentNode[];
-}
+};
 
 // --- structured blocks (own child shapes) ---
 /** One list item; occurs inside {@link ListNode}. */
 export type ListItem = {
   children: ContentNode[];
-}
+};
 /**
  * Ordered/unordered list; `variant:'caution'` = the ※ notice list (`tp_caution`).
  * @example https://hiroba.dqx.jp/sc/topics/detail/e515df0d202ae52fcebb14295743063b/ (link list)
@@ -313,14 +314,14 @@ export type ListNode = {
   /** 'caution' folds in the old caution_list (※ notices). */
   variant?: 'default' | 'caution';
   items: ListItem[];
-}
+};
 /** One table cell; occurs inside {@link TableNode}. */
 export type TableCell = {
   children: ContentNode[];
   header?: boolean;
   colSpan?: Count;
   rowSpan?: Count;
-}
+};
 /**
  * Table — source `contentsTable1`/`tp_table` (1,700+ topics).
  * @example https://hiroba.dqx.jp/sc/topics/detail/008bd5ad93b754d500338c253d9c1770/
@@ -331,12 +332,12 @@ export type TableNode = {
   variant?: 'default' | 'contents' | 'tp';
   headers?: TableCell[];
   rows: TableCell[][];
-}
+};
 /** One Q&A pair; occurs inside {@link InterviewNode}. */
 export type InterviewExchange = {
   question: Inline[];
   answer: Block[];
-}
+};
 /**
  * Developer interview — source `box_interview` (5 topics; dropped by the old parser).
  * @example https://hiroba.dqx.jp/sc/topics/detail/115f89503138416a242f40fb7d7f338e/ (director interview)
@@ -347,12 +348,12 @@ export type InterviewNode = {
   title?: string;
   writer?: string;
   exchanges: InterviewExchange[];
-}
+};
 /** One step; occurs inside {@link StepsNode}. */
 export type StepItem = {
   n?: number;
   children: Block[];
-}
+};
 /**
  * Numbered / how-to steps — source `step1`–`5` / `howto` (~55 topics).
  * @example https://hiroba.dqx.jp/sc/topics/detail/01d8bae291b1e4724443375634ccfa0e/
@@ -362,13 +363,13 @@ export type StepsNode = {
   type: 'steps';
   variant?: 'numbered' | 'howto';
   items: StepItem[];
-}
+};
 /** One ranked entry; occurs inside {@link RankingNode}. */
 export type RankingItem = {
   rank: number & tags.Type<'uint32'>;
   title: Inline[];
   count?: string;
-}
+};
 /**
  * Ranking table — source `rankbox`/`ranking_area0x` (43 blocks; e.g. monster/vote counts).
  * @example https://hiroba.dqx.jp/sc/topics/detail/1ee3dfcd8a0645a25a35977997223d22/
@@ -378,7 +379,7 @@ export type RankingNode = {
   type: 'ranking';
   variant?: 'default' | 'area';
   items: RankingItem[];
-}
+};
 
 export type Block =
   | ParagraphNode
@@ -409,7 +410,7 @@ export type ContentNode = Block | Inline;
 export type TopicDocument = {
   id: string;
   blocks: Block[];
-}
+};
 
 /* ------------------------------------------------------------------ *
  * Discriminators & guards (plain TS, no runtime deps)
@@ -427,5 +428,6 @@ export const INLINE_TYPES = [
 
 const INLINE_SET: ReadonlySet<string> = new Set(INLINE_TYPES);
 
-export const isInline = (node: ContentNode): node is Inline => typeof node === 'string' || INLINE_SET.has(node.type);
+export const isInline = (node: ContentNode): node is Inline =>
+  typeof node === 'string' || INLINE_SET.has(node.type);
 export const isBlock = (node: ContentNode): node is Block => !isInline(node);

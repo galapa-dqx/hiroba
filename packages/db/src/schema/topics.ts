@@ -40,7 +40,10 @@ export const topics = sqliteTable(
   // table option, so strict typing lives only in the raw migration.
   (table) => [
     check('topics_id_len', sql`length(${table.id}) = 32`),
-    check('topics_blocks_ja_json', sql`${table.blocksJa} IS NULL OR json_valid(${table.blocksJa})`),
+    check(
+      'topics_blocks_ja_json',
+      sql`${table.blocksJa} IS NULL OR json_valid(${table.blocksJa})`,
+    ),
     index('topics_published_at_idx').on(table.publishedAt),
   ],
 );
@@ -50,4 +53,7 @@ export type Topic = typeof topics.$inferSelect;
 export type NewTopic = typeof topics.$inferInsert;
 
 /** Phase 1 (list scraping) fields only */
-export type TopicListItem = Pick<Topic, 'id' | 'titleJa' | 'publishedAt' | 'category'>;
+export type TopicListItem = Pick<
+  Topic,
+  'id' | 'titleJa' | 'publishedAt' | 'category'
+>;

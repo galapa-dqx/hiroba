@@ -6,7 +6,6 @@ import { and, eq, sql } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import {
-  type GlossaryEntry,
   deleteTranslation,
   getRecheckQueue,
   getStats,
@@ -18,6 +17,7 @@ import {
   upsertListItems,
   upsertTopicListItems,
   type Database,
+  type GlossaryEntry,
 } from '@hiroba/db';
 import {
   fetchTopicsListPage,

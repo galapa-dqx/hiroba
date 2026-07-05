@@ -5,9 +5,8 @@
 import { and, desc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
-import { getNextCheckTime, isDueForCheck, type Category } from '@hiroba/shared';
-
 import type { Block } from '@hiroba/richtext';
+import { getNextCheckTime, isDueForCheck, type Category } from '@hiroba/shared';
 
 import type { Database } from './client';
 import { images, type Image } from './schema/images';
@@ -249,7 +248,9 @@ export async function invalidateBody(
 export async function upsertTopicListItems(
   db: Database,
   items: Array<{ id: string; titleJa: string; publishedAt: Temporal.Instant }>,
-): Promise<Array<{ id: string; titleJa: string; publishedAt: Temporal.Instant }>> {
+): Promise<
+  Array<{ id: string; titleJa: string; publishedAt: Temporal.Instant }>
+> {
   const newlyInserted: typeof items = [];
 
   for (const item of items) {
@@ -286,7 +287,10 @@ export async function getTopicStats(db: Database): Promise<{
   translated: number;
 }> {
   const [totalResult, withBodyResult, translatedResult] = await Promise.all([
-    db.select({ count: sql<number>`count(*)` }).from(topics).get(),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(topics)
+      .get(),
     db
       .select({ count: sql<number>`count(*)` })
       .from(topics)
@@ -315,7 +319,10 @@ export async function getTopicStats(db: Database): Promise<{
 /**
  * Invalidate a topic's cached block tree (re-fetched on next view / re-run).
  */
-export async function invalidateTopicBody(db: Database, id: string): Promise<boolean> {
+export async function invalidateTopicBody(
+  db: Database,
+  id: string,
+): Promise<boolean> {
   const result = await db
     .update(topics)
     .set({ blocksJa: null, bodyFetchedAt: null })
@@ -330,14 +337,18 @@ export async function invalidateTopicBody(db: Database, id: string): Promise<boo
  * (title/publishedAt always; category/blocksJa/bodyFetchedAt when provided) so a
  * metadata re-upsert never clobbers an already-fetched block tree.
  */
-export async function upsertTopic(db: Database, topic: NewTopic): Promise<void> {
+export async function upsertTopic(
+  db: Database,
+  topic: NewTopic,
+): Promise<void> {
   const set: Partial<NewTopic> = {
     titleJa: topic.titleJa,
     publishedAt: topic.publishedAt,
   };
   if (topic.category !== undefined) set.category = topic.category;
   if (topic.blocksJa !== undefined) set.blocksJa = topic.blocksJa;
-  if (topic.bodyFetchedAt !== undefined) set.bodyFetchedAt = topic.bodyFetchedAt;
+  if (topic.bodyFetchedAt !== undefined)
+    set.bodyFetchedAt = topic.bodyFetchedAt;
 
   await db
     .insert(topics)
@@ -349,14 +360,21 @@ export async function upsertTopic(db: Database, topic: NewTopic): Promise<void> 
  * Replace a topic's block tree (used by the transcribe step, which mutates
  * blocks_ja in place to add image text, then saves).
  */
-export async function updateTopicBlocks(db: Database, id: string, blocks: Block[]): Promise<void> {
+export async function updateTopicBlocks(
+  db: Database,
+  id: string,
+  blocks: Block[],
+): Promise<void> {
   await db.update(topics).set({ blocksJa: blocks }).where(eq(topics.id, id));
 }
 
 /**
  * Get a single topic by ID.
  */
-export async function getTopic(db: Database, id: string): Promise<Topic | null> {
+export async function getTopic(
+  db: Database,
+  id: string,
+): Promise<Topic | null> {
   const result = await db.select().from(topics).where(eq(topics.id, id)).get();
   return result ?? null;
 }
@@ -379,7 +397,9 @@ export async function getTopics(
     conditions.push(eq(topics.category, options.category));
   }
   if (options.cursor) {
-    conditions.push(lt(topics.publishedAt, Temporal.Instant.from(options.cursor)));
+    conditions.push(
+      lt(topics.publishedAt, Temporal.Instant.from(options.cursor)),
+    );
   }
 
   const results = await db
@@ -396,7 +416,9 @@ export async function getTopics(
   return {
     items,
     hasMore,
-    nextCursor: hasMore ? items[items.length - 1].publishedAt.toString() : undefined,
+    nextCursor: hasMore
+      ? items[items.length - 1].publishedAt.toString()
+      : undefined,
   };
 }
 
@@ -422,7 +444,9 @@ export async function listTopicsAdmin(
 
   const conditions = [];
   if (options.cursor) {
-    conditions.push(lt(topics.publishedAt, Temporal.Instant.from(options.cursor)));
+    conditions.push(
+      lt(topics.publishedAt, Temporal.Instant.from(options.cursor)),
+    );
   }
 
   const rows = await db
@@ -467,7 +491,9 @@ export async function listTopicsAdmin(
       translated: translated.has(r.id),
     })),
     hasMore,
-    nextCursor: hasMore ? page[page.length - 1].publishedAt.toString() : undefined,
+    nextCursor: hasMore
+      ? page[page.length - 1].publishedAt.toString()
+      : undefined,
   };
 }
 
@@ -580,7 +606,10 @@ export async function upsertImageTranscription(
 }
 
 /** Look up image rows by their natural keys (imageKey). */
-export async function getImagesByKeys(db: Database, keys: string[]): Promise<Image[]> {
+export async function getImagesByKeys(
+  db: Database,
+  keys: string[],
+): Promise<Image[]> {
   if (keys.length === 0) return [];
   return db.select().from(images).where(inArray(images.key, keys)).all();
 }
@@ -659,7 +688,13 @@ export async function getLocalizedImageModels(
 /** Upsert a per-image translation row (item_type='image', item_id=image id). */
 export async function upsertImageTranslation(
   db: Database,
-  params: { imageId: number; language: string; field: 'text' | 'url'; value: string; model: string },
+  params: {
+    imageId: number;
+    language: string;
+    field: 'text' | 'url';
+    value: string;
+    model: string;
+  },
 ): Promise<void> {
   const now = Temporal.Now.instant();
   await db
@@ -674,7 +709,12 @@ export async function upsertImageTranslation(
       model: params.model,
     })
     .onConflictDoUpdate({
-      target: [translations.itemType, translations.itemId, translations.language, translations.field],
+      target: [
+        translations.itemType,
+        translations.itemId,
+        translations.language,
+        translations.field,
+      ],
       set: { value: params.value, translatedAt: now, model: params.model },
     });
 }
