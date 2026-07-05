@@ -41,7 +41,10 @@ export type WorkflowBinding<T = unknown> = {
  */
 export type Env = {
   DB: D1Database;
-  IMAGES: R2Bucket;
+  /** R2 bucket mirroring topic images. */
+  IMAGES_BUCKET: R2Bucket;
+  /** Cloudflare Images binding — transcode/normalize before gpt-image-2. */
+  IMAGES: ImagesBinding;
   OPENAI_API_KEY: string;
   GEMINI_API_KEY: string;
   SENTRY_DSN: string;

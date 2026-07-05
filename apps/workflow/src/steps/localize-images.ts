@@ -24,7 +24,7 @@ import {
   type Block,
 } from '@hiroba/richtext';
 
-import { editImage, IMAGE_MODEL } from '../image-edit';
+import { editImage, IMAGE_MODEL, toEditableImage } from '../image-edit';
 import { trimToAspect } from '../image-trim';
 import { hasJapanese } from '../japanese';
 
@@ -96,6 +96,7 @@ async function loadOriginal(
 export async function localizeImages(
   db: Database,
   bucket: R2Bucket,
+  images: ImagesBinding,
   apiKey: string,
   blocks: Block[],
 ): Promise<LocalizeResult> {
@@ -144,9 +145,19 @@ export async function localizeImages(
       continue;
     }
 
-    const edited = await editImage(apiKey, {
-      imageBytes: original.bytes,
+    // gpt-image-2 only ingests jpeg/png/webp; re-encode anything else (GIF, …).
+    const editable = await toEditableImage(images, {
+      bytes: original.bytes,
       mimeType: original.mimeType,
+    });
+    if (!editable) {
+      failed++;
+      continue;
+    }
+
+    const edited = await editImage(apiKey, {
+      imageBytes: editable.bytes,
+      mimeType: editable.mimeType,
       prompt: buildPrompt(pairs),
     });
     if (!edited) {

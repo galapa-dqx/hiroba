@@ -2,7 +2,7 @@
 
 type RuntimeEnv = {
   DB: D1Database;
-  IMAGES: R2Bucket;
+  IMAGES_BUCKET: R2Bucket;
   WORKFLOW_MANAGER: DurableObjectNamespace;
   /** Optional base for image URLs. Unset → the `/img` worker route; set to a
    *  bucket custom-domain (e.g. https://img.example.com) to serve straight from R2. */

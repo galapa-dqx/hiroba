@@ -85,7 +85,7 @@ export class TopicsWorkflow extends WorkflowEntrypoint<
       async (): Promise<MirrorResult> => {
         const topic = await getTopic(db, itemId);
         const blocks = (topic?.blocksJa ?? []) as Block[];
-        return mirrorImages(this.env.IMAGES, blocks);
+        return mirrorImages(this.env.IMAGES_BUCKET, blocks);
       },
     );
 
@@ -101,7 +101,7 @@ export class TopicsWorkflow extends WorkflowEntrypoint<
           db,
           blocks,
           this.env.GEMINI_API_KEY,
-          this.env.IMAGES,
+          this.env.IMAGES_BUCKET,
         );
         return { imagesTranscribed };
       },
@@ -126,6 +126,7 @@ export class TopicsWorkflow extends WorkflowEntrypoint<
         const blocks = (topic?.blocksJa ?? []) as Block[];
         return localizeImages(
           db,
+          this.env.IMAGES_BUCKET,
           this.env.IMAGES,
           this.env.OPENAI_API_KEY,
           blocks,

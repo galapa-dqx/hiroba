@@ -38,7 +38,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
     return new Response('Forbidden', { status: 403 });
   }
 
-  const bucket = locals.runtime.env.IMAGES;
+  const bucket = locals.runtime.env.IMAGES_BUCKET;
   const originalKey = `${host}/${rest}`;
 
   // 1. Preferred object: the localized one if this is an l10n request, else the
