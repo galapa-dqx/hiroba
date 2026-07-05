@@ -8,14 +8,18 @@ import {
   getImagesByKeys,
   getImageTranslations,
   getImageTranslationStates,
+  getItemTitles,
   getNewsItems,
   getStats,
+  getTopics,
   getTranslationStates,
+  resetRunningTitles,
   setImageTranscribeState,
   setItemFetchState,
   setTranslationStates,
   upsertImageTranscription,
   upsertImageTranslation,
+  upsertItemTranslation,
   upsertListItems,
   upsertTopic,
   upsertTopicTranslation,
@@ -152,6 +156,197 @@ describe('getNewsItems pagination', () => {
     // Only 5 rows exist; the cap just must not throw or over-fetch.
     expect(page.items).toHaveLength(5);
     expect(page.hasMore).toBe(false);
+  });
+});
+
+describe('getNewsItems current-language title join (DQX-11)', () => {
+  beforeEach(async () => {
+    await upsertListItems(ctx.db, [listItem(1, 1), listItem(2, 2)]);
+  });
+
+  it('surfaces titleEn when a title translation exists, null otherwise', async () => {
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(2),
+      language: 'en',
+      field: 'title',
+      value: 'Article Two',
+      model: 'gemini-x',
+    });
+
+    const { items } = await getNewsItems(ctx.db, {});
+    const byId = new Map(items.map((i) => [i.id, i]));
+
+    expect(byId.get(hex(2))?.titleEn).toBe('Article Two');
+    expect(byId.get(hex(1))?.titleEn).toBeNull();
+    // titleJa always rides along for the fallback.
+    expect(byId.get(hex(2))?.titleJa).toBe('記事2');
+  });
+
+  it('scopes the join to the requested language', async () => {
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      field: 'title',
+      value: 'English',
+      model: 'm',
+    });
+
+    const en = await getNewsItems(ctx.db, { language: 'en' });
+    const fr = await getNewsItems(ctx.db, { language: 'fr' });
+    expect(en.items.find((i) => i.id === hex(1))?.titleEn).toBe('English');
+    expect(fr.items.find((i) => i.id === hex(1))?.titleEn).toBeNull();
+  });
+
+  it('joins only the title field, never content', async () => {
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      field: 'content',
+      value: '[]',
+      model: 'm',
+    });
+    const { items } = await getNewsItems(ctx.db, {});
+    expect(items.find((i) => i.id === hex(1))?.titleEn).toBeNull();
+  });
+
+  it('surfaces a stale value while a re-translation is running', async () => {
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      field: 'title',
+      value: 'Stale',
+      model: 'm',
+    });
+    await setTranslationStates(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      fields: ['title'],
+      state: 'running',
+    });
+    const { items } = await getNewsItems(ctx.db, {});
+    expect(items.find((i) => i.id === hex(1))?.titleEn).toBe('Stale');
+  });
+
+  it('does not multiply rows when several translation fields exist', async () => {
+    for (const field of ['title', 'content'] as const) {
+      await upsertItemTranslation(ctx.db, {
+        itemType: 'news',
+        itemId: hex(1),
+        language: 'en',
+        field,
+        value: field === 'content' ? '[]' : 'T',
+        model: 'm',
+      });
+    }
+    const { items } = await getNewsItems(ctx.db, {});
+    expect(items.filter((i) => i.id === hex(1))).toHaveLength(1);
+    expect(items.find((i) => i.id === hex(1))?.titleEn).toBe('T');
+  });
+});
+
+describe('getTopics current-language title join (DQX-11)', () => {
+  it('surfaces titleEn when present, null otherwise', async () => {
+    await upsertTopic(ctx.db, {
+      id: hex(1),
+      titleJa: 'トピック1',
+      publishedAt: BASE.add({ hours: 1 }),
+    });
+    await upsertTopic(ctx.db, {
+      id: hex(2),
+      titleJa: 'トピック2',
+      publishedAt: BASE.add({ hours: 2 }),
+    });
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'topic',
+      itemId: hex(1),
+      language: 'en',
+      field: 'title',
+      value: 'Topic One',
+      model: 'm',
+    });
+
+    const { items } = await getTopics(ctx.db, {});
+    const byId = new Map(items.map((t) => [t.id, t]));
+    expect(byId.get(hex(1))?.titleEn).toBe('Topic One');
+    expect(byId.get(hex(2))?.titleEn).toBeNull();
+  });
+});
+
+describe('getItemTitles', () => {
+  it('returns {id, titleJa} for existing ids and omits missing ones', async () => {
+    await upsertListItems(ctx.db, [listItem(1, 1), listItem(2, 2)]);
+
+    const rows = await getItemTitles(ctx.db, 'news', [hex(1), hex(2), hex(3)]);
+    const byId = new Map(rows.map((r) => [r.id, r.titleJa]));
+
+    expect(byId.get(hex(1))).toBe('記事1');
+    expect(byId.get(hex(2))).toBe('記事2');
+    expect(byId.has(hex(3))).toBe(false); // never inserted
+  });
+
+  it('reads from the topics table for itemType=topic', async () => {
+    await upsertTopic(ctx.db, {
+      id: hex(1),
+      titleJa: 'トピック1',
+      publishedAt: BASE,
+    });
+    const rows = await getItemTitles(ctx.db, 'topic', [hex(1)]);
+    expect(rows).toEqual([{ id: hex(1), titleJa: 'トピック1' }]);
+  });
+
+  it('is a no-op for an empty id list', async () => {
+    expect(await getItemTitles(ctx.db, 'news', [])).toEqual([]);
+  });
+});
+
+describe('resetRunningTitles', () => {
+  it('resets running title rows to pending but leaves done untouched', async () => {
+    await setTranslationStates(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      fields: ['title'],
+      state: 'running',
+    });
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(2),
+      language: 'en',
+      field: 'title',
+      value: 'Done',
+      model: 'm',
+    });
+
+    await resetRunningTitles(ctx.db, 'news', [hex(1), hex(2)], 'en');
+
+    const running = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
+      'title',
+    ]);
+    expect(running.get('title')).toBe('pending');
+    const done = await getTranslationStates(ctx.db, 'news', hex(2), 'en', [
+      'title',
+    ]);
+    expect(done.get('title')).toBe('done'); // not clobbered
+  });
+
+  it('does not touch the content field', async () => {
+    await setTranslationStates(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      fields: ['content'],
+      state: 'running',
+    });
+    await resetRunningTitles(ctx.db, 'news', [hex(1)], 'en');
+    const states = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
+      'content',
+    ]);
+    expect(states.get('content')).toBe('running');
   });
 });
 

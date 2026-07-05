@@ -1,6 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
-import { createDb, getTopics, type Topic } from "@hiroba/db";
+import { createDb, getTopics, type LocalizedTopic } from "@hiroba/db";
 import { formatShortDate } from "@hiroba/ui";
 
 const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
@@ -8,7 +8,7 @@ const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
 
-let items: Topic[] = [];
+let items: LocalizedTopic[] = [];
 let hasMore = false;
 let nextCursor: string | undefined;
 
@@ -41,7 +41,7 @@ try {
 							{items.map((t) => (
 								<li>
 									<a href={`/topics/${t.id}`}>
-										<span class="news-list__title">{t.titleJa}</span>
+										<span class="news-list__title">{t.titleEn ?? t.titleJa}</span>
 										<time datetime={t.publishedAt.toString()}>
 											{formatShortDate(t.publishedAt.epochMilliseconds)}
 										</time>

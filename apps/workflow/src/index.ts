@@ -17,6 +17,7 @@ import {
   upsertListItems,
   upsertTopicListItems,
   type Database,
+  type ListItem,
 } from '@hiroba/db';
 import {
   fetchGlossary,
@@ -26,11 +27,13 @@ import {
 import { CATEGORIES } from '@hiroba/shared';
 
 import { createLogger, type Logger } from './logger';
+import { TARGET_LANGUAGES } from './steps/translate-titles';
 import type { Env } from './types';
 
 // Export the Durable Object and Workflow classes
 export { WorkflowManager } from './workflow-manager';
 export { ArticleWorkflow } from './article-workflow';
+export { TitleWorkflow } from './title-workflow';
 
 export default Sentry.withSentry(
   (env: Env) => ({
@@ -188,13 +191,45 @@ async function refreshGlossary(db: Database, log: Logger): Promise<void> {
 }
 
 /**
- * Refresh news by scraping first page of each category.
- * Triggers workflow for each new item found.
+ * Enqueue the durable TitleWorkflow for a run's newly-discovered items — the
+ * only processing discovery does. The heavy ArticleWorkflow is lazy: it's
+ * triggered on first view (the web/admin detail pages), not here. Best-effort:
+ * a failure to enqueue is logged, never fails the refresh.
+ */
+async function enqueueTitleTranslation(
+  env: Env,
+  log: Logger,
+  itemType: 'news' | 'topic',
+  items: ReadonlyArray<{ id: string }>,
+): Promise<void> {
+  if (items.length === 0) return;
+  try {
+    await env.TITLE_WORKFLOW.create({
+      params: {
+        itemType,
+        itemIds: items.map((i) => i.id),
+        languages: [...TARGET_LANGUAGES],
+      },
+    });
+    log.info(
+      `Enqueued title translation for ${items.length} new ${itemType} item(s)`,
+    );
+  } catch (error) {
+    log.error(`Failed to enqueue ${itemType} title translation:`, error);
+  }
+}
+
+/**
+ * Refresh news by scraping the first page of each category. Discovery is
+ * titles-only: new items are upserted and their titles translated via the
+ * TitleWorkflow (DQX-11); the full ArticleWorkflow runs lazily on first view.
  */
 async function refreshNews(db: Database, env: Env, log: Logger): Promise<void> {
   let totalNew = 0;
-  let workflowsTriggered = 0;
   let errors = 0;
+  // Every newly-discovered item this run, whose titles the TitleWorkflow
+  // translates so lists read in the target language pre-visit (DQX-11).
+  const newItems: ListItem[] = [];
 
   for (const category of CATEGORIES) {
     try {
@@ -202,28 +237,10 @@ async function refreshNews(db: Database, env: Env, log: Logger): Promise<void> {
       for await (const items of scrapeNewsList(category)) {
         const inserted = await upsertListItems(db, items);
         totalNew += inserted.length;
+        newItems.push(...inserted);
         log.debug(
           `News ${category}: ${inserted.length} new of ${items.length} scraped`,
         );
-
-        // Trigger workflow for each new item
-        for (const item of inserted) {
-          try {
-            const doId = env.WORKFLOW_MANAGER.idFromName(item.id);
-            const stub = env.WORKFLOW_MANAGER.get(doId);
-
-            await stub.fetch('http://internal/trigger', {
-              method: 'POST',
-              body: JSON.stringify({ itemId: item.id }),
-              headers: { 'Content-Type': 'application/json' },
-            });
-
-            workflowsTriggered++;
-            log.debug(`Triggered news workflow for ${item.id}`);
-          } catch (error) {
-            log.error(`Failed to trigger workflow for ${item.id}:`, error);
-          }
-        }
 
         // Only scrape first page in scheduled job
         break;
@@ -234,19 +251,22 @@ async function refreshNews(db: Database, env: Env, log: Logger): Promise<void> {
     }
   }
 
+  await enqueueTitleTranslation(env, log, 'news', newItems);
+
   log.info(
-    `Scheduled refresh complete: ${totalNew} new items, ${workflowsTriggered} workflows triggered, ${errors} errors`,
+    `Scheduled refresh complete: ${totalNew} new items, ${errors} errors`,
   );
 }
 
 /**
  * Refresh topics by scraping the current (not-yet-archived) listing page.
- * Seeds Phase-1 metadata and triggers the ArticleWorkflow (itemType='topic')
- * for each new topic.
+ * Discovery is titles-only (mirrors refreshNews): new topics are upserted and
+ * their titles translated via the TitleWorkflow; the full ArticleWorkflow runs
+ * lazily on first view.
  *
- * Note: the first run after deploy (empty topics table) will treat the whole
- * current month as new and trigger a small burst of pipelines; steady state is
- * a couple per day. A full historical backfill is admin-triggered, not here.
+ * Note: the first run after deploy (empty topics table) treats the whole current
+ * month as new — one TitleWorkflow chunks through them; steady state is a couple
+ * per day. A full historical backfill is the separate DQX-13 ticket.
  */
 async function refreshTopics(
   db: Database,
@@ -254,37 +274,19 @@ async function refreshTopics(
   log: Logger,
 ): Promise<void> {
   let totalNew = 0;
-  let workflowsTriggered = 0;
+  const newItems: Array<{ id: string; titleJa: string }> = [];
 
   try {
     for await (const items of scrapeTopicsList({ incremental: true })) {
       const inserted = await upsertTopicListItems(db, items);
       totalNew += inserted.length;
-
-      for (const item of inserted) {
-        try {
-          // Namespaced by type so news/topic ids (both 32-char hex) don't collide.
-          const doId = env.WORKFLOW_MANAGER.idFromName(`topic:${item.id}`);
-          const stub = env.WORKFLOW_MANAGER.get(doId);
-
-          await stub.fetch('http://internal/trigger', {
-            method: 'POST',
-            body: JSON.stringify({ itemId: item.id, itemType: 'topic' }),
-            headers: { 'Content-Type': 'application/json' },
-          });
-
-          workflowsTriggered++;
-          log.debug(`Triggered topics workflow for ${item.id}`);
-        } catch (error) {
-          log.error(`Failed to trigger topics workflow for ${item.id}:`, error);
-        }
-      }
+      newItems.push(...inserted);
     }
   } catch (error) {
     log.error('Failed to scrape topics:', error);
   }
 
-  log.info(
-    `Topics refresh complete: ${totalNew} new topics, ${workflowsTriggered} workflows triggered`,
-  );
+  await enqueueTitleTranslation(env, log, 'topic', newItems);
+
+  log.info(`Topics refresh complete: ${totalNew} new topics`);
 }

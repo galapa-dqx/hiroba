@@ -48,7 +48,7 @@ const newsByCategory = await Promise.all(
 								{items.map((item) => (
 									<li>
 										<a href={`/news/${item.id}`}>
-											<span class="news-list__title">{item.titleJa}</span>
+											<span class="news-list__title">{item.titleEn ?? item.titleJa}</span>
 											<time datetime={item.publishedAt.toString()}>
 												{formatShortDate(item.publishedAt.epochMilliseconds)}
 											</time>

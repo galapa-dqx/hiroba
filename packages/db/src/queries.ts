@@ -2,7 +2,16 @@
  * Database queries for news items.
  */
 
-import { and, desc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNotNull,
+  lt,
+  sql,
+} from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import type { Block } from '@hiroba/richtext';
@@ -77,8 +86,19 @@ export async function upsertListItems(
   return newlyInserted;
 }
 
+/** A news item plus its resolved current-language title (null ⇒ show titleJa). */
+export type LocalizedNewsItem = NewsItem & { titleEn: string | null };
+
 /**
- * Get paginated list of news items.
+ * Get paginated list of news items, each carrying its current-language title
+ * (`titleEn`) joined from the translations table so lists read in the target
+ * language before the article is ever opened (DQX-11).
+ *
+ * The join is one-to-one — the translations PK is unique per
+ * (item_type, item_id, language, field) — so it never multiplies rows. `titleEn`
+ * is null when no translation exists yet; a stale value from an in-flight
+ * re-translation is still the best thing to render, so the row's state is not
+ * filtered (mirrors the detail page).
  */
 export async function getNewsItems(
   db: Database,
@@ -86,9 +106,15 @@ export async function getNewsItems(
     category?: Category;
     limit?: number;
     cursor?: string;
+    language?: string;
   } = {},
-): Promise<{ items: NewsItem[]; hasMore: boolean; nextCursor?: string }> {
+): Promise<{
+  items: LocalizedNewsItem[];
+  hasMore: boolean;
+  nextCursor?: string;
+}> {
   const limit = Math.min(options.limit ?? 20, 100);
+  const language = options.language ?? 'en';
 
   const conditions = [];
 
@@ -102,8 +128,20 @@ export async function getNewsItems(
   }
 
   const query = db
-    .select()
+    .select({
+      ...getTableColumns(newsItems),
+      titleEn: translations.value,
+    })
     .from(newsItems)
+    .leftJoin(
+      translations,
+      and(
+        eq(translations.itemType, 'news'),
+        eq(translations.itemId, newsItems.id),
+        eq(translations.language, language),
+        eq(translations.field, 'title'),
+      ),
+    )
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(newsItems.publishedAt))
     .limit(limit + 1);
@@ -134,6 +172,27 @@ export async function getNewsItem(
     .where(eq(newsItems.id, id))
     .get();
   return result ?? null;
+}
+
+/**
+ * Fetch `{id, titleJa}` for a set of items of one type — the input the title
+ * translation workflow needs (its params carry only ids, so it reads current
+ * titles here). Missing ids are simply omitted.
+ */
+export async function getItemTitles(
+  db: Database,
+  itemType: 'news' | 'topic',
+  ids: string[],
+): Promise<Array<{ id: string; titleJa: string }>> {
+  if (ids.length === 0) return [];
+  const table = itemType === 'news' ? newsItems : topics;
+  return chunked(ids, (slice) =>
+    db
+      .select({ id: table.id, titleJa: table.titleJa })
+      .from(table)
+      .where(inArray(table.id, slice))
+      .all(),
+  );
 }
 
 /**
@@ -410,8 +469,12 @@ export async function getTopic(
   return result ?? null;
 }
 
+/** A topic plus its resolved current-language title (null ⇒ show titleJa). */
+export type LocalizedTopic = Topic & { titleEn: string | null };
+
 /**
- * Get paginated list of topics (mirrors getNewsItems).
+ * Get paginated list of topics (mirrors getNewsItems, including the
+ * current-language title join — see getNewsItems for the join's semantics).
  */
 export async function getTopics(
   db: Database,
@@ -419,9 +482,11 @@ export async function getTopics(
     category?: string;
     limit?: number;
     cursor?: string;
+    language?: string;
   } = {},
-): Promise<{ items: Topic[]; hasMore: boolean; nextCursor?: string }> {
+): Promise<{ items: LocalizedTopic[]; hasMore: boolean; nextCursor?: string }> {
   const limit = Math.min(options.limit ?? 20, 100);
+  const language = options.language ?? 'en';
 
   const conditions = [];
   if (options.category) {
@@ -434,8 +499,20 @@ export async function getTopics(
   }
 
   const results = await db
-    .select()
+    .select({
+      ...getTableColumns(topics),
+      titleEn: translations.value,
+    })
     .from(topics)
+    .leftJoin(
+      translations,
+      and(
+        eq(translations.itemType, 'topic'),
+        eq(translations.itemId, topics.id),
+        eq(translations.language, language),
+        eq(translations.field, 'title'),
+      ),
+    )
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(topics.publishedAt))
     .limit(limit + 1)
@@ -570,6 +647,55 @@ export async function getTopicTranslations(
 }
 
 /**
+ * Upsert a finished article/event translation row (item_type='news'|'topic'|
+ * 'event'), landing state='done' with the value and model attribution. The
+ * generic counterpart to upsertTopicTranslation — used by the eager title step
+ * (DQX-11) so it can write news and topic titles through one helper.
+ */
+export async function upsertItemTranslation(
+  db: Database,
+  params: {
+    itemType: Exclude<ItemType, 'image'>;
+    itemId: string;
+    language: string;
+    field: TranslationField;
+    value: string;
+    model: string;
+  },
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  await db
+    .insert(translations)
+    .values({
+      itemType: params.itemType,
+      itemId: params.itemId,
+      language: params.language,
+      field: params.field,
+      state: 'done',
+      value: params.value,
+      translatedAt: now,
+      model: params.model,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [
+        translations.itemType,
+        translations.itemId,
+        translations.language,
+        translations.field,
+      ],
+      set: {
+        state: 'done',
+        error: null,
+        value: params.value,
+        translatedAt: now,
+        model: params.model,
+        updatedAt: now,
+      },
+    });
+}
+
+/**
  * Upsert a single topic translation row (itemType='topic').
  * For field='content', pass the block tree pre-serialized to JSON.
  */
@@ -700,6 +826,36 @@ export async function getTranslationStates(
   return new Map(
     fields.map((f) => [f, (byField.get(f) ?? 'pending') as PhaseState]),
   );
+}
+
+/**
+ * Reset any title-translation rows still `running` back to `pending` for a set
+ * of items — the title workflow's terminal-failure cleanup, so a chunk that
+ * exhausted its retries doesn't leave titles stuck `running`. Only touches
+ * `running` rows, so it never clobbers a sibling chunk's `done`.
+ */
+export async function resetRunningTitles(
+  db: Database,
+  itemType: 'news' | 'topic',
+  itemIds: string[],
+  language: string,
+): Promise<void> {
+  if (itemIds.length === 0) return;
+  const now = Temporal.Now.instant();
+  for (let i = 0; i < itemIds.length; i += IN_CHUNK) {
+    await db
+      .update(translations)
+      .set({ state: 'pending', updatedAt: now })
+      .where(
+        and(
+          eq(translations.itemType, itemType),
+          eq(translations.language, language),
+          eq(translations.field, 'title'),
+          eq(translations.state, 'running'),
+          inArray(translations.itemId, itemIds.slice(i, i + IN_CHUNK)),
+        ),
+      );
+  }
 }
 
 /**

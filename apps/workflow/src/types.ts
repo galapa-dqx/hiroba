@@ -51,6 +51,8 @@ export type Env = {
   WORKFLOW_MANAGER: DurableObjectNamespace;
   /** The unified news+topics pipeline (item type carried in the params). */
   ARTICLE_WORKFLOW: WorkflowBinding<ArticleWorkflowParams>;
+  /** Eager title translation at discovery (DQX-11); backfill-ready (DQX-13). */
+  TITLE_WORKFLOW: WorkflowBinding<TitleWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
@@ -66,6 +68,24 @@ export type ItemType = 'news' | 'topic';
 export type ArticleWorkflowParams = {
   itemId: string;
   itemType: ItemType;
+};
+
+/**
+ * Parameters passed to the TitleWorkflow. Carries only ids (titles are read
+ * fresh inside the workflow) and the languages to translate into. Discovery
+ * passes a run's new ids; the DQX-13 backfill will pass an untranslated slice.
+ */
+export type TitleWorkflowParams = {
+  itemType: ItemType;
+  itemIds: string[];
+  languages: string[];
+};
+
+/** Result of the TitleWorkflow — titles written to `done` vs deferred. */
+export type TitleWorkflowOutput = {
+  itemType: ItemType;
+  translated: number;
+  failed: number;
 };
 
 /** Result of the fetch-body step (scrape + parse → blocks_ja). */

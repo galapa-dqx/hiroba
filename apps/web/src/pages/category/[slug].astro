@@ -1,7 +1,7 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import Gem from "../../components/Gem.astro";
-import { createDb, getNewsItems, type NewsItem } from "@hiroba/db";
+import { createDb, getNewsItems, type LocalizedNewsItem } from "@hiroba/db";
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
 import { formatShortDate } from "@hiroba/ui";
 
@@ -17,7 +17,7 @@ const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
 
-let items: NewsItem[] = [];
+let items: LocalizedNewsItem[] = [];
 let hasMore = false;
 let nextCursor: string | undefined;
 
@@ -48,7 +48,7 @@ const categoryLabel = CATEGORY_LABELS[category];
 							{items.map((item) => (
 								<li>
 									<a href={`/news/${item.id}`}>
-										<span class="news-list__title">{item.titleJa}</span>
+										<span class="news-list__title">{item.titleEn ?? item.titleJa}</span>
 										<time datetime={item.publishedAt.toString()}>
 											{formatShortDate(item.publishedAt.epochMilliseconds)}
 										</time>
