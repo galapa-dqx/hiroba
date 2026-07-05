@@ -63,6 +63,8 @@ export function mapChildren<T extends ContentNode>(
       case 'emphasis':
       case 'color':
       case 'link':
+      case 'time':
+      case 'event':
       case 'paragraph':
       case 'heading':
       case 'button':

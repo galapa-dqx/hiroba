@@ -4,6 +4,7 @@
 
 import {
   and,
+  asc,
   desc,
   eq,
   getTableColumns,
@@ -23,6 +24,7 @@ import {
 } from '@hiroba/shared';
 
 import type { Database } from './client';
+import { events, type Event } from './schema/events';
 import { images, type Image } from './schema/images';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
 import { topics, type NewTopic, type Topic } from './schema/topics';
@@ -644,6 +646,55 @@ export async function getTopicTranslations(
     }
   }
   return { title, blocks };
+}
+
+/** An extracted event with its English title translation merged in (null when
+ * the title hasn't been translated yet — the caller falls back to titleJa). */
+export type EventWithTitle = Event & { titleEn: string | null };
+
+/**
+ * Fetch the events extracted from a single source article (news item or topic),
+ * ordered chronologically by start time, each merged with its English title
+ * translation (item_type='event') when one exists. Powers the "events in this
+ * article" rail on the article pages.
+ */
+export async function getEventsForSource(
+  db: Database,
+  sourceType: 'news' | 'topic',
+  sourceId: string,
+  language: string = 'en',
+): Promise<EventWithTitle[]> {
+  const rows = await db
+    .select()
+    .from(events)
+    .where(
+      and(eq(events.sourceType, sourceType), eq(events.sourceId, sourceId)),
+    )
+    .orderBy(asc(events.startTime))
+    .all();
+  if (rows.length === 0) return [];
+
+  const ids = rows.map((r) => r.id);
+  const trans = await chunked(ids, (slice) =>
+    db
+      .select()
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'event'),
+          eq(translations.language, language),
+          eq(translations.field, 'title'),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
+  // Stale-while-revalidate: keep a running re-translation's prior value; skip
+  // only value-less rows (mirrors getTopicTranslations).
+  const byId = new Map(
+    trans.filter((t) => t.value !== null).map((t) => [t.itemId, t.value]),
+  );
+  return rows.map((r) => ({ ...r, titleEn: byId.get(r.id) ?? null }));
 }
 
 /**

@@ -15,7 +15,11 @@ import { Temporal } from 'temporal-polyfill';
 import { z } from 'zod';
 
 import { events, type Database, type EventType } from '@hiroba/db';
-import { serializeToRtml, type Block } from '@hiroba/richtext';
+import {
+  serializeToRtml,
+  stripTimeEventTags,
+  type Block,
+} from '@hiroba/richtext';
 
 import { getArticle } from '../article';
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
@@ -41,7 +45,9 @@ Planned, ongoing, or scheduled for a **specific date/time** where users can part
 (e.g., live streams, gatherings, maintenance, in-game events)
 
 ### B) Time-bounded campaigns/updates/features/maintenance
-Extract only if **BOTH** start **and** end date/time (or duration) are explicit in the text.
+Extract if the **end** date/time (or duration) is explicit in the text.
+- If the start is also explicit, use it.
+- If the text gives **only a deadline/end** (e.g. 「〜まで」「配布期間 … まで」「プレゼント期間 … まで」) and the period is implicitly already underway, set \`"start"\` to the literal string \`"publishedAt"\` — the article's publication moment. **Never invent a start date.**
 
 ---
 
@@ -96,6 +102,7 @@ Use for events that span multiple calendar days without specific times.
   "title": "イベント名（日本語）"
 }
 \`\`\`
+\`"start"\` may be the literal string \`"publishedAt"\` when only the end is stated.
 
 ### span – continuous period with specific times
 \`\`\`json
@@ -106,6 +113,7 @@ Use for events that span multiple calendar days without specific times.
   "title": "イベントの説明（日本語）"
 }
 \`\`\`
+\`"start"\` may be the literal string \`"publishedAt"\` when only the end is stated (deadline-only periods like 「…5:59 まで」).
 
 ### allDay – all-day event
 \`\`\`json
@@ -170,40 +178,56 @@ const jstDateTime = z.string().transform((s, ctx) => {
 });
 
 // Zod schemas for parsing the LLM response (dates normalized to ZonedDateTime).
-const multiDayEventSchema = z.object({
-  type: z.literal('multiDay'),
-  title: z.string(),
-  start: jstDate, // YYYY-MM-DD
-  end: jstDate, // YYYY-MM-DD
-});
+// Built per-article: `start` fields also accept the literal sentinel
+// "publishedAt" (deadline-only periods — 「…まで」 — whose period is already
+// underway at publication), which resolves to the article's publication moment
+// so the model never has to invent a start.
+function buildEventSchema(pub: Temporal.ZonedDateTime) {
+  const pubDay = pub.toPlainDate().toZonedDateTime('Asia/Tokyo');
+  const jstDateOrPub = z.union([
+    z.literal('publishedAt').transform(() => pubDay),
+    jstDate,
+  ]);
+  const jstDateTimeOrPub = z.union([
+    z.literal('publishedAt').transform(() => pub),
+    jstDateTime,
+  ]);
 
-const spanEventSchema = z.object({
-  type: z.literal('span'),
-  title: z.string(),
-  start: jstDateTime, // ISO 8601
-  end: jstDateTime, // ISO 8601
-});
+  const multiDayEventSchema = z.object({
+    type: z.literal('multiDay'),
+    title: z.string(),
+    start: jstDateOrPub, // YYYY-MM-DD | "publishedAt"
+    end: jstDate, // YYYY-MM-DD
+  });
 
-const allDayEventSchema = z.object({
-  type: z.literal('allDay'),
-  title: z.string(),
-  date: jstDate, // YYYY-MM-DD
-});
+  const spanEventSchema = z.object({
+    type: z.literal('span'),
+    title: z.string(),
+    start: jstDateTimeOrPub, // ISO 8601 | "publishedAt"
+    end: jstDateTime, // ISO 8601
+  });
 
-const markEventSchema = z.object({
-  type: z.literal('mark'),
-  title: z.string(),
-  timestamp: jstDateTime, // ISO 8601
-});
+  const allDayEventSchema = z.object({
+    type: z.literal('allDay'),
+    title: z.string(),
+    date: jstDate, // YYYY-MM-DD
+  });
 
-const eventSchema = z.discriminatedUnion('type', [
-  multiDayEventSchema,
-  spanEventSchema,
-  allDayEventSchema,
-  markEventSchema,
-]);
+  const markEventSchema = z.object({
+    type: z.literal('mark'),
+    title: z.string(),
+    timestamp: jstDateTime, // ISO 8601
+  });
 
-type ExtractedEvent = z.infer<typeof eventSchema>;
+  return z.discriminatedUnion('type', [
+    multiDayEventSchema,
+    spanEventSchema,
+    allDayEventSchema,
+    markEventSchema,
+  ]);
+}
+
+type ExtractedEvent = z.infer<ReturnType<typeof buildEventSchema>>;
 
 /** The start instant of an event, whatever its type — its calendar anchor. */
 function eventStart(event: ExtractedEvent): Temporal.ZonedDateTime {
@@ -246,7 +270,7 @@ function generateEventId(event: ExtractedEvent, sourceId: string): string {
 const JST_WEEKDAYS = ['月', '火', '水', '木', '金', '土', '日'] as const;
 
 /** Render a publish instant as a compact JST anchor, e.g. "2026-07-01(水) JST". */
-function formatPubDate(pub: Temporal.ZonedDateTime): string {
+export function formatPubDate(pub: Temporal.ZonedDateTime): string {
   // Temporal dayOfWeek is 1 (Mon) .. 7 (Sun).
   return `${pub.toPlainDate().toString()}(${JST_WEEKDAYS[pub.dayOfWeek - 1]}) JST`;
 }
@@ -347,11 +371,23 @@ async function extractEventsFromContent(
     console.error('Failed to parse events JSON:', error);
     return [];
   }
+  return parseExtractedEvents(parsed, pub);
+}
+
+/**
+ * Validate and bounds-check a raw (JSON-parsed) LLM response. Exported for
+ * tests; pure apart from console warnings.
+ */
+export function parseExtractedEvents(
+  parsed: unknown,
+  pub: Temporal.ZonedDateTime,
+): ExtractedEvent[] {
   if (!Array.isArray(parsed)) {
     console.error('Event extraction did not return an array:', parsed);
     return [];
   }
 
+  const eventSchema = buildEventSchema(pub);
   const pubEpoch = pub.epochMilliseconds;
   const out: ExtractedEvent[] = [];
   for (const raw of parsed) {
@@ -372,6 +408,20 @@ async function extractEventsFromContent(
         `Dropping out-of-range event (${Math.round(offsetDays)}d from publication, likely wrong year): ${event.title}`,
       );
       continue;
+    }
+    // The start alone no longer proves the range sane: a sentinel start is
+    // trivially in range while the model may still hallucinate the end's year.
+    if (event.type === 'multiDay' || event.type === 'span') {
+      const endOffsetDays = (event.end.epochMilliseconds - pubEpoch) / DAY_MS;
+      if (
+        Temporal.ZonedDateTime.compare(event.end, event.start) < 0 ||
+        endOffsetDays > MAX_DAYS_AFTER_PUB
+      ) {
+        console.warn(
+          `Dropping event with implausible end (${Math.round(endOffsetDays)}d from publication): ${event.title}`,
+        );
+        continue;
+      }
     }
     out.push(event);
   }
@@ -396,7 +446,9 @@ export async function extractAndSaveEvents(
   // Get the block tree from D1 (news item or topic — same body shape).
   const item = await getArticle(db, itemType, itemId);
 
-  const blocks = (item?.blocksJa ?? []) as Block[];
+  // On re-runs blocks_ja may already carry time/event annotations from a prior
+  // tag-events pass — strip them so extraction always sees the plain article.
+  const blocks = stripTimeEventTags((item?.blocksJa ?? []) as Block[]);
   if (!item || blocks.length === 0) {
     console.error(`No content found for ${itemType} ${itemId}`);
     return { count: 0, eventIds: [] };

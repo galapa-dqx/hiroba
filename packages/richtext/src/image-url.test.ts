@@ -175,18 +175,36 @@ describe('collectImageUrls', () => {
     ).toHaveLength(1);
   });
 
-  it('reaches icons inside image captions', () => {
+  it('reaches icons inside image captions and time/event runs', () => {
     const blocks: Block[] = [
       {
         type: 'image',
         src: 'https://cache.hiroba.dqx.jp/banner.jpg',
         caption: ['see ', { type: 'icon', src: '/dq_resource/cap.gif' }],
       },
+      {
+        type: 'paragraph',
+        children: [
+          {
+            type: 'event',
+            id: 'e1',
+            start: '2026-07-01',
+            children: [
+              {
+                type: 'time',
+                datetime: '2026-07-13',
+                children: [{ type: 'icon', src: '/dq_resource/clock.gif' }],
+              },
+            ],
+          },
+        ],
+      },
     ];
     expect(new Set(collectImageUrls(blocks))).toEqual(
       new Set([
         'https://cache.hiroba.dqx.jp/banner.jpg',
         '/dq_resource/cap.gif',
+        '/dq_resource/clock.gif',
       ]),
     );
   });

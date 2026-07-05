@@ -102,6 +102,18 @@ export type ExtractEventsResult = {
   eventIds: string[];
 };
 
+/**
+ * Result of the tag-events step (best-effort time/event annotation of
+ * blocks_ja). `tagged: false` means both attempts failed validation and the
+ * tree was left (or reset to) untagged.
+ */
+export type TagEventsResult = {
+  tagged: boolean;
+  timeTags: number;
+  eventTags: number;
+  retried: boolean;
+};
+
 /** Result of the transcribe-images step. */
 export type TranscribeResult = {
   imagesTranscribed: number;
@@ -125,6 +137,7 @@ export type ArticleWorkflowOutput = {
   itemType: ItemType;
   fetchBody: FetchBodyResult;
   extractEvents: ExtractEventsResult;
+  tagEvents: TagEventsResult;
   mirror: MirrorResult;
   transcribe: TranscribeResult;
   translate: TranslateResult;

@@ -60,6 +60,9 @@ const RECONCILE_ATTRS: Record<string, readonly string[]> = {
   table: ['variant'],
   steps: ['variant'],
   ranking: ['variant'],
+  // Workflow-inserted annotations (tag-events): machine values, never prose.
+  time: ['datetime'],
+  event: ['id', 'start', 'end'],
 };
 
 /** One restored attribute: `nodeType`'s `index`-th node had `field` reset. */

@@ -77,6 +77,13 @@ const kitchenSink = (): Block[] => [
       { type: 'color', value: '#C03', children: ['col'] },
       { type: 'break' },
       { type: 'badge', text: 'New' },
+      { type: 'time', datetime: '2026-07-13', children: ['tm'] },
+      {
+        type: 'event',
+        id: 'e1',
+        start: '2026-07-01',
+        children: [{ type: 'strong', children: ['ev'] }],
+      },
     ],
   },
 ];
@@ -109,6 +116,8 @@ const ALL_LEAVES = [
   'b',
   'i',
   'col',
+  'tm',
+  'ev',
 ];
 
 describe('walk', () => {

@@ -122,6 +122,36 @@ export type IconNode = {
   src: string;
   alt?: string;
 };
+/**
+ * A human-readable timestamp phrase paired with its machine value, so the
+ * renderer can convert it to the viewer's timezone. Inserted by the workflow's
+ * tag-events pass (not by the scraper). `datetime` is ISO 8601 with an explicit
+ * offset (`2026-07-13T05:59:00+09:00`) or a date-only `YYYY-MM-DD` (which the
+ * renderer must NOT localize — a bare calendar date has no instant).
+ *
+ * Kept as plain `string` (no typia pattern): the value is LLM-derived, and a
+ * malformed one should degrade to unlocalized text, not invalidate the tree.
+ */
+export type TimeNode = {
+  type: 'time';
+  datetime: string;
+  children: Inline[];
+};
+/**
+ * The dated phrase of an extracted calendar event, linking the prose mention to
+ * its row in the `events` table. Inserted by the workflow's tag-events pass;
+ * `start`/`end` are denormalized from the event row (same string formats as
+ * {@link TimeNode.datetime}) so rendering needs no join. Canonically wraps the
+ * whole phrase with `<time>` nodes inside around the literal timestamps.
+ */
+export type EventNode = {
+  type: 'event';
+  /** events.id of the linked row */
+  id: string;
+  start: string;
+  end?: string;
+  children: Inline[];
+};
 
 export type Inline =
   | TextNode
@@ -131,7 +161,9 @@ export type Inline =
   | ColorNode
   | LinkNode
   | BadgeNode
-  | IconNode;
+  | IconNode
+  | TimeNode
+  | EventNode;
 
 /* ------------------------------------------------------------------ *
  * Block tier
@@ -454,6 +486,8 @@ export const INLINE_TYPES = [
   'link',
   'badge',
   'icon',
+  'time',
+  'event',
 ] as const;
 
 const INLINE_SET: ReadonlySet<string> = new Set(INLINE_TYPES);

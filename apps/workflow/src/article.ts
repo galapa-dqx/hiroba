@@ -7,9 +7,13 @@
  * step stays parameterized by item type without duplicating the table branch.
  */
 
+import { eq } from 'drizzle-orm';
+
 import {
   getNewsItem,
   getTopic,
+  newsItems,
+  updateTopicBlocks,
   type Database,
   type NewsItem,
   type Topic,
@@ -38,4 +42,24 @@ export async function getArticleBlocks(
 ): Promise<Block[]> {
   const item = await getArticle(db, itemType, id);
   return (item?.blocksJa ?? []) as Block[];
+}
+
+/**
+ * Overwrite the article's canonical JA block tree (used by the tag-events step
+ * to persist time/event annotations).
+ */
+export async function saveArticleBlocks(
+  db: Database,
+  itemType: ItemType,
+  id: string,
+  blocks: Block[],
+): Promise<void> {
+  if (itemType === 'topic') {
+    await updateTopicBlocks(db, id, blocks);
+  } else {
+    await db
+      .update(newsItems)
+      .set({ blocksJa: blocks })
+      .where(eq(newsItems.id, id));
+  }
 }

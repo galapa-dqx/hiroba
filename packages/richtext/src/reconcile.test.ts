@@ -334,3 +334,69 @@ describe('reconcileAttributes', () => {
     ]);
   });
 });
+
+describe('time/event annotation attributes', () => {
+  it('restores mutated datetime/id/start from the source tree', () => {
+    const source: Block[] = [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            type: 'event',
+            id: 'ev_1',
+            start: '2026-07-01T12:00:00+09:00',
+            end: '2026-07-13T05:59:00+09:00',
+            children: [
+              '期間 ',
+              {
+                type: 'time',
+                datetime: '2026-07-13T05:59:00+09:00',
+                children: ['7月13日 5:59'],
+              },
+              ' まで',
+            ],
+          },
+        ],
+      },
+    ];
+    const translated: Block[] = [
+      {
+        type: 'paragraph',
+        children: [
+          {
+            type: 'event',
+            id: 'ev_MANGLED',
+            start: '2025-07-01T12:00:00+09:00', // year drifted
+            end: '2026-07-13T05:59:00+09:00',
+            children: [
+              'Period: until ',
+              {
+                type: 'time',
+                datetime: '2026-07-13T05:59:00+0900', // offset format drifted
+                children: ['July 13, 5:59'],
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    const report = reconcileAttributes(source, translated);
+
+    expect(translated[0]).toMatchObject({
+      children: [
+        {
+          type: 'event',
+          id: 'ev_1',
+          start: '2026-07-01T12:00:00+09:00',
+          children: [
+            'Period: until ',
+            { type: 'time', datetime: '2026-07-13T05:59:00+09:00' },
+          ],
+        },
+      ],
+    });
+    expect(report.repairs).toHaveLength(3);
+    expect(report.divergences).toEqual([]);
+  });
+});

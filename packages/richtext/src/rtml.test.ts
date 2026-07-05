@@ -94,6 +94,124 @@ describe('inline nodes', () => {
       },
     ]),
   );
+  roundTrips(
+    'time in a paragraph',
+    doc([
+      {
+        type: 'paragraph',
+        children: [
+          '開催は',
+          {
+            type: 'time',
+            datetime: '2026-07-13T05:59:00+09:00',
+            children: ['2026年7月13日（月）5:59'],
+          },
+          'まで',
+        ],
+      },
+    ]),
+  );
+  roundTrips(
+    'event with and without end',
+    doc([
+      {
+        type: 'paragraph',
+        children: [
+          {
+            type: 'event',
+            id: 'ev_abc123',
+            start: '2026-07-01T12:00:00+09:00',
+            end: '2026-07-13T05:59:00+09:00',
+            children: ['プレゼント期間'],
+          },
+          {
+            type: 'event',
+            id: 'ev_def456',
+            start: '2026-07-20',
+            children: ['開始日'],
+          },
+        ],
+      },
+    ]),
+  );
+  roundTrips(
+    'event containing time (canonical nesting)',
+    doc([
+      {
+        type: 'paragraph',
+        children: [
+          {
+            type: 'event',
+            id: 'ev_abc123',
+            start: '2026-07-01T12:00:00+09:00',
+            end: '2026-07-13T05:59:00+09:00',
+            children: [
+              'プレゼント期間 ',
+              {
+                type: 'time',
+                datetime: '2026-07-13T05:59:00+09:00',
+                children: ['2026年7月13日（月）5:59'],
+              },
+              ' まで',
+            ],
+          },
+        ],
+      },
+    ]),
+  );
+  roundTrips(
+    'time/event nested under strong and inside table cell and list item',
+    doc([
+      {
+        type: 'paragraph',
+        children: [
+          {
+            type: 'strong',
+            children: [
+              {
+                type: 'time',
+                datetime: '2026-08-01T20:00:00+09:00',
+                children: ['8月1日 20:00'],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        type: 'table',
+        rows: [
+          [
+            {
+              children: [
+                {
+                  type: 'event',
+                  id: 'ev_t1',
+                  start: '2026-08-01',
+                  end: '2026-08-03',
+                  children: ['開催期間'],
+                },
+              ],
+            },
+          ],
+        ],
+      },
+      {
+        type: 'list',
+        ordered: false,
+        items: [
+          {
+            children: [
+              {
+                type: 'time',
+                datetime: '2026-08-03',
+                children: ['8月3日'],
+              },
+            ],
+          },
+        ],
+      },
+    ]),
+  );
 });
 
 describe('text blocks', () => {
@@ -604,6 +722,147 @@ describe('translation wire format', () => {
       doc([{ type: 'paragraph', children: ['hi'] }], 'T'),
     );
     expect(markup).toBe('<title>T</title><article><p>hi</p></article>');
+  });
+});
+
+/**
+ * Translation tolerance — the model sometimes invents a tag outside the
+ * vocabulary (`<sword>`) or un-escapes a source angle-bracket into live markup.
+ * Unlike parseRtml, parseTranslation must not throw the whole body away: it
+ * unwraps the unknown tag to its text/children and parses the rest.
+ */
+describe('translation tolerance (unknown tags unwrapped)', () => {
+  it('unwraps an invented inline tag to its text, keeping the paragraph', () => {
+    const markup =
+      '<title>T</title><article><p>The <sword>Sacred Blade</sword> returns</p></article>';
+    expect(parseTranslation(markup)).toEqual(
+      doc(
+        [
+          {
+            type: 'paragraph',
+            children: ['The ', 'Sacred Blade', ' returns'],
+          },
+        ],
+        'T',
+      ),
+    );
+  });
+
+  it('keeps the known children of an unwrapped tag', () => {
+    const markup =
+      '<title>T</title><article><p>a<foo><strong>bold</strong></foo>b</p></article>';
+    expect(parseTranslation(markup)).toEqual(
+      doc(
+        [
+          {
+            type: 'paragraph',
+            children: ['a', { type: 'strong', children: ['bold'] }, 'b'],
+          },
+        ],
+        'T',
+      ),
+    );
+  });
+
+  it('lifts real blocks out of an unknown block-level wrapper', () => {
+    const markup =
+      '<title>T</title><article><wrapper><p>one</p><p>two</p></wrapper></article>';
+    expect(parseTranslation(markup)).toEqual(
+      doc(
+        [
+          { type: 'paragraph', children: ['one'] },
+          { type: 'paragraph', children: ['two'] },
+        ],
+        'T',
+      ),
+    );
+  });
+
+  it('drops a self-closed unknown tag entirely', () => {
+    const markup = '<title>T</title><article><p>a<sparkle/>b</p></article>';
+    expect(parseTranslation(markup)).toEqual(
+      doc([{ type: 'paragraph', children: ['a', 'b'] }], 'T'),
+    );
+  });
+
+  it('does not disturb structural tags nested inside a real block', () => {
+    const markup =
+      '<title>T</title><article><table><tbody><tr><td>x<bogus>y</bogus></td></tr></tbody></table></article>';
+    expect(parseTranslation(markup)).toEqual(
+      doc([{ type: 'table', rows: [[{ children: ['x', 'y'] }]] }], 'T'),
+    );
+  });
+
+  // Drift guard: a document exercising the container/structural vocabulary must
+  // still round-trip through parseTranslation. If a real tag were missing from
+  // KNOWN_TAGS it would be unwrapped here and the structure would break.
+  it('leaves a rich document with structural tags intact through the unwrap pass', () => {
+    const rich = doc(
+      [
+        {
+          type: 'section',
+          variant: 'newspaper',
+          title: [{ type: 'strong', children: ['見出し'] }],
+          dateline: ['2026年7月5日 発行'],
+          children: [{ type: 'paragraph', children: ['本文'] }],
+        },
+        {
+          type: 'image',
+          src: '/a.jpg',
+          text: ['行1', '行2'],
+          caption: ['説明'],
+        },
+        {
+          type: 'table',
+          headers: [{ children: ['見出し'], header: true }],
+          rows: [[{ children: ['値'] }]],
+        },
+        {
+          type: 'list',
+          ordered: false,
+          items: [{ children: ['項目'] }],
+        },
+        {
+          type: 'interview',
+          title: 'インタビュー',
+          writer: '編集部',
+          exchanges: [
+            {
+              question: ['質問'],
+              answer: [{ type: 'paragraph', children: ['回答'] }],
+            },
+          ],
+        },
+        {
+          type: 'steps',
+          items: [
+            { n: 1, children: [{ type: 'paragraph', children: ['手順'] }] },
+          ],
+        },
+        {
+          type: 'ranking',
+          items: [{ rank: 1, title: ['一位'], count: '100' }],
+        },
+        {
+          type: 'accordion',
+          summary: ['開く'],
+          children: [{ type: 'paragraph', children: ['中身'] }],
+        },
+        {
+          type: 'speechBubble',
+          speaker: '話者',
+          children: [{ type: 'paragraph', children: ['やあ'] }],
+        },
+        {
+          type: 'messageBox',
+          name: '名前',
+          role: '役職',
+          children: [{ type: 'paragraph', children: ['伝言'] }],
+        },
+      ],
+      'タイトル',
+    );
+    expect(parseTranslation(serializeForTranslation(rich))).toEqual(rich);
   });
 });
 

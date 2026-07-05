@@ -33,6 +33,7 @@ import { extractAndSaveEvents } from './steps/extract-events';
 import { fetchAndSaveArticleBody } from './steps/fetch-body';
 import { localizeImages } from './steps/localize-images';
 import { mirrorImages } from './steps/mirror-images';
+import { tagArticleEvents } from './steps/tag-events';
 import { transcribeImages } from './steps/transcribe-images';
 import { translateArticle } from './steps/translate';
 import type {
@@ -92,6 +93,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<
         itemType,
         fetchBody,
         extractEvents: { count: 0, eventIds: [] },
+        tagEvents: { tagged: false, timeTags: 0, eventTags: 0, retried: false },
         mirror: { mirrored: 0, skipped: 0, failed: 0 },
         transcribe: { imagesTranscribed: 0 },
         translate: { success: false, fieldsTranslated: 0 },
@@ -102,6 +104,19 @@ export class ArticleWorkflow extends WorkflowEntrypoint<
     // Step 2: extract calendar events from the RTML serialization → events
     const extractEvents = await runStep(step, log, 'extract-events', () =>
       extractAndSaveEvents(db, this.env.GEMINI_API_KEY, itemType, itemId),
+    );
+
+    // Step 2.5: annotate blocks_ja with inline <time>/<event> tags linking the
+    // prose to the extracted events (best-effort; runs before translate so
+    // blocks_en inherits the tags).
+    const tagEvents = await runStep(step, log, 'tag-events', () =>
+      tagArticleEvents(
+        db,
+        this.env.GEMINI_API_KEY,
+        itemType,
+        itemId,
+        extractEvents.eventIds,
+      ),
     );
 
     // Step 3: mirror every referenced image into R2 (no-op when the doc has none)
@@ -160,6 +175,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<
       itemType,
       fetchBody,
       extractEvents,
+      tagEvents,
       mirror,
       transcribe,
       translate,

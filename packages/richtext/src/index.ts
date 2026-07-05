@@ -11,3 +11,4 @@ export * from './rtml';
 export * from './render';
 export * from './image-url';
 export * from './reconcile';
+export * from './annotate';

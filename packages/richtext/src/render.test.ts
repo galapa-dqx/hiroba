@@ -201,3 +201,52 @@ describe('renderBlocks', () => {
     );
   });
 });
+
+describe('time/event inline rendering', () => {
+  it('renders time as a semantic <time> with datetime', () => {
+    expect(
+      renderBlocks([
+        {
+          type: 'paragraph',
+          children: [
+            {
+              type: 'time',
+              datetime: '2026-07-13T05:59:00+09:00',
+              children: ['7月13日 5:59'],
+            },
+          ],
+        },
+      ]),
+    ).toBe(
+      '<p><time class="rt-time" datetime="2026-07-13T05:59:00+09:00">7月13日 5:59</time></p>',
+    );
+  });
+
+  it('renders event as a span with data-event-* attrs (end optional)', () => {
+    expect(
+      renderBlocks([
+        {
+          type: 'paragraph',
+          children: [
+            {
+              type: 'event',
+              id: 'ev_1',
+              start: '2026-07-01T12:00:00+09:00',
+              end: '2026-07-13T05:59:00+09:00',
+              children: ['プレゼント期間'],
+            },
+            {
+              type: 'event',
+              id: 'ev_2',
+              start: '2026-07-20',
+              children: ['開始'],
+            },
+          ],
+        },
+      ]),
+    ).toBe(
+      '<p><span class="rt-event" data-event-id="ev_1" data-event-start="2026-07-01T12:00:00+09:00" data-event-end="2026-07-13T05:59:00+09:00">プレゼント期間</span>' +
+        '<span class="rt-event" data-event-id="ev_2" data-event-start="2026-07-20">開始</span></p>',
+    );
+  });
+});

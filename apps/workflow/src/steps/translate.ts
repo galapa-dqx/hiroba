@@ -40,6 +40,7 @@ import {
   parseTranslation,
   reconcileAttributes,
   serializeForTranslation,
+  stripTimeEventTags,
   type Block,
 } from '@hiroba/richtext';
 import { hasJapanese } from '@hiroba/shared';
@@ -52,7 +53,7 @@ import { logReconciliation } from './reconcile-log';
 const TARGET_LANGUAGE = 'en';
 
 const BODY_SYSTEM_PROMPT =
-  'Translate the provided article from Japanese to natural English, maintaining formatting and matching the original tone, while strictly adhering to the translation glossary. Retain all HTML tags in the output.';
+  'Translate the provided article from Japanese to natural English, maintaining formatting and matching the original tone, while strictly adhering to the translation glossary. Retain the HTML tags from the input, but never introduce a tag that was not already there — the only tags in your output are ones copied from the source. Text sometimes wraps a word in full-width brackets （＜ ＞, 【 】, 《 》） or literal angle brackets; these are ordinary characters, so reproduce them verbatim and never turn them into a tag or add a closing tag (keep ＜片手剣＞ as ＜sword＞ or &lt;sword&gt;, never <sword>). Keep <time> and <event> tags in place around the corresponding translated phrases and copy their attributes verbatim.';
 
 const TITLE_SYSTEM_PROMPT =
   'Translate the Japanese text to natural English, keeping Dragon Quest X game-specific terms recognizable and strictly adhering to the translation glossary. Respond with ONLY the translated text — no quotes, labels, or explanations.';
@@ -220,10 +221,22 @@ export async function translateArticle(
     if (result && result.blocks.length > 0) {
       // The LLM is only meant to rewrite text; restore any non-linguistic
       // attribute (image/link URLs, colors, variants…) it drifted from the JA.
-      logReconciliation(
-        `${itemType} ${itemId}`,
-        reconcileAttributes(blocks, result.blocks),
-      );
+      const report = reconcileAttributes(blocks, result.blocks);
+      logReconciliation(`${itemType} ${itemId}`, report);
+
+      // Time/event annotations pair the JA and EN trees by index; if the
+      // translation added or dropped one, the surviving attrs can't be trusted
+      // (an unrepaired id may point anywhere) — strip them from the EN tree.
+      if (
+        report.divergences.some(
+          (d) => d.nodeType === 'time' || d.nodeType === 'event',
+        )
+      ) {
+        console.warn(
+          `${itemType} ${itemId}: time/event tags diverged in translation, stripping from EN`,
+        );
+        result.blocks = stripTimeEventTags(result.blocks);
+      }
 
       // Pull the translated image spans out into per-image translation rows. The
       // two trees share structure, so images line up by index.

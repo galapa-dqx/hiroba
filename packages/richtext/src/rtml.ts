@@ -109,6 +109,10 @@ function serializeInline(node: Inline): string {
       return `<badge${attr('variant', node.variant)}>${escText(node.text)}</badge>`;
     case 'icon':
       return `<icon${attr('src', node.src)}${attr('alt', node.alt)}></icon>`;
+    case 'time':
+      return `<time${attr('datetime', node.datetime)}>${inlines(node.children)}</time>`;
+    case 'event':
+      return `<event${attr('id', node.id)}${attr('start', node.start)}${attr('end', node.end)}>${inlines(node.children)}</event>`;
   }
 }
 
@@ -262,6 +266,70 @@ const INLINE_TAGS: ReadonlySet<string> = new Set([
   'a',
   'badge',
   'icon',
+  'time',
+  'event',
+]);
+
+/**
+ * Every element name the walk consumes at any depth — the block and inline
+ * switches plus the structural children the container parsers pluck out
+ * (`<li>`, `<thead>`, `<line>`, `<summary>`, …) and the document wrappers. Used
+ * only to unwrap *unknown* tags from untrusted translation output (see
+ * {@link unwrapUnknownTags}); it must list every tag the parser reads, or a real
+ * structural tag would be discarded. The translation round-trip tests guard it.
+ */
+const KNOWN_TAGS: ReadonlySet<string> = new Set<string>([
+  // document wrappers
+  'doctitle',
+  'title',
+  'article',
+  // inline vocabulary
+  ...INLINE_TAGS,
+  // block vocabulary (parseBlock switch)
+  'p',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'button',
+  'hr',
+  'img',
+  'figure',
+  'video',
+  'embed',
+  'infobox',
+  'section',
+  'accordion',
+  'speech',
+  'message',
+  'ul',
+  'ol',
+  'table',
+  'interview',
+  'steps',
+  'ranking',
+  // structural children the container parsers read directly
+  'figcaption',
+  'line',
+  'sectiontitle',
+  'dateline',
+  'summary',
+  'speaker',
+  'name',
+  'role',
+  'li',
+  'thead',
+  'tbody',
+  'tr',
+  'th',
+  'td',
+  'inttitle',
+  'writer',
+  'exchange',
+  'question',
+  'answer',
+  'step',
+  'rank',
 ]);
 
 const childEls = (el: Element | Document, name?: string): Element[] =>
@@ -323,6 +391,25 @@ function parseInlineTag(el: Element): Inline {
     case 'icon': {
       const n: Inline = { type: 'icon', src: a.src };
       if (a.alt !== undefined) n.alt = a.alt;
+      return n;
+    }
+    // time/event attrs are lenient (`?? ''`): the values are LLM-derived and the
+    // tag-events step enforces non-emptiness itself; parseRtml stays throw-free
+    // for translated documents.
+    case 'time':
+      return {
+        type: 'time',
+        datetime: a.datetime ?? '',
+        children: parseInlines(el.children),
+      };
+    case 'event': {
+      const n: Inline = {
+        type: 'event',
+        id: a.id ?? '',
+        start: a.start ?? '',
+        children: parseInlines(el.children),
+      };
+      if (a.end !== undefined) n.end = a.end;
       return n;
     }
     default:
@@ -645,9 +732,39 @@ export function parseRtml(markup: string): RtmlDocument {
 }
 
 /**
+ * Recursively replace every element outside {@link KNOWN_TAGS} with its
+ * children. The translation LLM occasionally invents a decorative tag
+ * (`<sword>`, …) or turns an escaped source angle-bracket back into live markup;
+ * unwrapping keeps the translated text and lets the strict walk see only known
+ * tags instead of throwing away the whole translation. Reads `.children` only
+ * (the parser never follows parent/sibling links), so relinking is unnecessary.
+ * Used for untrusted translation output; `parseRtml` stays strict on purpose.
+ */
+function unwrapUnknownTags(nodes: ChildNode[]): ChildNode[] {
+  const out: ChildNode[] = [];
+  for (const c of nodes) {
+    if (!isTag(c)) {
+      out.push(c);
+      continue;
+    }
+    const kids = unwrapUnknownTags(c.children);
+    if (KNOWN_TAGS.has(c.name)) {
+      c.children = kids;
+      out.push(c);
+    } else {
+      out.push(...kids);
+    }
+  }
+  return out;
+}
+
+/**
  * Parse the translated `<title>`/`<article>` document (the output of the
  * translation LLM) back into a topic document. Inverse of
- * {@link serializeForTranslation}.
+ * {@link serializeForTranslation}. Unlike {@link parseRtml}, this tolerates
+ * tags the model invents: {@link unwrapUnknownTags} strips them first so a
+ * single hallucinated tag degrades to plain text rather than failing the whole
+ * body translation.
  */
 export function parseTranslation(markup: string): RtmlDocument {
   const root = parseDocument(markup, {
@@ -658,7 +775,7 @@ export function parseTranslation(markup: string): RtmlDocument {
   });
   let title = '';
   let blocks: Block[] = [];
-  for (const c of root.children) {
+  for (const c of unwrapUnknownTags(root.children)) {
     if (isTag(c) && c.name === 'title') title = textOf(c);
     else if (isTag(c) && c.name === 'article') blocks = parseBlocks(c.children);
   }

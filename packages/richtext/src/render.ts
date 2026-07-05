@@ -57,6 +57,14 @@ export function renderBlocks(
         return `<span class="rt-badge"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>${esc(node.text)}</span>`;
       case 'icon':
         return `<img class="rt-icon" src="${escAttr(src(node.src))}" alt="${escAttr(node.alt ?? '')}">`;
+      case 'time':
+        // Children are the human-readable JST text; a client script rewrites
+        // datetime-bearing ones to the viewer's timezone (date-only values stay).
+        return `<time class="rt-time" datetime="${escAttr(node.datetime)}">${inlines(node.children)}</time>`;
+      case 'event': {
+        const end = node.end ? ` data-event-end="${escAttr(node.end)}"` : '';
+        return `<span class="rt-event" data-event-id="${escAttr(node.id)}" data-event-start="${escAttr(node.start)}"${end}>${inlines(node.children)}</span>`;
+      }
     }
   }
 
