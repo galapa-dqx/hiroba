@@ -3,7 +3,8 @@ import Layout from "../../layouts/Layout.astro";
 import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import CategoryDot from "@hiroba/ui/CategoryDot.astro";
-import { createDb, getNewsItem, translations as translationsTable } from "@hiroba/db";
+import EventsRail from "../../components/EventsRail.astro";
+import { createDb, getEventsForSource, getNewsItem, translations as translationsTable } from "@hiroba/db";
 import { renderBlocks, type Block } from "@hiroba/richtext";
 import { CATEGORY_LABELS, type Category } from "@hiroba/shared";
 import { and, eq } from "drizzle-orm";
@@ -79,6 +80,9 @@ if (contentTranslation?.value) {
 }
 const blocks: Block[] = enBlocks ?? (item.blocksJa as Block[] | null) ?? [];
 const contentHtml = renderBlocks(blocks);
+
+// Events extracted from this article (only present once its body was fetched).
+const events = hasContent ? await getEventsForSource(db, "news", id, "en") : [];
 const translatedAt = titleTranslation?.translatedAt ?? null;
 const isTranslated = !!titleTranslation?.value;
 const category = item.category as Category;
@@ -116,8 +120,11 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 		)}
 
 		{contentHtml && (
-			<div class="scroll">
-				<div class="scroll__content news-body" set:html={contentHtml} />
+			<div class="article-grid">
+				<div class="scroll">
+					<div class="scroll__content news-body" set:html={contentHtml} />
+				</div>
+				<EventsRail events={events} />
 			</div>
 		)}
 
@@ -156,6 +163,11 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 	}
 	.callout {
 		margin-bottom: 1.5rem;
+	}
+	/* article body with the events panel stacked full-width beneath it */
+	.article-grid {
+		display: grid;
+		gap: 1.5rem;
 	}
 	.translation-info {
 		margin-top: 2.4rem;
@@ -307,10 +319,23 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 		height: 1em;
 		vertical-align: -0.12em;
 	}
+
+	/* workflow-inserted event annotation → subtle gilt marker; the data-event-*
+	   attrs are the hook for future calendar linking */
+	.news-body .rt-event {
+		border-bottom: 1px dashed var(--gold-edge);
+	}
+	/* localized timestamps carry the original JST value in the title tooltip */
+	.news-body time.rt-time[title] {
+		cursor: help;
+		text-decoration: underline dotted var(--gold-edge);
+		text-underline-offset: 0.15em;
+	}
 </style>
 
 <script>
 	import { describeSnapshot } from "@hiroba/shared";
+	import "../../scripts/localize-times";
 
 	const notice = document.getElementById("processing-notice");
 	if (notice) {

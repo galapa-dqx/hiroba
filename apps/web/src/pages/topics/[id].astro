@@ -2,7 +2,8 @@
 import Layout from "../../layouts/Layout.astro";
 import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
-import { computeSnapshot, createDb, getImagesByKeys, getImageTranslations, getTopic, getTopicTranslations } from "@hiroba/db";
+import EventsRail from "../../components/EventsRail.astro";
+import { computeSnapshot, createDb, getEventsForSource, getImagesByKeys, getImageTranslations, getTopic, getTopicTranslations } from "@hiroba/db";
 import { collectImages, imageKey, renderBlocks, rewriteImageSrc, type Block } from "@hiroba/richtext";
 import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
 
@@ -89,6 +90,9 @@ const imageSrc = (src: string): string => {
 	return rewriteImageSrc(src, base);
 };
 const contentHtml = renderBlocks(blocks, { imageSrc });
+
+// Events extracted from this topic (only meaningful once the body is shown).
+const events = ready ? await getEventsForSource(db, "topic", id, "en") : [];
 ---
 
 <Layout title={title}>
@@ -124,8 +128,11 @@ const contentHtml = renderBlocks(blocks, { imageSrc });
 		)}
 
 		{ready && contentHtml && (
-			<div class="scroll">
-				<div class="scroll__content topic-body" set:html={contentHtml} />
+			<div class="article-grid">
+				<div class="scroll">
+					<div class="scroll__content topic-body" set:html={contentHtml} />
+				</div>
+				<EventsRail events={events} />
 			</div>
 		)}
 
@@ -155,6 +162,11 @@ const contentHtml = renderBlocks(blocks, { imageSrc });
 	}
 	.callout {
 		margin-bottom: 1.5rem;
+	}
+	/* article body with the events panel stacked full-width beneath it */
+	.article-grid {
+		display: grid;
+		gap: 1.5rem;
 	}
 	.translation-info {
 		margin-top: 2.4rem;
@@ -409,10 +421,23 @@ const contentHtml = renderBlocks(blocks, { imageSrc });
 		background: var(--surface-panel-2);
 		border-left: 3px solid var(--gold-edge);
 	}
+
+	/* workflow-inserted event annotation → subtle gilt marker; the data-event-*
+	   attrs are the hook for future calendar linking */
+	.topic-body .rt-event {
+		border-bottom: 1px dashed var(--gold-edge);
+	}
+	/* localized timestamps carry the original JST value in the title tooltip */
+	.topic-body time.rt-time[title] {
+		cursor: help;
+		text-decoration: underline dotted var(--gold-edge);
+		text-underline-offset: 0.15em;
+	}
 </style>
 
 <script>
 	import { describeSnapshot } from "@hiroba/shared";
+	import "../../scripts/localize-times";
 
 	const notice = document.getElementById("processing-notice");
 	if (notice) {

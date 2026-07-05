@@ -1,0 +1,179 @@
+---
+/**
+ * EventsRail — the "events in this article" aside shown alongside a topic or
+ * news body. Lists the calendar events the workflow extracted from this article
+ * (the events table, keyed by source_type + source_id), each with its English
+ * title (falling back to the Japanese one) and its start/end shown in JST.
+ *
+ * Times render server-side in JST as a no-JS baseline; the colocated script
+ * relocalizes the timed events (span/mark) to the viewer's zone — the same
+ * treatment the inline `<time class="rt-time">` annotations get. Date-granular
+ * events (multiDay/allDay) stay in JST, since shifting a bare calendar date
+ * across zones would be meaningless.
+ */
+import type { EventWithTitle } from "@hiroba/db";
+import { formatJst, formatJstDate } from "@hiroba/ui/format-date";
+
+interface Props {
+	events: EventWithTitle[];
+}
+const { events } = Astro.props;
+
+const TYPE_LABELS: Record<string, string> = {
+	multiDay: "Multi-day",
+	allDay: "All-day",
+	span: "Timed",
+	mark: "Milestone",
+};
+
+const isDateGranular = (type: string): boolean =>
+	type === "multiDay" || type === "allDay";
+
+/** JST baseline text for a time cell; the client relocalizes the timed ones. */
+function jstText(zdt: EventWithTitle["startTime"], type: string): string {
+	const iso = zdt.toInstant().toString();
+	return isDateGranular(type) ? `${formatJstDate(iso)} JST` : `${formatJst(iso)} JST`;
+}
+---
+
+{
+	events.length > 0 && (
+		<aside class="events-rail" aria-label="Events in this article">
+			<h2 class="events-rail__title">Events in this article</h2>
+			<ol class="events-rail__list">
+				{events.map((e) => (
+					<li class="event-card" data-etype={e.type}>
+						<span class="event-card__type">{TYPE_LABELS[e.type] ?? e.type}</span>
+						<p class="event-card__name">{e.titleEn ?? e.titleJa}</p>
+						<div class="event-card__when">
+							<time datetime={e.startTime.toInstant().toString()} data-etype={e.type}>
+								{jstText(e.startTime, e.type)}
+							</time>
+							{e.endTime && (
+								<>
+									<span class="event-card__arrow" aria-hidden="true">
+										→
+									</span>
+									<time datetime={e.endTime.toInstant().toString()} data-etype={e.type}>
+										{jstText(e.endTime, e.type)}
+									</time>
+								</>
+							)}
+						</div>
+					</li>
+				))}
+			</ol>
+		</aside>
+	)
+}
+
+<style>
+	/* gilt-framed parchment panel, echoing the article's box_terms/TOC boxes,
+	   stacked full-width beneath the article body */
+	.events-rail {
+		padding: 1.05rem 1.25rem 1.2rem;
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklch, var(--surface-panel), var(--gold) 4%),
+			color-mix(in oklch, var(--surface-sunken), var(--gold) 8%)
+		);
+		border: 1px solid var(--gold-edge);
+		box-shadow:
+			var(--inset-top),
+			var(--shadow-sm),
+			inset 0 0 0 3px color-mix(in oklch, var(--gold) 20%, transparent);
+	}
+
+	.events-rail__title {
+		margin: 0 0 0.8rem;
+		text-align: center;
+		font-family: var(--font-display);
+		font-size: 1.15rem;
+		font-weight: 700;
+		color: var(--ink);
+	}
+
+	.events-rail__list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+
+	.event-card {
+		padding: 0.55rem 0.7rem 0.6rem;
+		background: var(--surface-panel);
+		border: 1px solid var(--border);
+		border-left: 3px solid var(--cat, var(--gold-mid));
+		box-shadow: var(--inset-top);
+	}
+	/* a distinct accent per event type so the schedule reads apart at a glance */
+	.event-card[data-etype="multiDay"] {
+		--cat: var(--gold-mid);
+	}
+	.event-card[data-etype="span"] {
+		--cat: var(--blue-9, var(--gold-mid));
+	}
+	.event-card[data-etype="allDay"] {
+		--cat: var(--green-9, var(--gold-mid));
+	}
+	.event-card[data-etype="mark"] {
+		--cat: var(--red-9, var(--gold-mid));
+	}
+
+	.event-card__type {
+		display: inline-block;
+		margin-bottom: 0.2rem;
+		font-size: 0.66rem;
+		font-weight: 800;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+	}
+	.event-card__name {
+		margin: 0 0 0.3rem;
+		font-size: 0.94rem;
+		line-height: 1.35;
+		font-weight: 650;
+		color: var(--ink);
+	}
+	.event-card__when {
+		font-size: 0.82rem;
+		line-height: 1.5;
+		color: var(--ink-soft);
+	}
+	.event-card__when time {
+		white-space: nowrap;
+	}
+	.event-card__arrow {
+		margin: 0 0.25rem;
+		color: var(--ink-faint);
+	}
+</style>
+
+<script>
+	import { formatJst } from "@hiroba/ui/format-date";
+
+	// Relocalize timed events to the viewer's zone (date-granular events stay in
+	// JST). Matches the treatment of the inline rt-time annotations.
+	for (const el of document.querySelectorAll<HTMLTimeElement>(
+		".events-rail time[data-etype]",
+	)) {
+		const type = el.dataset.etype;
+		if (type === "multiDay" || type === "allDay") continue;
+		const dt = el.getAttribute("datetime");
+		if (!dt) continue;
+		const date = new Date(dt);
+		if (Number.isNaN(date.getTime())) continue;
+		el.title = `${formatJst(date)} JST`;
+		el.textContent = date.toLocaleString("en-US", {
+			year: "numeric",
+			month: "short",
+			day: "numeric",
+			hour: "numeric",
+			minute: "2-digit",
+		});
+	}
+</script>
