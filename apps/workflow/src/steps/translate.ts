@@ -25,12 +25,14 @@ import {
 } from '@hiroba/db';
 import {
   parseTranslation,
+  reconcileAttributes,
   serializeForTranslation,
   type Block,
 } from '@hiroba/richtext';
 
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import type { TranslateResult } from '../types';
+import { logReconciliation } from './reconcile-log';
 
 const TARGET_LANGUAGE = 'en';
 
@@ -171,6 +173,12 @@ export async function translateAndSave(
 
     // A mangled response that parses to an empty body → keep JA.
     if (result && result.blocks.length > 0) {
+      // The LLM is only meant to rewrite text; restore any non-linguistic
+      // attribute (image/link URLs, colors, variants…) it drifted from the JA.
+      logReconciliation(
+        `News ${itemId}`,
+        reconcileAttributes(blocks, result.blocks),
+      );
       await upsertTranslation(db, {
         itemType: 'news',
         itemId,

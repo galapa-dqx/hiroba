@@ -27,6 +27,7 @@ import {
   collectImages,
   imageKey,
   parseTranslation,
+  reconcileAttributes,
   serializeForTranslation,
   type Block,
 } from '@hiroba/richtext';
@@ -34,6 +35,7 @@ import { hasJapanese } from '@hiroba/shared';
 
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import type { TranslateResult } from '../types';
+import { logReconciliation } from './reconcile-log';
 
 const TARGET_LANGUAGE = 'en';
 
@@ -148,6 +150,10 @@ export async function translateTopic(
     await markFailed('translated body was empty');
     return { success: false, fieldsTranslated: 0 };
   }
+
+  // The LLM is only meant to rewrite text; restore any non-linguistic attribute
+  // (image/link URLs, colors, variants…) it drifted, using the JA tree as truth.
+  logReconciliation(topicId, reconcileAttributes(blocks, result.blocks));
 
   // Pull the translated image spans out into per-image translation rows. The two
   // trees share structure, so images line up by index.
