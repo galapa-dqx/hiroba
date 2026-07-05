@@ -1,0 +1,162 @@
+---
+/**
+ * ArticlePage — the shared shell of the news and topic detail pages: header
+ * (meta line + title), processing callout with live SSE progress, the article
+ * body beside its events rail, the translation footer, and the back link.
+ *
+ * The pages differ only in how they load their data; everything rendered runs
+ * through here. The body displays only once the pipeline has settled (`ready`)
+ * — until then the callout shows `statusText` and the SSE stream drives
+ * progress updates and the reload on completion.
+ */
+import type { EventWithTitle } from "@hiroba/db";
+import type { Category } from "@hiroba/shared";
+import Rosette from "@hiroba/ui/Rosette.astro";
+import Ornament from "@hiroba/ui/Ornament.astro";
+import Layout from "../layouts/Layout.astro";
+import EventsRail from "./EventsRail.astro";
+import LocalTime from "./LocalTime.astro";
+import "../styles/article-body.css";
+
+interface Props {
+	title: string;
+	/** News category — themes the shell and highlights the nav tab. Topics omit
+	 *  it and fall back to the gilt `topic` identity. */
+	category?: Category;
+	itemType: "news" | "topic";
+	itemId: string;
+	/** Whether the pipeline has settled enough to show the body. */
+	ready: boolean;
+	/** Processing-callout text for the current pipeline state. */
+	statusText: string;
+	contentHtml: string;
+	events: EventWithTitle[];
+	/** The source article on hiroba.dqx.jp. */
+	originalUrl: string;
+	/** When the displayed translation landed (epoch ms) — omitted while raw. */
+	translatedAtMs?: number | null;
+	backHref: string;
+	backLabel: string;
+}
+
+const {
+	title,
+	category,
+	itemType,
+	itemId,
+	ready,
+	statusText,
+	contentHtml,
+	events,
+	originalUrl,
+	translatedAtMs,
+	backHref,
+	backLabel,
+} = Astro.props;
+
+const sseUrl = `/api/${itemType === "topic" ? "topics" : "news"}/${itemId}/sse`;
+const originalNoun = itemType === "topic" ? "topic" : "article";
+---
+
+<Layout title={title} category={category}>
+	<article data-cat={category ?? "topic"}>
+		<header class="article-header">
+			<div class="meta">
+				<slot name="meta" />
+			</div>
+			<h1 class="article-title">{title}</h1>
+		</header>
+
+		{!ready && (
+			<div class="callout callout--busy" id="processing-notice" data-sse-url={sseUrl} role="status">
+				<Rosette class="callout__glyph" />
+				<p id="processing-status">{statusText}</p>
+			</div>
+		)}
+
+		{ready && contentHtml && (
+			<div class="article-grid">
+				<div class="scroll">
+					<div class="scroll__content article-body" set:html={contentHtml} />
+				</div>
+				<EventsRail events={events} />
+			</div>
+		)}
+
+		<footer class="translation-info">
+			<Ornament />
+			{translatedAtMs && (
+				<p>Translated on <LocalTime epochMs={translatedAtMs} mode="date" /></p>
+			)}
+			<a
+				class="pill pill--ghost"
+				href={originalUrl}
+				target="_blank"
+				rel="noopener noreferrer">View original {originalNoun} ↗</a
+			>
+		</footer>
+
+		<nav class="back-link">
+			<a href={backHref} class="pill pill--ghost">‹ {backLabel}</a>
+		</nav>
+	</article>
+</Layout>
+
+<style>
+	.article-header {
+		margin-bottom: 1.4rem;
+	}
+	.article-title {
+		font-size: clamp(1.7rem, 1.25rem + 2.4vw, 2.5rem);
+		line-height: 1.22;
+	}
+	.callout {
+		margin-bottom: 1.5rem;
+	}
+	/* article body with the events panel stacked full-width beneath it */
+	.article-grid {
+		display: grid;
+		gap: 1.5rem;
+	}
+	.translation-info {
+		margin-top: 2.4rem;
+		text-align: center;
+		color: var(--ink-faint);
+		font-size: 0.9rem;
+	}
+	.translation-info p {
+		margin: 1rem 0;
+	}
+</style>
+
+<script>
+	import { describeSnapshot } from "@hiroba/shared";
+	import "../scripts/localize-times";
+
+	const notice = document.getElementById("processing-notice");
+	if (notice?.dataset.sseUrl) {
+		const statusEl = document.getElementById("processing-status");
+		const evtSource = new EventSource(notice.dataset.sseUrl);
+
+		evtSource.onmessage = (event) => {
+			const data = JSON.parse(event.data);
+			if (data.type === "state" && statusEl) {
+				statusEl.textContent = describeSnapshot(data.snapshot);
+			}
+			if (data.type === "complete") {
+				evtSource.close();
+				notice.classList.remove("callout--busy");
+				notice.classList.add("callout--complete");
+				if (statusEl) statusEl.textContent = "Done! Reloading…";
+				setTimeout(() => location.reload(), 500);
+			}
+			if (data.type === "error") {
+				evtSource.close();
+				notice.classList.remove("callout--busy");
+				notice.classList.add("callout--error");
+				if (statusEl) statusEl.textContent = `Error: ${data.error || "Unknown error"}`;
+			}
+		};
+		evtSource.onerror = () => evtSource.close();
+	}
+</script>

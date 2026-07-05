@@ -1,0 +1,40 @@
+---
+/**
+ * LocalTime — a <time> element for an instant, rewritten into the viewer's
+ * local timezone on the client. The server renders the JST value as a no-JS
+ * baseline (the source publishes in JST); the colocated inline script runs
+ * during parse, so there's no flash of the unlocalized value.
+ */
+
+interface Props {
+	/** The instant, as epoch milliseconds (Temporal.Instant.epochMilliseconds). */
+	epochMs: number;
+	/** 'date' renders a calendar date; 'datetime' adds the time of day. */
+	mode?: "date" | "datetime";
+}
+
+const { epochMs, mode = "datetime" } = Astro.props;
+
+const options: Intl.DateTimeFormatOptions = {
+	year: "numeric",
+	month: "long",
+	day: "numeric",
+	...(mode === "datetime" ? { hour: "numeric", minute: "2-digit" } : {}),
+};
+const baseline = new Date(epochMs).toLocaleString("en-US", {
+	...options,
+	timeZone: "Asia/Tokyo",
+});
+---
+
+<time datetime={new Date(epochMs).toISOString()}
+	>{baseline}<script define:vars={{ epochMs, mode }}>
+		const el = document.currentScript.parentElement;
+		el.textContent = new Date(epochMs).toLocaleString("en-US", {
+			year: "numeric",
+			month: "long",
+			day: "numeric",
+			...(mode === "datetime" ? { hour: "numeric", minute: "2-digit" } : {}),
+		});
+	</script></time
+>

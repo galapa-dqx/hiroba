@@ -1028,6 +1028,13 @@ a.chip:hover {
   --cat-soft: var(--red-3);
   --cat-line: var(--red-7);
 }
+/* Topics have no news category — they get a distinct gilt identity. */
+[data-cat='topic'] {
+  --cat: var(--gold-mid);
+  --cat-ink: var(--gold-ink);
+  --cat-soft: var(--yellow-3);
+  --cat-line: var(--gold-edge);
+}
 
 /* ============================================================================
  * 7. Responsive + motion

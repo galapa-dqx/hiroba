@@ -1,12 +1,10 @@
 ---
-import Layout from "../../layouts/Layout.astro";
-import "../../styles/article-body.css";
-import Rosette from "@hiroba/ui/Rosette.astro";
-import Ornament from "@hiroba/ui/Ornament.astro";
-import EventsRail from "../../components/EventsRail.astro";
-import { computeSnapshot, createDb, getArticleTranslations, getEventsForSource, getImagesByKeys, getImageTranslations, getTopic } from "@hiroba/db";
-import { collectImages, imageKey, renderBlocks, rewriteArticleHref, rewriteImageSrc, type Block } from "@hiroba/richtext";
+import ArticlePage from "../../components/ArticlePage.astro";
+import LocalTime from "../../components/LocalTime.astro";
+import { computeSnapshot, createDb, getArticleTranslations, getEventsForSource, getTopic } from "@hiroba/db";
+import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
+import { hydrateArticleImages } from "../../lib/article-images";
 import { triggerWorkflow } from "../../lib/workflow";
 
 const { id } = Astro.params;
@@ -17,9 +15,10 @@ if (!id) {
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
 
+// fetch-body creates the row, so a never-seen id is valid — no 404.
 const topic = await getTopic(db, id);
-const { title: enTitle, blocks: enBlocks } = await getArticleTranslations(db, "topic", id, "en");
 
+const { title: enTitle, blocks: enBlocks, translatedAt } = await getArticleTranslations(db, "topic", id, "en");
 const isTranslated = !!enBlocks;
 
 // The article displays only once its pipeline has settled — fetched, translated,
@@ -28,9 +27,9 @@ const isTranslated = !!enBlocks;
 const snapshot = await computeSnapshot(db, "topic", id, "en");
 const ready = isSnapshotSettled(snapshot);
 
-// Fire the topics pipeline unless everything already finished cleanly — a
+// Fire the pipeline unless everything already finished cleanly — a
 // degraded-but-settled article displays now and retries its failures in the
-// background. (fetch-body creates the row, so a never-seen id is valid — no 404.)
+// background.
 if (!isSnapshotComplete(snapshot)) {
 	triggerWorkflow(runtime, "topic", id);
 }
@@ -38,164 +37,31 @@ if (!isSnapshotComplete(snapshot)) {
 const title = enTitle ?? topic?.titleJa ?? "Loading topic…";
 const blocks: Block[] = enBlocks ?? (topic?.blocksJa as Block[] | null) ?? [];
 
-// Hydrate each image's transient `text` with the displayed language's spans, so
-// renderBlocks can put it on the image as alt (image text lives in the images /
-// translations tables, not the block tree). EN prefers the translated spans and
-// falls back to the JA transcription.
-const imgs = collectImages(blocks);
-const imgKeys = [...new Set(imgs.map((i) => imageKey(i.src)).filter((k): k is string => !!k))];
-// Keys whose localized (l10n/en) image actually exists. Only these get the l10n
-// base below — an image that wasn't localized (no Japanese, or not done yet)
-// keeps its original URL, so a browser never caches the original under an l10n
-// URL and then keeps serving it after the localized version lands.
-const localizedKeys = new Set<string>();
-if (imgKeys.length > 0) {
-	const rows = await getImagesByKeys(db, imgKeys);
-	const byKey = new Map(rows.map((r) => [r.key, r]));
-	const ids = rows.map((r) => r.id);
-	const enText = isTranslated
-		? await getImageTranslations(db, ids, "en", "text")
-		: new Map<number, string>();
-	const enUrl = isTranslated
-		? await getImageTranslations(db, ids, "en", "url")
-		: new Map<number, string>();
-	for (const row of rows) if (enUrl.has(row.id)) localizedKeys.add(row.key);
-	for (const img of imgs) {
-		const key = imageKey(img.src);
-		const row = key ? byKey.get(key) : undefined;
-		const en = row && isTranslated ? enText.get(row.id) : undefined;
-		const spans = en ? (JSON.parse(en) as string[]) : (row?.textsJa ?? undefined);
-		if (spans && spans.length) img.text = spans;
-		else delete img.text;
-	}
-}
-
-// Serve English-localized images from the l10n/en/<key> object, but only for the
-// images we actually localized; everything else (icons, text-free art, images
-// not yet localized) keeps the original URL. Originals may come from a bucket
-// custom-domain via IMAGE_BASE. The /img route still falls back to the original
-// for a stray l10n request, but we no longer emit one for an unlocalized image.
-const originalBase = runtime.env.IMAGE_BASE ?? "/img";
-const imageSrc = (src: string): string => {
-	const key = imageKey(src);
-	const base = isTranslated && key && localizedKeys.has(key) ? "/img/l10n/en" : originalBase;
-	return rewriteImageSrc(src, base);
-};
+const imageSrc = await hydrateArticleImages(db, blocks, {
+	isTranslated,
+	imageBase: runtime.env.IMAGE_BASE,
+});
 const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHref });
 
 // Events extracted from this topic (only meaningful once the body is shown).
 const events = ready ? await getEventsForSource(db, "topic", id, "en") : [];
 ---
 
-<Layout title={title}>
-	{/* Topics have no category — give them a distinct gilt identity via --cat*. */}
-	<article
-		class="topic"
-		style="--cat: var(--gold-mid); --cat-ink: var(--gold-ink); --cat-soft: var(--yellow-3); --cat-line: var(--gold-edge);"
-	>
-		<header class="article-header">
-			<div class="meta">
-				<span class="chip">Topic</span>
-				{topic && (
-					<time datetime={topic.publishedAt.toString()}>
-						<script define:vars={{ publishedAt: topic.publishedAt.epochMilliseconds }}>
-							const timeEl = document.currentScript.parentElement;
-							timeEl.textContent = new Date(publishedAt).toLocaleDateString("en-US", {
-								year: "numeric",
-								month: "long",
-								day: "numeric",
-							});
-						</script>
-					</time>
-				)}
-			</div>
-			<h1 class="article-title">{title}</h1>
-		</header>
-
-		{!ready && (
-			<div class="callout callout--busy" id="processing-notice" data-item-id={id} role="status">
-				<Rosette class="callout__glyph" />
-				<p id="processing-status">{describeSnapshot(snapshot)}</p>
-			</div>
-		)}
-
-		{ready && contentHtml && (
-			<div class="article-grid">
-				<div class="scroll">
-					<div class="scroll__content article-body" set:html={contentHtml} />
-				</div>
-				<EventsRail events={events} />
-			</div>
-		)}
-
-		<footer class="translation-info">
-			<Ornament />
-			<a
-				class="pill pill--ghost"
-				href={`https://hiroba.dqx.jp/sc/topics/detail/${id}/`}
-				target="_blank"
-				rel="noopener noreferrer">View original topic ↗</a
-			>
-		</footer>
-
-		<nav class="back-link">
-			<a href="/topics" class="pill pill--ghost">‹ Back to topics</a>
-		</nav>
-	</article>
-</Layout>
-
-<style>
-	.article-header {
-		margin-bottom: 1.4rem;
-	}
-	.article-title {
-		font-size: clamp(1.7rem, 1.25rem + 2.4vw, 2.5rem);
-		line-height: 1.22;
-	}
-	.callout {
-		margin-bottom: 1.5rem;
-	}
-	/* article body with the events panel stacked full-width beneath it */
-	.article-grid {
-		display: grid;
-		gap: 1.5rem;
-	}
-	.translation-info {
-		margin-top: 2.4rem;
-		text-align: center;
-		color: var(--ink-faint);
-		font-size: 0.9rem;
-	}
-</style>
-
-
-<script>
-	import { describeSnapshot } from "@hiroba/shared";
-	import "../../scripts/localize-times";
-
-	const notice = document.getElementById("processing-notice");
-	if (notice) {
-		const itemId = notice.dataset.itemId;
-		const statusEl = document.getElementById("processing-status");
-		const evtSource = new EventSource(`/api/topics/${itemId}/sse`);
-
-		evtSource.onmessage = (event) => {
-			const data = JSON.parse(event.data);
-			if (data.type === "state" && statusEl) statusEl.textContent = describeSnapshot(data.snapshot);
-			if (data.type === "complete") {
-				evtSource.close();
-				notice.classList.remove("callout--busy");
-				notice.classList.add("callout--complete");
-				if (statusEl) statusEl.textContent = "Done! Reloading…";
-				setTimeout(() => location.reload(), 500);
-			}
-			if (data.type === "error") {
-				evtSource.close();
-				notice.classList.remove("callout--busy");
-				notice.classList.add("callout--error");
-				if (statusEl) statusEl.textContent = `Error: ${data.error || "Unknown error"}`;
-			}
-		};
-		evtSource.onerror = () => evtSource.close();
-	}
-</script>
+<ArticlePage
+	title={title}
+	itemType="topic"
+	itemId={id}
+	ready={ready}
+	statusText={describeSnapshot(snapshot)}
+	contentHtml={contentHtml}
+	events={events}
+	originalUrl={`https://hiroba.dqx.jp/sc/topics/detail/${id}/`}
+	translatedAtMs={translatedAt?.epochMilliseconds}
+	backHref="/topics"
+	backLabel="Back to topics"
+>
+	<Fragment slot="meta">
+		<span class="chip">Topic</span>
+		{topic && <LocalTime epochMs={topic.publishedAt.epochMilliseconds} mode="date" />}
+	</Fragment>
+</ArticlePage>
