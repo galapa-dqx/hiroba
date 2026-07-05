@@ -41,7 +41,7 @@ export type WorkflowBinding<T = unknown> = {
  */
 export type Env = {
   DB: D1Database;
-  /** R2 bucket mirroring topic images. */
+  /** R2 bucket mirroring article images. */
   IMAGES_BUCKET: R2Bucket;
   /** Cloudflare Images binding — transcode/normalize before gpt-image-2. */
   IMAGES: ImagesBinding;
@@ -49,29 +49,29 @@ export type Env = {
   GEMINI_API_KEY: string;
   SENTRY_DSN: string;
   WORKFLOW_MANAGER: DurableObjectNamespace;
-  NEWS_WORKFLOW: WorkflowBinding<NewsWorkflowParams>;
-  TOPICS_WORKFLOW: WorkflowBinding<TopicsWorkflowParams>;
+  /** The unified news+topics pipeline (item type carried in the params). */
+  ARTICLE_WORKFLOW: WorkflowBinding<ArticleWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
 };
 
-/** Which pipeline a WorkflowManager DO coordinates. */
+/** Which pipeline an item flows through — also its event source_type. */
 export type ItemType = 'news' | 'topic';
 
 /**
- * Parameters passed to the NewsWorkflow.
+ * Parameters passed to the ArticleWorkflow. `itemType` selects which table the
+ * steps read/write; the two never collide (the DO is namespaced per type).
  */
-export type NewsWorkflowParams = {
+export type ArticleWorkflowParams = {
   itemId: string;
+  itemType: ItemType;
 };
 
-/**
- * Result of the fetch-body step.
- */
+/** Result of the fetch-body step (scrape + parse → blocks_ja). */
 export type FetchBodyResult = {
   success: boolean;
-  contentLength?: number;
+  blockCount: number;
 };
 
 /**
@@ -80,6 +80,11 @@ export type FetchBodyResult = {
 export type ExtractEventsResult = {
   count: number;
   eventIds: string[];
+};
+
+/** Result of the transcribe-images step. */
+export type TranscribeResult = {
+  imagesTranscribed: number;
 };
 
 /**
@@ -91,40 +96,15 @@ export type TranslateResult = {
 };
 
 /**
- * Overall workflow output.
+ * Overall ArticleWorkflow output. The presence of successive keys tracks
+ * progress (fetch → extract → mirror → transcribe → translate → localize); the
+ * image steps report zero totals for image-free items (news).
  */
-export type NewsWorkflowOutput = {
+export type ArticleWorkflowOutput = {
   itemId: string;
+  itemType: ItemType;
   fetchBody: FetchBodyResult;
   extractEvents: ExtractEventsResult;
-  translate: TranslateResult;
-};
-
-/**
- * Parameters passed to the TopicsWorkflow.
- */
-export type TopicsWorkflowParams = {
-  itemId: string;
-};
-
-/** Result of the topics fetch-body step (scrape + parse → blocks_ja). */
-export type FetchTopicResult = {
-  success: boolean;
-  blockCount: number;
-};
-
-/** Result of the transcribe-images step. */
-export type TranscribeResult = {
-  imagesTranscribed: number;
-};
-
-/**
- * Overall TopicsWorkflow output. The presence of successive keys drives SSE
- * progress messages (fetch → mirror → transcribe → translate → localize).
- */
-export type TopicsWorkflowOutput = {
-  itemId: string;
-  fetchBody: FetchTopicResult;
   mirror: MirrorResult;
   transcribe: TranscribeResult;
   translate: TranslateResult;

@@ -1,5 +1,6 @@
 /**
- * Extract events step - Use the LLM to extract calendar events from news content.
+ * Extract events step - Use the LLM to extract calendar events from an article
+ * (news item or topic).
  *
  * Reads blocks_ja from D1, serializes the block tree to RTML (the same
  * structured input the translate step uses), and calls Gemini with the
@@ -13,11 +14,12 @@ import { eq } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 import { z } from 'zod';
 
-import { events, newsItems, type Database, type EventType } from '@hiroba/db';
+import { events, type Database, type EventType } from '@hiroba/db';
 import { serializeToRtml, type Block } from '@hiroba/richtext';
 
+import { getArticle } from '../article';
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
-import type { ExtractEventsResult } from '../types';
+import type { ExtractEventsResult, ItemType } from '../types';
 
 // Event extraction prompt (loaded inline to avoid file system reads in worker)
 const EXTRACTION_PROMPT = `# Event Extraction
@@ -263,6 +265,7 @@ const MAX_DAYS_AFTER_PUB = 540; // ~18 months out
  */
 function toDbEvent(
   event: ExtractedEvent,
+  sourceType: ItemType,
   sourceId: string,
   now: Temporal.Instant,
 ): {
@@ -278,7 +281,7 @@ function toDbEvent(
   const base = {
     id: generateEventId(event, sourceId),
     titleJa: event.title,
-    sourceType: 'news',
+    sourceType,
     sourceId,
     createdAt: now,
   };
@@ -376,32 +379,26 @@ async function extractEventsFromContent(
 }
 
 /**
- * Extract and save events for a news item.
+ * Extract and save events for an article (news item or topic).
  *
  * @param db - Database client
  * @param apiKey - Gemini API key
- * @param itemId - News item ID
+ * @param itemType - 'news' | 'topic' (also the event's source_type)
+ * @param itemId - Source item ID
  * @returns Result with count of events extracted and their IDs
  */
 export async function extractAndSaveEvents(
   db: Database,
   apiKey: string,
+  itemType: ItemType,
   itemId: string,
 ): Promise<ExtractEventsResult> {
-  // Get the block tree from D1
-  const item = await db
-    .select({
-      titleJa: newsItems.titleJa,
-      blocksJa: newsItems.blocksJa,
-      publishedAt: newsItems.publishedAt,
-    })
-    .from(newsItems)
-    .where(eq(newsItems.id, itemId))
-    .get();
+  // Get the block tree from D1 (news item or topic — same body shape).
+  const item = await getArticle(db, itemType, itemId);
 
   const blocks = (item?.blocksJa ?? []) as Block[];
   if (!item || blocks.length === 0) {
-    console.error(`No content found for item ${itemId}`);
+    console.error(`No content found for ${itemType} ${itemId}`);
     return { count: 0, eventIds: [] };
   }
 
@@ -426,7 +423,7 @@ export async function extractAndSaveEvents(
   const eventIds: string[] = [];
 
   for (const event of extractedEvents) {
-    const dbEvent = toDbEvent(event, itemId, now);
+    const dbEvent = toDbEvent(event, itemType, itemId, now);
     eventIds.push(dbEvent.id);
 
     await db

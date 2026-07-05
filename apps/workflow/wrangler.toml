@@ -44,17 +44,14 @@ bindings = [
 tag = "v1"
 new_classes = ["WorkflowManager"]
 
-# Cloudflare Workflow for news processing
+# Cloudflare Workflow for the unified article pipeline (news + topics):
+# fetch-body → extract-events → mirror-images → transcribe-images → translate →
+# localize-images. The image steps no-op for image-free items (news); the item
+# type travels in the workflow params.
 [[workflows]]
-name = "news-workflow"
-binding = "NEWS_WORKFLOW"
-class_name = "NewsWorkflow"
-
-# Cloudflare Workflow for topics processing (parse → transcribe → translate)
-[[workflows]]
-name = "topics-workflow"
-binding = "TOPICS_WORKFLOW"
-class_name = "TopicsWorkflow"
+name = "article-workflow"
+binding = "ARTICLE_WORKFLOW"
+class_name = "ArticleWorkflow"
 
 # Scheduled triggers:
 # - Hourly news refresh (first page of each category)

@@ -1,10 +1,11 @@
 /**
  * WorkflowManager - Durable Object for coordinating workflow operations.
  *
- * Handles both the news and topics pipelines: the trigger payload carries an
- * `itemType` ('news' | 'topic') selecting which workflow binding to drive. The
- * DO is namespaced per (itemType, itemId) by the caller, so news and topic ids
- * (both 32-char hex) never collide.
+ * Handles both the news and topics pipelines, which share one ArticleWorkflow
+ * binding: the trigger payload carries an `itemType` ('news' | 'topic'), passed
+ * through as a workflow param (the steps use it to pick the backing table) and
+ * used to compute pipeline snapshots. The DO is namespaced per (itemType,
+ * itemId) by the caller, so news and topic ids (both 32-char hex) never collide.
  *
  * Responsibilities:
  * - Stream SSE progress updates to connected clients
@@ -28,19 +29,13 @@ import {
   type StateSnapshot,
 } from '@hiroba/shared';
 
-import type { Env, ItemType, WorkflowBinding } from './types';
+import type { Env, ItemType } from './types';
 
 type Active = { instanceId: string; itemType: ItemType };
 
 export class WorkflowManager extends DurableObject<Env> {
   /** Track active workflow instances by item ID. */
   private activeWorkflows = new Map<string, Active>();
-
-  private workflowFor(itemType: ItemType): WorkflowBinding<{ itemId: string }> {
-    return itemType === 'topic'
-      ? this.env.TOPICS_WORKFLOW
-      : this.env.NEWS_WORKFLOW;
-  }
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -127,7 +122,7 @@ export class WorkflowManager extends DurableObject<Env> {
             return;
           }
 
-          const workflow = this.workflowFor(active.itemType);
+          const workflow = this.env.ARTICLE_WORKFLOW;
           const pollInterval = 1000;
           const maxPolls = 300; // 5 minutes
 
@@ -191,7 +186,7 @@ export class WorkflowManager extends DurableObject<Env> {
       return Response.json({ error: 'itemId required' }, { status: 400 });
     }
 
-    const workflow = this.workflowFor(itemType);
+    const workflow = this.env.ARTICLE_WORKFLOW;
 
     // Skip if already processing.
     const existing = this.activeWorkflows.get(itemId);
@@ -206,7 +201,7 @@ export class WorkflowManager extends DurableObject<Env> {
       }
     }
 
-    const instance = await workflow.create({ params: { itemId } });
+    const instance = await workflow.create({ params: { itemId, itemType } });
     this.activeWorkflows.set(itemId, { instanceId: instance.id, itemType });
     return Response.json({ status: 'started', instanceId: instance.id });
   }
@@ -217,9 +212,7 @@ export class WorkflowManager extends DurableObject<Env> {
     if (!active) return Response.json({ status: 'idle' });
 
     try {
-      const instance = await this.workflowFor(active.itemType).get(
-        active.instanceId,
-      );
+      const instance = await this.env.ARTICLE_WORKFLOW.get(active.instanceId);
       const status = await instance.status();
       return Response.json({
         status: status.status,

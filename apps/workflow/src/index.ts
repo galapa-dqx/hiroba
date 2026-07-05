@@ -1,10 +1,10 @@
 /**
- * Workflow worker for news processing pipeline.
+ * Workflow worker for the article processing pipeline (news + topics).
  *
  * Contains:
- * - WorkflowManager DO: WebSocket + workflow coordination
- * - NewsWorkflow: Multi-step processing pipeline
- * - Cron handlers: Hourly news refresh, daily glossary refresh
+ * - WorkflowManager DO: SSE + workflow coordination
+ * - ArticleWorkflow: unified multi-step processing pipeline
+ * - Cron handlers: hourly news + topics refresh, daily glossary refresh
  */
 
 import * as Sentry from '@sentry/cloudflare';
@@ -30,8 +30,7 @@ import type { Env } from './types';
 
 // Export the Durable Object and Workflow classes
 export { WorkflowManager } from './workflow-manager';
-export { NewsWorkflow } from './news-workflow';
-export { TopicsWorkflow } from './topics-workflow';
+export { ArticleWorkflow } from './article-workflow';
 
 export default Sentry.withSentry(
   (env: Env) => ({
@@ -242,7 +241,8 @@ async function refreshNews(db: Database, env: Env, log: Logger): Promise<void> {
 
 /**
  * Refresh topics by scraping the current (not-yet-archived) listing page.
- * Seeds Phase-1 metadata and triggers the TopicsWorkflow for each new topic.
+ * Seeds Phase-1 metadata and triggers the ArticleWorkflow (itemType='topic')
+ * for each new topic.
  *
  * Note: the first run after deploy (empty topics table) will treat the whole
  * current month as new and trigger a small burst of pipelines; steady state is
