@@ -1,5 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
+import "../../styles/article-body.css";
 import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import CategoryDot from "@hiroba/ui/CategoryDot.astro";
@@ -122,7 +123,7 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 		{contentHtml && (
 			<div class="article-grid">
 				<div class="scroll">
-					<div class="scroll__content news-body" set:html={contentHtml} />
+					<div class="scroll__content article-body" set:html={contentHtml} />
 				</div>
 				<EventsRail events={events} />
 			</div>
@@ -180,158 +181,6 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 	}
 </style>
 
-{/* The rendered block tree is injected via set:html, so its rt-* styles must be
-    global. News bodies are paragraphs + links, but we cover the common blocks. */}
-<style is:global>
-	/* Structured HTML (not the old preformatted plaintext) — collapse whitespace. */
-	.news-body {
-		white-space: normal;
-	}
-	.news-body > * + * {
-		margin-top: 1rem;
-	}
-	.news-body img {
-		max-width: 100%;
-		height: auto;
-	}
-
-	/* captioned image → centered figure with a manuscript caption beneath */
-	.news-body .rt-figure {
-		margin: 1.25rem auto;
-		text-align: center;
-	}
-	.news-body .rt-caption {
-		display: block;
-		max-width: 46ch;
-		margin: 0.55rem auto 0;
-		font-size: 0.9em;
-		line-height: 1.5;
-		color: var(--ink-faint);
-		text-wrap: balance;
-	}
-
-	/* the source's box_terms box — a gilt frame shared by the TOC nav and the
-	   plain terms/spec boxes (they're the same decorative box in the source) */
-	.news-body .rt-toc,
-	.news-body .rt-infobox[data-variant="terms"] {
-		margin: 1.5rem auto;
-		padding: 0.95rem 1.25rem 1.05rem;
-		background: linear-gradient(
-			180deg,
-			color-mix(in oklch, var(--surface-panel), var(--gold) 4%),
-			color-mix(in oklch, var(--surface-sunken), var(--gold) 8%)
-		);
-		border: 1px solid var(--gold-edge);
-		box-shadow:
-			var(--inset-top),
-			var(--shadow-sm),
-			inset 0 0 0 3px color-mix(in oklch, var(--gold) 20%, transparent);
-	}
-	.news-body .rt-toc > p:first-child {
-		margin: 0 0 0.65rem;
-		text-align: center;
-		font-family: var(--font-display);
-		font-size: 1.15rem;
-		font-weight: 700;
-		color: var(--ink);
-	}
-	.news-body .rt-toc ul {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-	}
-	.news-body .rt-toc li {
-		display: flex;
-		align-items: baseline;
-		gap: 0.5rem;
-		padding: 0.2rem 0;
-	}
-	.news-body .rt-toc li::before {
-		content: "";
-		flex: none;
-		align-self: center;
-		width: 0.6em;
-		height: 0.6em;
-		background: linear-gradient(150deg, var(--gold-hi), var(--gold) 50%, var(--gold-edge));
-		clip-path: polygon(50% 0, 100% 38%, 82% 100%, 18% 100%, 0 38%);
-		filter: drop-shadow(0 1px 0.5px oklch(0% 0 0 / 0.3));
-	}
-	.news-body .rt-toc a {
-		font-weight: 600;
-	}
-
-	/* table → ruled ledger */
-	.news-body .rt-table {
-		border-collapse: collapse;
-		width: 100%;
-		font-size: 0.94em;
-	}
-	.news-body .rt-table td,
-	.news-body .rt-table th {
-		border: 1px solid var(--rule);
-		padding: 0.45rem 0.65rem;
-		text-align: left;
-	}
-	.news-body .rt-table th {
-		background: var(--surface-sunken);
-		font-weight: 650;
-	}
-
-	/* headerless single-column table → a clean borderless stack (layout, not data:
-	   e.g. the box_terms table of contents), so it reads as a list, not a ledger */
-	.news-body .rt-table[data-variant="layout"],
-	.news-body .rt-table[data-variant="layout"] tbody,
-	.news-body .rt-table[data-variant="layout"] tr,
-	.news-body .rt-table[data-variant="layout"] td {
-		display: block;
-		width: auto;
-		font-size: 1rem;
-	}
-	.news-body .rt-table[data-variant="layout"] td {
-		border: none;
-		padding: 0.1rem 0;
-	}
-	/* tighten the airy standalone-heading spacing when items are stacked in a TOC */
-	.news-body .rt-table[data-variant="layout"] :is(.rt-h-icon, h4) {
-		margin-top: 0.4rem;
-	}
-
-	/* badge → red chip */
-	.news-body .rt-badge {
-		display: inline-block;
-		margin-left: 0.3em;
-		padding: 0.08em 0.45em;
-		font-size: 0.72em;
-		font-weight: 800;
-		letter-spacing: 0.04em;
-		color: oklch(99% 0.01 30);
-		background: linear-gradient(180deg, var(--red-9), var(--red-10));
-		border-radius: var(--radius);
-	}
-	/* the "Check" mark (TOC entries) → a gilt chip, not the red "New" flag */
-	.news-body .rt-badge[data-variant="checkmark"] {
-		color: oklch(30% 0.05 70);
-		background: linear-gradient(180deg, var(--gold-hi), var(--gold-mid));
-	}
-
-	.news-body .rt-icon {
-		display: inline;
-		height: 1em;
-		vertical-align: -0.12em;
-	}
-
-	/* workflow-inserted event annotation → subtle gilt marker; the data-event-*
-	   attrs are the hook for future calendar linking */
-	.news-body .rt-event {
-		border-bottom: 1px dashed var(--gold-edge);
-	}
-	/* localized timestamps carry the original JST value in the title tooltip */
-	.news-body time.rt-time[title] {
-		cursor: help;
-		text-decoration: underline dotted var(--gold-edge);
-		text-underline-offset: 0.15em;
-	}
-</style>
 
 <script>
 	import { describeSnapshot } from "@hiroba/shared";
