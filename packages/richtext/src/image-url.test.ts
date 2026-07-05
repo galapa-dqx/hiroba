@@ -174,4 +174,20 @@ describe('collectImageUrls', () => {
       urls.filter((u) => u === 'https://cache.hiroba.dqx.jp/a.jpg'),
     ).toHaveLength(1);
   });
+
+  it('reaches icons inside image captions', () => {
+    const blocks: Block[] = [
+      {
+        type: 'image',
+        src: 'https://cache.hiroba.dqx.jp/banner.jpg',
+        caption: ['see ', { type: 'icon', src: '/dq_resource/cap.gif' }],
+      },
+    ];
+    expect(new Set(collectImageUrls(blocks))).toEqual(
+      new Set([
+        'https://cache.hiroba.dqx.jp/banner.jpg',
+        '/dq_resource/cap.gif',
+      ]),
+    );
+  });
 });

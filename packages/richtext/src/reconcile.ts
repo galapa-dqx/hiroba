@@ -26,7 +26,8 @@
  * are the translation's job and are never touched.
  */
 
-import { isBlock, type Block, type ContentNode, type Inline } from './schema';
+import type { Block, Inline } from './schema';
+import { walk } from './traverse';
 
 /** A node carrying a `type` discriminant (every node except bare-string text). */
 type TypedNode = Exclude<Inline, string> | Block;
@@ -85,84 +86,12 @@ export type ReconcileReport = {
   divergences: Divergence[];
 };
 
-/** Every typed node in a block tree, in document order (mirrors collectImageUrls). */
+/** Every typed node in a block tree, in document order (pre-order walk). */
 function collectTypedNodes(blocks: Block[]): TypedNode[] {
   const out: TypedNode[] = [];
-
-  const visitInline = (n: Inline): void => {
-    if (typeof n === 'string') return;
-    out.push(n);
-    switch (n.type) {
-      case 'strong':
-      case 'emphasis':
-      case 'color':
-      case 'link':
-        n.children.forEach(visitInline);
-        break;
-      default:
-        break; // break, badge, icon carry no child nodes
-    }
-  };
-
-  const visitContent = (n: ContentNode): void =>
-    isBlock(n) ? visitBlock(n) : visitInline(n);
-
-  const visitBlock = (node: Block): void => {
-    out.push(node);
-    switch (node.type) {
-      case 'paragraph':
-      case 'heading':
-      case 'button':
-        node.children.forEach(visitInline);
-        break;
-      case 'speechBubble':
-        node.children.forEach(visitContent);
-        break;
-      case 'section':
-        node.title?.forEach(visitInline);
-        node.dateline?.forEach(visitInline);
-        node.children.forEach(visitContent);
-        break;
-      case 'accordion':
-        node.summary.forEach(visitInline);
-        node.children.forEach(visitContent);
-        break;
-      case 'infoBox':
-      case 'messageBox':
-        node.children.forEach(visitContent);
-        break;
-      case 'list':
-        node.items.forEach((it) => it.children.forEach(visitContent));
-        break;
-      case 'table':
-        node.headers?.forEach((c) => c.children.forEach(visitContent));
-        node.rows.forEach((row) =>
-          row.forEach((c) => c.children.forEach(visitContent)),
-        );
-        break;
-      case 'interview':
-        node.exchanges.forEach((e) => {
-          e.question.forEach(visitInline);
-          e.answer.forEach(visitBlock);
-        });
-        break;
-      case 'steps':
-        node.items.forEach((s) => s.children.forEach(visitBlock));
-        break;
-      case 'ranking':
-        node.items.forEach((it) => it.title.forEach(visitInline));
-        break;
-      case 'image':
-        // A caption carries inline links/colors whose non-linguistic attrs (href,
-        // color value) still need reconciling after the translation round-trip.
-        node.caption?.forEach(visitInline);
-        break;
-      default:
-        break; // video, embed, divider carry no child nodes
-    }
-  };
-
-  blocks.forEach(visitBlock);
+  walk(blocks, (n) => {
+    if (typeof n !== 'string') out.push(n);
+  });
   return out;
 }
 

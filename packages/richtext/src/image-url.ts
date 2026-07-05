@@ -26,13 +26,8 @@
  * query rather than part of the object key).
  */
 
-import {
-  isBlock,
-  type Block,
-  type ContentNode,
-  type ImageNode,
-  type Inline,
-} from './schema';
+import type { Block, ImageNode } from './schema';
+import { walk } from './traverse';
 
 /** The canonical DQX CDN host that mirrors `/dq_resource` assets. */
 const CDN = 'cache.hiroba.dqx.jp';
@@ -104,44 +99,9 @@ export function rewriteImageSrc(src: string, base = '/img'): string {
  */
 export function collectImages(blocks: Block[]): ImageNode[] {
   const out: ImageNode[] = [];
-
-  const visitContent = (n: ContentNode) => {
-    if (isBlock(n)) visitBlock(n);
-  };
-
-  const visitBlock = (node: Block) => {
-    switch (node.type) {
-      case 'image':
-        out.push(node);
-        break;
-      case 'infoBox':
-      case 'section':
-      case 'accordion':
-      case 'speechBubble':
-      case 'messageBox':
-        node.children.forEach(visitContent);
-        break;
-      case 'list':
-        node.items.forEach((it) => it.children.forEach(visitContent));
-        break;
-      case 'table':
-        node.headers?.forEach((c) => c.children.forEach(visitContent));
-        node.rows.forEach((row) =>
-          row.forEach((c) => c.children.forEach(visitContent)),
-        );
-        break;
-      case 'interview':
-        node.exchanges.forEach((e) => e.answer.forEach(visitBlock));
-        break;
-      case 'steps':
-        node.items.forEach((s) => s.children.forEach(visitBlock));
-        break;
-      default:
-        break; // paragraph/heading/button/divider/video/embed/ranking hold no block images
-    }
-  };
-
-  blocks.forEach(visitBlock);
+  walk(blocks, (n) => {
+    if (typeof n !== 'string' && n.type === 'image') out.push(n);
+  });
   return out;
 }
 
@@ -152,85 +112,24 @@ export function collectImages(blocks: Block[]): ImageNode[] {
  */
 export function collectImageUrls(blocks: Block[]): string[] {
   const urls = new Set<string>();
-
-  const addImage = (img: ImageNode) => {
-    if (img.src) urls.add(img.src);
-    img.sources?.forEach((s) => s.src && urls.add(s.src));
-  };
-
-  const visitInline = (n: Inline) => {
+  // The walk reaches every node; this switch only picks out the ones whose
+  // *attributes* carry an image URL, so unlisted types are simply URL-free.
+  walk(blocks, (n) => {
     if (typeof n === 'string') return;
     switch (n.type) {
+      case 'image':
+        if (n.src) urls.add(n.src);
+        n.sources?.forEach((s) => s.src && urls.add(s.src));
+        break;
       case 'icon':
         if (n.src) urls.add(n.src);
         break;
-      case 'strong':
-      case 'emphasis':
-      case 'color':
-      case 'link':
-        n.children.forEach(visitInline);
-        break;
-      default:
-        break; // break, badge, text carry no image
-    }
-  };
-
-  const visitContent = (n: ContentNode) =>
-    isBlock(n) ? visitBlock(n) : visitInline(n);
-
-  const visitBlock = (node: Block) => {
-    switch (node.type) {
-      case 'image':
-        addImage(node);
-        break;
-      case 'paragraph':
-      case 'heading':
-      case 'button':
-        node.children.forEach(visitInline);
-        break;
       case 'speechBubble':
-        if (node.icon) urls.add(node.icon);
-        node.children.forEach(visitContent);
-        break;
-      case 'section':
-        node.title?.forEach(visitInline);
-        node.dateline?.forEach(visitInline);
-        node.children.forEach(visitContent);
-        break;
-      case 'accordion':
-        node.summary.forEach(visitInline);
-        node.children.forEach(visitContent);
-        break;
-      case 'infoBox':
-      case 'messageBox':
-        node.children.forEach(visitContent);
-        break;
-      case 'list':
-        node.items.forEach((it) => it.children.forEach(visitContent));
-        break;
-      case 'table':
-        node.headers?.forEach((c) => c.children.forEach(visitContent));
-        node.rows.forEach((row) =>
-          row.forEach((c) => c.children.forEach(visitContent)),
-        );
-        break;
-      case 'interview':
-        node.exchanges.forEach((e) => {
-          e.question.forEach(visitInline);
-          e.answer.forEach(visitBlock);
-        });
-        break;
-      case 'steps':
-        node.items.forEach((s) => s.children.forEach(visitBlock));
-        break;
-      case 'ranking':
-        node.items.forEach((it) => it.title.forEach(visitInline));
+        if (n.icon) urls.add(n.icon);
         break;
       default:
-        break; // divider, video, embed carry no image
+        break;
     }
-  };
-
-  blocks.forEach(visitBlock);
+  });
   return [...urls];
 }

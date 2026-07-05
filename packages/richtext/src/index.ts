@@ -6,6 +6,7 @@
  */
 
 export * from './schema';
+export * from './traverse';
 export * from './rtml';
 export * from './render';
 export * from './image-url';
