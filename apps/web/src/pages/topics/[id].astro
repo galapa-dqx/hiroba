@@ -51,12 +51,22 @@ const blocks: Block[] = enBlocks ?? (topic?.blocksJa as Block[] | null) ?? [];
 // falls back to the JA transcription.
 const imgs = collectImages(blocks);
 const imgKeys = [...new Set(imgs.map((i) => imageKey(i.src)).filter((k): k is string => !!k))];
+// Keys whose localized (l10n/en) image actually exists. Only these get the l10n
+// base below — an image that wasn't localized (no Japanese, or not done yet)
+// keeps its original URL, so a browser never caches the original under an l10n
+// URL and then keeps serving it after the localized version lands.
+const localizedKeys = new Set<string>();
 if (imgKeys.length > 0) {
 	const rows = await getImagesByKeys(db, imgKeys);
 	const byKey = new Map(rows.map((r) => [r.key, r]));
+	const ids = rows.map((r) => r.id);
 	const enText = isTranslated
-		? await getImageTranslations(db, rows.map((r) => r.id), "en", "text")
+		? await getImageTranslations(db, ids, "en", "text")
 		: new Map<number, string>();
+	const enUrl = isTranslated
+		? await getImageTranslations(db, ids, "en", "url")
+		: new Map<number, string>();
+	for (const row of rows) if (enUrl.has(row.id)) localizedKeys.add(row.key);
 	for (const img of imgs) {
 		const key = imageKey(img.src);
 		const row = key ? byKey.get(key) : undefined;
@@ -67,12 +77,18 @@ if (imgKeys.length > 0) {
 	}
 }
 
-// When showing the English translation, prefer localized images — the /img route
-// serves the l10n/en/<key> object and falls back to the original for images that
-// weren't localized. Otherwise serve originals (a bucket custom-domain can be set
-// via IMAGE_BASE for those).
-const imageBase = isTranslated ? "/img/l10n/en" : (runtime.env.IMAGE_BASE ?? "/img");
-const contentHtml = renderBlocks(blocks, { imageSrc: (src: string) => rewriteImageSrc(src, imageBase) });
+// Serve English-localized images from the l10n/en/<key> object, but only for the
+// images we actually localized; everything else (icons, text-free art, images
+// not yet localized) keeps the original URL. Originals may come from a bucket
+// custom-domain via IMAGE_BASE. The /img route still falls back to the original
+// for a stray l10n request, but we no longer emit one for an unlocalized image.
+const originalBase = runtime.env.IMAGE_BASE ?? "/img";
+const imageSrc = (src: string): string => {
+	const key = imageKey(src);
+	const base = isTranslated && key && localizedKeys.has(key) ? "/img/l10n/en" : originalBase;
+	return rewriteImageSrc(src, base);
+};
+const contentHtml = renderBlocks(blocks, { imageSrc });
 ---
 
 <Layout title={title}>

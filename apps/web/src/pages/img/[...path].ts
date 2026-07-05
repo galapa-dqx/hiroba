@@ -22,6 +22,14 @@ const FETCH_HEADERS = {
 
 const CACHE_CONTROL = 'public, max-age=604800, immutable';
 
+// Caching for a localized request served from the *original* — i.e. the
+// localized image doesn't exist (yet, or ever). That substitution is
+// provisional: the localized image can land at any time, so the response must
+// stay revalidatable. `immutable` here would freeze the Japanese original under
+// the l10n URL in the browser and any edge cache for a week, so the English
+// version would never appear even once it exists.
+const FALLBACK_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
+
 export const GET: APIRoute = async ({ params, locals }) => {
   const path = params.path ?? '';
 
@@ -42,23 +50,33 @@ export const GET: APIRoute = async ({ params, locals }) => {
   const originalKey = `${host}/${rest}`;
 
   // 1. Preferred object: the localized one if this is an l10n request, else the
-  //    original. 2. Fall back to the original (an image that was never localized).
-  const hit =
-    (localized ? await bucket.get(path) : null) ??
-    (await bucket.get(originalKey));
+  //    original. 2. Fall back to the original (an image not localized — yet, or
+  //    ever). A fallback served under an l10n URL is provisional, so it must not
+  //    be cached as immutable (see FALLBACK_CACHE_CONTROL).
+  const preferred = localized ? await bucket.get(path) : null;
+  const hit = preferred ?? (await bucket.get(originalKey));
   if (hit) {
     return new Response(hit.body, {
       headers: {
         'Content-Type':
           hit.httpMetadata?.contentType ?? 'application/octet-stream',
-        'Cache-Control': CACHE_CONTROL,
+        'Cache-Control':
+          localized && !preferred ? FALLBACK_CACHE_CONTROL : CACHE_CONTROL,
         ETag: hit.httpEtag,
       },
     });
   }
 
   // 3. Miss → fetch the CDN original once, store it, serve it.
-  const res = await fetch(`https://${originalKey}`, { headers: FETCH_HEADERS });
+  let res: Response;
+  try {
+    res = await fetch(`https://${originalKey}`, { headers: FETCH_HEADERS });
+  } catch (err) {
+    // Unresolvable/unreachable upstream (e.g. a corrupted host that slipped
+    // through) — fail cleanly instead of surfacing an unhandled fetch rejection.
+    console.warn(`img: upstream fetch failed for ${originalKey}:`, err);
+    return new Response('Upstream unreachable', { status: 502 });
+  }
   if (!res.ok) {
     return new Response('Upstream error', { status: res.status });
   }
@@ -74,6 +92,11 @@ export const GET: APIRoute = async ({ params, locals }) => {
   });
 
   return new Response(body, {
-    headers: { 'Content-Type': contentType, 'Cache-Control': CACHE_CONTROL },
+    headers: {
+      'Content-Type': contentType,
+      // A localized request reaching here is serving the just-fetched original
+      // as a fallback — keep it revalidatable, not immutable.
+      'Cache-Control': localized ? FALLBACK_CACHE_CONTROL : CACHE_CONTROL,
+    },
   });
 };
