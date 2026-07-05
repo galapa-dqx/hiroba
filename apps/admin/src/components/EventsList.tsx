@@ -26,6 +26,15 @@ function formatEventTime(iso: string, type: string): string {
   return `${formatLocal(iso)} (${formatJst(iso)} JST)`;
 }
 
+/**
+ * Detail URL for an event's source article on hiroba.dqx.jp. Topics and news
+ * live under different paths, so route by source_type (defaulting to news).
+ */
+function sourceDetailUrl(sourceType: string | null, sourceId: string): string {
+  const path = sourceType === 'topic' ? 'topics' : 'news';
+  return `https://hiroba.dqx.jp/sc/${path}/detail/${sourceId}`;
+}
+
 export default function EventsList() {
   const [items, setItems] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -134,7 +143,7 @@ export default function EventsList() {
                 <td>
                   {item.sourceId ? (
                     <a
-                      href={`https://hiroba.dqx.jp/sc/news/detail/${item.sourceId}`}
+                      href={sourceDetailUrl(item.sourceType, item.sourceId)}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="source-link"
