@@ -2,6 +2,10 @@ import type { APIRoute } from 'astro';
 
 import { createDb, deleteTranslation } from '@hiroba/db';
 
+import { createTranslationPut } from '../../../../lib/article-endpoints';
+
+export const PUT = createTranslationPut('topic');
+
 export const DELETE: APIRoute = async ({ locals, params }) => {
   const runtime = locals.runtime as { env: { DB: D1Database } };
   const db = createDb(runtime.env.DB);

@@ -467,6 +467,32 @@ export async function updateTopicBlocks(
 }
 
 /**
+ * Update the editable source fields (Japanese title and/or block tree) of a
+ * news item or topic. Returns false when the item doesn't exist. Fields left
+ * undefined are untouched, so a title-only edit can't clobber an unfetched
+ * body.
+ */
+export async function updateArticleSource(
+  db: Database,
+  itemType: 'news' | 'topic',
+  id: string,
+  patch: { titleJa?: string; blocksJa?: Block[] },
+): Promise<boolean> {
+  const table = itemType === 'news' ? newsItems : topics;
+  const set: { titleJa?: string; blocksJa?: Block[] } = {};
+  if (patch.titleJa !== undefined) set.titleJa = patch.titleJa;
+  if (patch.blocksJa !== undefined) set.blocksJa = patch.blocksJa;
+  if (Object.keys(set).length === 0) return false;
+
+  const result = await db
+    .update(table)
+    .set(set)
+    .where(eq(table.id, id))
+    .returning({ id: table.id });
+  return result.length > 0;
+}
+
+/**
  * Get a single topic by ID.
  */
 export async function getTopic(

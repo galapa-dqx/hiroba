@@ -168,6 +168,61 @@ export async function deleteTopicTranslation(
   return adminFetch(`/api/topics/${id}/${lang}`, { method: 'DELETE' });
 }
 
+// Article editing API (shared by news items and topics)
+
+export type ArticleKind = 'news' | 'topic';
+
+function articleApiBase(kind: ArticleKind): string {
+  return kind === 'topic' ? '/api/topics' : '/api/news';
+}
+
+export type ArticleTranslation = {
+  title: string | null;
+  blocks: unknown[] | null;
+  translatedAt: string | null; // ISO-8601 UTC instant
+};
+
+export type ArticleDetail = {
+  id: string;
+  titleJa: string;
+  category: string | null;
+  publishedAt: string; // ISO-8601 UTC instant
+  blocksJa: unknown[] | null;
+  en: ArticleTranslation;
+};
+
+export async function getArticle(
+  kind: ArticleKind,
+  id: string,
+): Promise<ArticleDetail> {
+  return adminFetch(`${articleApiBase(kind)}/${id}`);
+}
+
+export async function updateArticleSource(
+  kind: ArticleKind,
+  id: string,
+  patch: { titleJa?: string; blocksJa?: unknown[] },
+): Promise<{ success: boolean }> {
+  return adminFetch(`${articleApiBase(kind)}/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function updateArticleTranslation(
+  kind: ArticleKind,
+  id: string,
+  lang: string,
+  patch: { title?: string; blocks?: unknown[] },
+): Promise<{ success: boolean }> {
+  return adminFetch(`${articleApiBase(kind)}/${id}/${lang}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
 // Workflow runs API
 
 export async function getWorkflowRuns(): Promise<{

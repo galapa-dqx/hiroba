@@ -153,12 +153,15 @@ export default function NewsList() {
             {items.map((item) => (
               <tr key={item.id}>
                 <td className="title-cell">
+                  <a href={`/news/${item.id}`}>{item.titleJa}</a>
                   <a
+                    className="external-link"
                     href={`https://hiroba.dqx.jp/sc/news/detail/${item.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
+                    title="View original on Hiroba"
                   >
-                    {item.titleJa}
+                    ↗
                   </a>
                 </td>
                 <td>

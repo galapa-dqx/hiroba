@@ -1,0 +1,10 @@
+---
+import ArticleEdit from "../../components/ArticleEdit";
+import Layout from "../../layouts/Layout.astro";
+
+const { id } = Astro.params;
+---
+
+<Layout title="Edit Topic">
+	<ArticleEdit kind="topic" id={id!} client:only="react" />
+</Layout>

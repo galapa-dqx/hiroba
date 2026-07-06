@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./format-date": "./src/format-date.ts",
     "./styles/palette.css": "./src/styles/palette.css",
+    "./styles/article-body.css": "./src/styles/article-body.css",
     "./category-shape": "./src/category-shape.ts",
     "./CategoryDot": "./src/CategoryDot.tsx",
     "./Ornament.astro": "./src/Ornament.astro",

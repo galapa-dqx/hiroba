@@ -1275,3 +1275,313 @@ hr.divider {
     corner-shape: scoop;
   }
 }
+
+/* ============================================================================
+ * Article edit page + RTML editor (Lexical)
+ * ========================================================================== */
+
+.article-edit__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
+  margin-bottom: 1.1rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+.article-edit__meta a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.article-edit__meta a:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.article-edit__translated-at {
+  color: var(--ink-faint);
+  font-style: italic;
+}
+
+/* tabs — parchment folders against the gilt rule */
+.article-edit__tabs {
+  display: flex;
+  gap: 0.3rem;
+  margin-bottom: 1.1rem;
+  border-bottom: 2px solid var(--gold-edge);
+}
+.article-edit__tabs button {
+  padding: 0.45rem 1.1rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  box-shadow: none;
+}
+.article-edit__tabs button:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  color: var(--ink);
+  background: var(--surface-hover);
+  box-shadow: none;
+}
+.article-edit__tabs button.is-active {
+  color: var(--ink);
+  font-weight: 700;
+  background: var(--surface-panel);
+  border-color: var(--gold-edge);
+}
+.article-edit__dot {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  margin-left: 0.45em;
+  border-radius: 50%;
+  background: var(--accent-solid);
+  vertical-align: 0.15em;
+}
+
+.article-edit__title {
+  display: block;
+  margin-bottom: 1rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.article-edit__title input {
+  display: block;
+  width: 100%;
+  margin-top: 0.4rem;
+  font-size: 1.05rem;
+}
+.article-edit__save {
+  margin-top: 1rem;
+}
+.article-edit__status {
+  margin-top: 0.75rem;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.article-edit__empty {
+  padding: 2.5rem 1rem;
+  text-align: center;
+  color: var(--ink-faint);
+  background: var(--surface-panel);
+  border: 1px dashed var(--border);
+}
+
+/* --------------------------------------------------------- editor frame --- */
+.rtml-editor {
+  background: var(--surface-panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md), var(--inset-top);
+}
+.rtml-editor__body {
+  position: relative;
+}
+/* Block look-and-feel comes from the shared article-body.css — the editor
+ * content and preserved-block previews both carry the `article-body` class,
+ * so blocks render like the public site. Only editing affordances live here. */
+.rtml-editor__content {
+  min-height: 320px;
+  padding: 1.25rem 1.5rem;
+  outline: none;
+  line-height: 1.65; /* match the web body's line-height */
+}
+.rtml-editor__placeholder {
+  position: absolute;
+  top: 1.25rem;
+  left: 1.5rem;
+  color: var(--ink-faint);
+  pointer-events: none;
+  user-select: none;
+}
+/* the web resets list padding to zero; keep some in the editor so markers
+ * and nesting stay visible while editing */
+.rtml-editor__content ul,
+.rtml-editor__content ol {
+  padding-left: 1.6em;
+}
+.rtml-editor__content a {
+  color: var(--accent);
+}
+.rtml-editor__content hr {
+  border: none;
+  border-top: 2px solid var(--rule-strong);
+  margin: 1rem 0;
+}
+
+/* ------------------------------------------------------------- toolbar --- */
+.rtml-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--surface-panel-2);
+  border-bottom: 1px solid var(--rule-strong);
+}
+.rtml-toolbar button {
+  min-width: 2rem;
+  justify-content: center;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  background: var(--surface-panel);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+.rtml-toolbar button:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  color: var(--ink);
+  border-color: var(--gold-edge);
+  box-shadow: none;
+}
+.rtml-toolbar button.is-active {
+  color: var(--gold-ink);
+  border-color: var(--gold-edge);
+  background: color-mix(in oklch, var(--gold) 30%, var(--surface-panel));
+}
+.rtml-toolbar select {
+  padding: 0.3rem 0.4rem;
+  font-size: 0.82rem;
+}
+.rtml-toolbar__sep {
+  width: 1px;
+  height: 1.4rem;
+  margin: 0 0.3rem;
+  background: var(--rule-strong);
+}
+.rtml-toolbar__color {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.18rem 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: var(--surface-panel);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.rtml-toolbar__color input {
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+/* ----------------------------------------------- inline chips & wrappers --- */
+/* time/event wrappers: editable text with a tinted underline so annotations
+ * stay visible without getting in the way */
+.rtml-wrap {
+  border-bottom: 1px dashed;
+  padding-bottom: 1px;
+}
+.rtml-wrap--time {
+  background: color-mix(in oklch, var(--gold) 16%, transparent);
+  border-bottom-color: var(--gold-edge);
+}
+.rtml-wrap--event {
+  background: color-mix(in oklch, var(--accent-solid) 14%, transparent);
+  border-bottom-color: var(--accent-solid);
+}
+/* ------------------------------------------------------ preserved blocks --- */
+.rtml-preserved__card {
+  border: 1px solid var(--border);
+  background: var(--surface-page);
+}
+.rtml-preserved__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.28rem 0.6rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--band-ink);
+  background: linear-gradient(180deg, var(--band-top), var(--band-bot));
+  box-shadow: var(--shadow-band);
+}
+.rtml-preserved__type {
+  font-weight: 700;
+}
+.rtml-preserved__hint {
+  color: var(--band-ink-soft);
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.rtml-preserved__actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+.rtml-preserved__actions button {
+  padding: 0.14rem 0.45rem;
+  font-size: 0.7rem;
+  color: var(--band-ink);
+  background: oklch(100% 0 0 / 0.12);
+  border: 1px solid oklch(100% 0 0 / 0.28);
+  box-shadow: none;
+}
+.rtml-preserved__actions button:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  background: oklch(100% 0 0 / 0.22);
+  box-shadow: none;
+}
+.rtml-preserved__actions .rtml-preserved__remove:hover {
+  background: var(--red-9);
+  border-color: var(--red-10);
+}
+.rtml-preserved__preview {
+  padding: 0.75rem 1rem;
+  max-height: 420px;
+  overflow: auto;
+  font-size: 0.9rem;
+}
+.rtml-preserved__render-error,
+.rtml-preserved__error {
+  color: var(--red-11);
+}
+.rtml-preserved__json {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.6rem;
+}
+.rtml-preserved__json textarea {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.rtml-preserved__json-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Editor chrome stays crisp: the site-wide scoop-corner button flourish
+ * doesn't suit the small utility controls on block cards and the toolbar
+ * (higher specificity than the @supports rule, so radius 0 wins). */
+.rtml-toolbar button,
+.rtml-toolbar__color,
+.rtml-preserved__actions button {
+  border-radius: 0;
+}
+
+/* external "view original" arrow beside list titles */
+.title-cell .external-link {
+  margin-left: 0.45rem;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+.title-cell .external-link:hover {
+  color: var(--accent);
+}
