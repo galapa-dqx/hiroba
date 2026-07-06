@@ -11,12 +11,17 @@ import {
   getItemTitles,
   getNewsItems,
   getStats,
+  getTitleTranslations,
   getTopics,
   getTranslationStates,
+  listWorkflowRuns,
+  pruneWorkflowRuns,
+  recordWorkflowRun,
   resetRunningTitles,
   setImageTranscribeState,
   setItemFetchState,
   setTranslationStates,
+  updateWorkflowRunStatus,
   upsertImageTranscription,
   upsertImageTranslation,
   upsertItemTranslation,
@@ -696,5 +701,98 @@ describe('IN-list chunking (D1 variable cap)', () => {
       'url',
     );
     expect(urls.size).toBe(5);
+  });
+});
+
+describe('workflow run registry', () => {
+  it('records, lists and reconciles runs', async () => {
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-1',
+      itemType: 'topic',
+      itemId: hex(1),
+    });
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-2',
+      itemType: 'news',
+      itemId: hex(2),
+    });
+
+    let runs = await listWorkflowRuns(ctx.db);
+    expect(runs.map((r) => r.instanceId).sort()).toEqual(['wf-1', 'wf-2']);
+    expect(runs.every((r) => r.status === 'running')).toBe(true);
+
+    // Recording the same instance again is a no-op (trigger retries).
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-1',
+      itemType: 'topic',
+      itemId: hex(1),
+    });
+    expect((await listWorkflowRuns(ctx.db)).length).toBe(2);
+
+    // A settled run drops out of the active-only listing…
+    await updateWorkflowRunStatus(ctx.db, 'wf-2', 'errored', 'boom');
+    runs = await listWorkflowRuns(ctx.db);
+    expect(runs.map((r) => r.instanceId)).toEqual(['wf-1']);
+
+    // …but stays visible with a settledSince window covering it.
+    runs = await listWorkflowRuns(ctx.db, {
+      settledSince: Temporal.Now.instant().subtract({ hours: 1 }),
+    });
+    expect(runs.length).toBe(2);
+    const errored = runs.find((r) => r.instanceId === 'wf-2')!;
+    expect(errored.status).toBe('errored');
+    expect(errored.error).toBe('boom');
+  });
+
+  it('prunes only settled runs older than the horizon', async () => {
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-active',
+      itemType: 'news',
+      itemId: hex(1),
+    });
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-settled',
+      itemType: 'news',
+      itemId: hex(2),
+    });
+    await updateWorkflowRunStatus(ctx.db, 'wf-settled', 'complete');
+
+    // A cutoff in the future would prune anything settled — the active run
+    // must survive regardless.
+    await pruneWorkflowRuns(ctx.db, Temporal.Now.instant().add({ hours: 1 }));
+    const runs = await listWorkflowRuns(ctx.db, {
+      settledSince: Temporal.Instant.fromEpochMilliseconds(0),
+    });
+    expect(runs.map((r) => r.instanceId)).toEqual(['wf-active']);
+  });
+});
+
+describe('getTitleTranslations', () => {
+  it('returns only value-bearing title rows for the item type', async () => {
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      field: 'title',
+      value: 'Translated',
+      model: 'gemini',
+    });
+    // A running row without a value yet must be omitted.
+    await setTranslationStates(ctx.db, {
+      itemType: 'news',
+      itemId: hex(2),
+      language: 'en',
+      fields: ['title'],
+      state: 'running',
+    });
+
+    const titles = await getTitleTranslations(
+      ctx.db,
+      'news',
+      [hex(1), hex(2), hex(3)],
+      'en',
+    );
+    expect(titles.get(hex(1))).toBe('Translated');
+    expect(titles.size).toBe(1);
   });
 });

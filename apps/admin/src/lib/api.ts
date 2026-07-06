@@ -3,6 +3,8 @@
  * No authentication needed - protected by Cloudflare Access at edge.
  */
 
+import type { WorkflowRunEntry } from '@hiroba/shared';
+
 async function adminFetch<T>(
   path: string,
   options: RequestInit = {},
@@ -164,6 +166,14 @@ export async function deleteTopicTranslation(
   lang: string,
 ): Promise<{ success: boolean }> {
   return adminFetch(`/api/topics/${id}/${lang}`, { method: 'DELETE' });
+}
+
+// Workflow runs API
+
+export async function getWorkflowRuns(): Promise<{
+  runs: WorkflowRunEntry[];
+}> {
+  return adminFetch('/api/workflows');
 }
 
 export type GlossaryEntry = {

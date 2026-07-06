@@ -108,6 +108,73 @@ export function isSnapshotComplete(s: StateSnapshot): boolean {
   return true;
 }
 
+/* ------------------------------------------------------------------ *
+ * Workflow run registry — the wire types for the admin tracker.
+ * Rows are recorded in D1 when the WorkflowManager DO creates an instance
+ * and reconciled against the Workflows engine when listed.
+ * ------------------------------------------------------------------ */
+
+/** Instance statuses as reported by the Cloudflare Workflows engine. */
+export const WORKFLOW_RUN_STATUSES = [
+  'queued',
+  'running',
+  'paused',
+  'complete',
+  'errored',
+  'terminated',
+  'unknown',
+] as const;
+
+export type WorkflowRunStatus = (typeof WORKFLOW_RUN_STATUSES)[number];
+
+/**
+ * Statuses that can still change — the reconciler keeps polling these.
+ * `unknown` is terminal on purpose: it means the engine no longer knows the
+ * instance (evicted/expired), so its status will never improve.
+ */
+export const ACTIVE_RUN_STATUSES = [
+  'queued',
+  'running',
+  'paused',
+] as const satisfies readonly WorkflowRunStatus[];
+
+export const isRunActive = (s: WorkflowRunStatus): boolean =>
+  (ACTIVE_RUN_STATUSES as readonly WorkflowRunStatus[]).includes(s);
+
+/**
+ * Pipeline states of one referenced image, in document order — the per-item
+ * rows behind a run's mirror/transcribe/localize progress bars.
+ */
+export type ImagePipelineDetail = {
+  /** The imageKey (`<host>/<path>`) identifying the canonical image row. */
+  key: string;
+  mirror: PhaseState;
+  transcribe: PhaseState;
+  /**
+   * Whether the image carries Japanese text (i.e. is a localize candidate).
+   * Null until transcription of this image settles.
+   */
+  hasText: boolean | null;
+  /** Localization state — null when not (or not yet known to be) a candidate. */
+  localize: PhaseState | null;
+};
+
+/** One tracked run, as served by the workflow worker's /runs endpoint. */
+export type WorkflowRunEntry = {
+  instanceId: string;
+  itemType: 'news' | 'topic';
+  itemId: string;
+  titleJa: string | null;
+  titleEn: string | null;
+  status: WorkflowRunStatus;
+  error: string | null;
+  startedAt: string; // ISO-8601 UTC instant
+  updatedAt: string; // ISO-8601 UTC instant
+  snapshot: StateSnapshot;
+  /** Per-image detail — empty for item types without an image pipeline. */
+  images: ImagePipelineDetail[];
+};
+
 const counted = (label: string, p: StepProgress): string =>
   `${label} (${p.done + p.failed}/${p.total})…`;
 

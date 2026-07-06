@@ -8,19 +8,24 @@ import {
   desc,
   eq,
   getTableColumns,
+  gte,
   inArray,
   isNotNull,
   lt,
+  notInArray,
+  or,
   sql,
 } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import type { Block } from '@hiroba/richtext';
 import {
+  ACTIVE_RUN_STATUSES,
   getNextCheckTime,
   isDueForCheck,
   type Category,
   type PhaseState,
+  type WorkflowRunStatus,
 } from '@hiroba/shared';
 
 import type { Database } from './client';
@@ -33,6 +38,7 @@ import {
   type ItemType,
   type TranslationField,
 } from './schema/translations';
+import { workflowRuns, type WorkflowRun } from './schema/workflow-runs';
 
 /**
  * D1 caps bound parameters at ~100 per statement, so any query that fans a
@@ -1148,6 +1154,113 @@ export async function getLocalizedImageModels(
       .all(),
   );
   return new Map(rows.map((r) => [Number(r.itemId), r.model!]));
+}
+
+/* ------------------------------------------------------------------ *
+ * Workflow run registry (admin tracker)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Record a newly-created workflow instance. Inserted as `running` — the
+ * engine may still report `queued`, which the next reconcile pass corrects.
+ */
+export async function recordWorkflowRun(
+  db: Database,
+  params: { instanceId: string; itemType: 'news' | 'topic'; itemId: string },
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  await db
+    .insert(workflowRuns)
+    .values({
+      instanceId: params.instanceId,
+      itemType: params.itemType,
+      itemId: params.itemId,
+      status: 'running',
+      startedAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
+}
+
+/** Reconcile a run row with the status the Workflows engine reported. */
+export async function updateWorkflowRunStatus(
+  db: Database,
+  instanceId: string,
+  status: WorkflowRunStatus,
+  error?: string,
+): Promise<void> {
+  await db
+    .update(workflowRuns)
+    .set({ status, error: error ?? null, updatedAt: Temporal.Now.instant() })
+    .where(eq(workflowRuns.instanceId, instanceId));
+}
+
+/**
+ * List runs for the admin tracker, newest first: every run still active by
+ * its last-seen status, plus settled runs whose status changed on or after
+ * `settledSince` (so recently-finished runs stay visible for a while).
+ */
+export async function listWorkflowRuns(
+  db: Database,
+  options: { settledSince?: Temporal.Instant; limit?: number } = {},
+): Promise<WorkflowRun[]> {
+  const limit = Math.min(options.limit ?? 25, 100);
+  const active = inArray(workflowRuns.status, [...ACTIVE_RUN_STATUSES]);
+  const where = options.settledSince
+    ? or(active, gte(workflowRuns.updatedAt, options.settledSince))
+    : active;
+  return db
+    .select()
+    .from(workflowRuns)
+    .where(where)
+    .orderBy(desc(workflowRuns.startedAt))
+    .limit(limit)
+    .all();
+}
+
+/** Delete settled runs last touched before `before` — the registry's GC. */
+export async function pruneWorkflowRuns(
+  db: Database,
+  before: Temporal.Instant,
+): Promise<void> {
+  await db
+    .delete(workflowRuns)
+    .where(
+      and(
+        notInArray(workflowRuns.status, [...ACTIVE_RUN_STATUSES]),
+        lt(workflowRuns.updatedAt, before),
+      ),
+    );
+}
+
+/**
+ * Map item id → translated title for a set of items. Unlike
+ * getArticleTranslations this reads only the title rows — no content blobs —
+ * so it stays cheap when called for many items at once.
+ */
+export async function getTitleTranslations(
+  db: Database,
+  itemType: 'news' | 'topic',
+  ids: string[],
+  language: string,
+): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await chunked(ids, (slice) =>
+    db
+      .select({ itemId: translations.itemId, value: translations.value })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, itemType),
+          eq(translations.language, language),
+          eq(translations.field, 'title'),
+          isNotNull(translations.value),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
+  return new Map(rows.map((r) => [r.itemId, r.value!]));
 }
 
 /** Upsert a per-image translation row (item_type='image', item_id=image id). */

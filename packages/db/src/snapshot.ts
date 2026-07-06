@@ -13,6 +13,7 @@ import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 import {
   aggregateStates,
   hasJapanese,
+  type ImagePipelineDetail,
   type PhaseState,
   type StateSnapshot,
   type StepProgress,
@@ -86,6 +87,65 @@ async function imagesSnapshot(
     candidates.length,
   );
   return { mirror, transcribe, localize };
+}
+
+/**
+ * Per-image pipeline states for a block tree, in document order — the rows
+ * behind the admin tracker's stacked "Image N" display. The same ground truth
+ * as imagesSnapshot, kept item-by-item instead of tallied: keys without an
+ * image row yet are implicitly pending, and an image's localize state is null
+ * until its own transcription settles (candidate-ness unknown before then).
+ */
+export async function computeImageDetail(
+  db: Database,
+  blocks: Block[] | null,
+  language: string,
+): Promise<ImagePipelineDetail[]> {
+  if (!blocks) return [];
+  const keys = [
+    ...new Set(
+      collectImages(blocks)
+        .map((i) => imageKey(i.src))
+        .filter((k): k is string => !!k),
+    ),
+  ];
+  if (keys.length === 0) return [];
+
+  const rows = await getImagesByKeys(db, keys);
+  const byKey = new Map(rows.map((r) => [r.key, r]));
+
+  const candidates = rows.filter((r) => r.textsJa && hasJapanese(r.textsJa));
+  const candidateIds = new Set(candidates.map((r) => r.id));
+  const urlStates = await getImageTranslationStates(
+    db,
+    candidates.map((r) => r.id),
+    language,
+    'url',
+  );
+
+  return keys.map((key) => {
+    const row = byKey.get(key);
+    if (!row) {
+      return {
+        key,
+        mirror: 'pending' as const,
+        transcribe: 'pending' as const,
+        hasText: null,
+        localize: null,
+      };
+    }
+    const hasText =
+      row.transcribeState === 'done' ? candidateIds.has(row.id) : null;
+    return {
+      key,
+      mirror: row.mirrorState,
+      transcribe: row.transcribeState,
+      hasText,
+      localize: candidateIds.has(row.id)
+        ? (urlStates.get(row.id) ?? 'pending')
+        : null,
+    };
+  });
 }
 
 /**

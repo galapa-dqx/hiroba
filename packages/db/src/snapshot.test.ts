@@ -17,7 +17,7 @@ import {
   upsertTopic,
   upsertTopicTranslation,
 } from './queries';
-import { computeSnapshot } from './snapshot';
+import { computeImageDetail, computeSnapshot } from './snapshot';
 import { createTestDb, type TestDb } from './test-db';
 
 let ctx: TestDb;
@@ -167,6 +167,70 @@ describe('computeSnapshot', () => {
     expect(isSnapshotSettled(s)).toBe(true); // display degraded…
     expect(isSnapshotComplete(s)).toBe(false); // …but retry on next trigger
     expect(describeSnapshot(s)).toBe('Done — 1 image could not be localized.');
+  });
+});
+
+describe('computeImageDetail', () => {
+  it('tracks each referenced image through the pipeline in document order', async () => {
+    // Nothing discovered yet: every step implicitly pending, candidacy unknown.
+    let detail = await computeImageDetail(ctx.db, blocks, 'en');
+    expect(detail).toEqual([
+      {
+        key: KEY_A,
+        mirror: 'pending',
+        transcribe: 'pending',
+        hasText: null,
+        localize: null,
+      },
+      {
+        key: KEY_B,
+        mirror: 'pending',
+        transcribe: 'pending',
+        hasText: null,
+        localize: null,
+      },
+    ]);
+
+    // One image mid-mirror, transcription of the banner done (has JA text).
+    await ensureImageRows(ctx.db, [KEY_A, KEY_B]);
+    await setImageMirrorState(ctx.db, KEY_A, 'done');
+    await setImageMirrorState(ctx.db, KEY_B, 'running');
+    const bannerId = await upsertImageTranscription(ctx.db, {
+      key: KEY_A,
+      textsJa: ['ドラゴンクエスト'],
+      model: 'gemini',
+    });
+    detail = await computeImageDetail(ctx.db, blocks, 'en');
+    expect(detail[0]).toEqual({
+      key: KEY_A,
+      mirror: 'done',
+      transcribe: 'done',
+      hasText: true,
+      localize: 'pending',
+    });
+    expect(detail[1].mirror).toBe('running');
+    expect(detail[1].hasText).toBeNull();
+
+    // Text-free image settles as a non-candidate; the banner localizes.
+    await upsertImageTranscription(ctx.db, {
+      key: KEY_B,
+      textsJa: [],
+      model: 'gemini',
+    });
+    await upsertImageTranslation(ctx.db, {
+      imageId: bannerId,
+      language: 'en',
+      field: 'url',
+      value: `l10n/en/${KEY_A}`,
+      model: 'gpt-image-2',
+    });
+    detail = await computeImageDetail(ctx.db, blocks, 'en');
+    expect(detail[0].localize).toBe('done');
+    expect(detail[1]).toMatchObject({ hasText: false, localize: null });
+  });
+
+  it('returns [] when there is no block tree yet', async () => {
+    expect(await computeImageDetail(ctx.db, null, 'en')).toEqual([]);
   });
 });
 

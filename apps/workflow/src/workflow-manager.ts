@@ -20,16 +20,36 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
+import { Temporal } from 'temporal-polyfill';
 
-import { computeSnapshot, createDb } from '@hiroba/db';
+import {
+  computeImageDetail,
+  computeSnapshot,
+  createDb,
+  getNewsItem,
+  getTitleTranslations,
+  getTopic,
+  listWorkflowRuns,
+  pruneWorkflowRuns,
+  recordWorkflowRun,
+  updateWorkflowRunStatus,
+} from '@hiroba/db';
 import {
   describeSnapshot,
+  isRunActive,
   isSnapshotSettled,
   type SSEEvent,
   type StateSnapshot,
+  type WorkflowRunEntry,
+  type WorkflowRunStatus,
 } from '@hiroba/shared';
 
 import type { Env, ItemType } from './types';
+
+/** How long settled runs stay in the tracker's listing. */
+const SETTLED_VISIBLE_HOURS = 24;
+/** How long settled rows stay in the registry at all (GC horizon). */
+const SETTLED_RETAINED_HOURS = 24 * 7;
 
 type Active = { instanceId: string; itemType: ItemType };
 
@@ -51,6 +71,9 @@ export class WorkflowManager extends DurableObject<Env> {
       if (!itemId)
         return Response.json({ error: 'itemId required' }, { status: 400 });
       return this.handleStatus(itemId);
+    }
+    if (url.pathname === '/runs') {
+      return this.handleRuns();
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
@@ -203,6 +226,17 @@ export class WorkflowManager extends DurableObject<Env> {
 
     const instance = await workflow.create({ params: { itemId, itemType } });
     this.activeWorkflows.set(itemId, { instanceId: instance.id, itemType });
+    // Register the run so the admin tracker can enumerate it (best-effort —
+    // a registry miss must never fail the trigger).
+    try {
+      await recordWorkflowRun(createDb(this.env.DB), {
+        instanceId: instance.id,
+        itemType,
+        itemId,
+      });
+    } catch (error) {
+      console.error('Failed to record workflow run:', error);
+    }
     return Response.json({ status: 'started', instanceId: instance.id });
   }
 
@@ -224,5 +258,100 @@ export class WorkflowManager extends DurableObject<Env> {
       this.activeWorkflows.delete(itemId);
       return Response.json({ status: 'idle' });
     }
+  }
+
+  /**
+   * List recent workflow runs for the admin tracker: every still-active run
+   * plus runs settled in the last SETTLED_VISIBLE_HOURS, each reconciled
+   * against the Workflows engine and enriched with its D1 pipeline snapshot
+   * and per-image detail.
+   *
+   * Reads only global state (the registry table + engine), so it works from
+   * any instance of this DO — callers use a well-known 'registry' instance
+   * rather than an item-scoped one.
+   */
+  private async handleRuns(): Promise<Response> {
+    const db = createDb(this.env.DB);
+    const now = Temporal.Now.instant();
+
+    await pruneWorkflowRuns(
+      db,
+      now.subtract({ hours: SETTLED_RETAINED_HOURS }),
+    );
+    const runs = await listWorkflowRuns(db, {
+      settledSince: now.subtract({ hours: SETTLED_VISIBLE_HOURS }),
+    });
+
+    // Batch the translated titles per item type (cheap title-row-only reads).
+    const titleEn = new Map<string, string>();
+    for (const itemType of ['news', 'topic'] as const) {
+      const ids = runs
+        .filter((r) => r.itemType === itemType)
+        .map((r) => r.itemId);
+      const titles = await getTitleTranslations(db, itemType, ids, 'en');
+      for (const [id, title] of titles) titleEn.set(`${itemType}:${id}`, title);
+    }
+
+    const entries: WorkflowRunEntry[] = [];
+    for (const run of runs) {
+      let status: WorkflowRunStatus = run.status;
+      let error = run.error;
+      let updatedAt = run.updatedAt;
+      if (isRunActive(status)) {
+        try {
+          const instance = await this.env.ARTICLE_WORKFLOW.get(run.instanceId);
+          const engine = await instance.status();
+          if (engine.status !== status || (engine.error ?? null) !== error) {
+            status = engine.status;
+            error = engine.error ?? null;
+            updatedAt = now;
+            await updateWorkflowRunStatus(
+              db,
+              run.instanceId,
+              status,
+              error ?? undefined,
+            );
+          }
+        } catch {
+          // The engine no longer knows this instance (evicted/expired) —
+          // settle it as unknown so we stop polling it.
+          status = 'unknown';
+          error = 'Instance no longer known to the Workflows engine';
+          updatedAt = now;
+          await updateWorkflowRunStatus(db, run.instanceId, status, error);
+        }
+      }
+
+      const item =
+        run.itemType === 'topic'
+          ? await getTopic(db, run.itemId)
+          : await getNewsItem(db, run.itemId);
+      const snapshot = await computeSnapshot(
+        db,
+        run.itemType,
+        run.itemId,
+        'en',
+      );
+      const images =
+        run.itemType === 'topic' && item
+          ? await computeImageDetail(db, item.blocksJa, 'en')
+          : [];
+
+      entries.push({
+        instanceId: run.instanceId,
+        itemType: run.itemType,
+        itemId: run.itemId,
+        titleJa: item?.titleJa ?? null,
+        titleEn: titleEn.get(`${run.itemType}:${run.itemId}`) ?? null,
+        status,
+        error,
+        startedAt: run.startedAt.toString(),
+        updatedAt: updatedAt.toString(),
+        snapshot,
+        images,
+      });
+    }
+
+    return Response.json({ runs: entries });
   }
 }
