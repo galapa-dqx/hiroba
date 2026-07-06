@@ -113,8 +113,9 @@ const normText = (s: string): string => s.replace(/[ \t\r\n\f\v]+/g, ' ');
  * Merge adjacent strings and trim the outer edges — canonical inline output.
  * Edge whitespace includes U+3000: a mid-text ideographic space is a meaningful
  * separator (kept by {@link normText}), but at a run's start/end it's only the
- * source's decorative indentation (e.g. the leading `　` on `title0x` headings)
- * and, unlike an ASCII space, the browser won't collapse it — so we strip it.
+ * source's decorative indentation (e.g. the leading U+3000 on `title0x`
+ * headings) and, unlike an ASCII space, the browser won't collapse it — so we
+ * strip it.
  */
 function canonicalize(nodes: Inline[]): Inline[] {
   const merged: Inline[] = [];
