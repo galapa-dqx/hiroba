@@ -27,8 +27,17 @@ import {
 import { hasJapanese } from '@hiroba/shared';
 
 import { mapWithConcurrency } from '../concurrency';
-import { editImage, IMAGE_MODEL, toEditableImage } from '../image-edit';
-import { matteTransparentPng, restoreTransparency } from '../image-matte';
+import {
+  editImage,
+  IMAGE_MODEL,
+  matteAndPadForTwoUp,
+  toEditableImage,
+} from '../image-edit';
+import {
+  hasMeaningfulTransparency,
+  recoverAlphaFromTwoUp,
+  TWO_UP_PROMPT,
+} from '../image-matte';
 import { trimToAspect } from '../image-trim';
 
 /** R2 key prefix for English-localized images. */
@@ -53,8 +62,15 @@ export type LocalizeResult = {
   failed: number;
 };
 
-/** Build the localization instruction from the image's JA→EN span pairs. */
-function buildPrompt(pairs: Array<{ ja: string; en: string }>): string {
+/**
+ * Build the localization instruction from the image's JA→EN span pairs. For a
+ * matted (formerly-transparent) image the closing shifts from "keep everything
+ * identical" to the two-up arrangement that differential matting solves on.
+ */
+function buildPrompt(
+  pairs: Array<{ ja: string; en: string }>,
+  twoUp: boolean,
+): string {
   const mapping = pairs.map((p) => `"${p.ja}" → "${p.en}"`).join('\n');
   return [
     'You are localizing a Japanese image into English. Replace each Japanese text',
@@ -66,9 +82,18 @@ function buildPrompt(pairs: Array<{ ja: string; en: string }>): string {
     '',
     'Reinsert each English translation in place of the matching Japanese text,',
     'matching the original font, size, weight, color, alignment, and effects as',
-    'closely as possible. Keep the subject, artwork, background, and layout exactly',
-    'the same — no cropping, distortion, or resizing. Leave any text or graphics',
-    'not listed above unchanged.',
+    'closely as possible.',
+    ...(twoUp
+      ? [
+          'Keep the subject, artwork, and layout exactly the same.',
+          '',
+          TWO_UP_PROMPT,
+        ]
+      : [
+          'Keep the subject, artwork, background, and layout exactly',
+          'the same — no cropping, distortion, or resizing. Leave any text or graphics',
+          'not listed above unchanged.',
+        ]),
   ].join('\n');
 }
 
@@ -191,26 +216,40 @@ export async function localizeImages(
         return;
       }
 
-      // gpt-image-2 can't round-trip transparency; matte onto black first and
-      // key it back out after the edit (see image-matte). No-op for opaque images.
-      const prepared =
-        editable.mimeType === 'image/png'
-          ? matteTransparentPng(editable.bytes)
-          : { bytes: editable.bytes, matted: false };
+      // gpt-image-2 can't round-trip transparency; matte onto white + pad via
+      // the Images binding and ask for a stacked black/white two-up, then solve
+      // for alpha differentially (see image-matte). Opaque images stay on the
+      // plain edit path untouched.
+      const matted =
+        editable.mimeType === 'image/png' &&
+        hasMeaningfulTransparency(editable.bytes);
+      let editInput = editable;
+      if (matted) {
+        const padded = await matteAndPadForTwoUp(images, editable.bytes);
+        if (!padded) {
+          await markFailed(row.id, 'image could not be matted for editing');
+          return;
+        }
+        editInput = { bytes: padded, mimeType: 'image/png' };
+      }
 
       const edited = await editImage(apiKey, {
-        imageBytes: prepared.bytes,
-        mimeType: editable.mimeType,
-        prompt: buildPrompt(pairs),
+        imageBytes: editInput.bytes,
+        mimeType: editInput.mimeType,
+        prompt: buildPrompt(pairs, matted),
       });
       if (!edited) {
         await markFailed(row.id, 'image edit failed');
         return;
       }
 
-      // Restore transparency (matted images only), then trim the padding
-      // gpt-image-2 adds back to the original's aspect ratio.
-      const restored = prepared.matted ? restoreTransparency(edited) : edited;
+      // Recover transparency from the two-up (matted images only), then trim
+      // the padding gpt-image-2 adds back to the original's aspect ratio.
+      const restored = matted ? recoverAlphaFromTwoUp(edited) : edited;
+      if (!restored) {
+        await markFailed(row.id, 'two-up alpha recovery failed');
+        return;
+      }
       const localizedBytes = trimToAspect(restored, original.bytes);
 
       const localizedKey = `${LOCALIZED_PREFIX}/${row.key}`;

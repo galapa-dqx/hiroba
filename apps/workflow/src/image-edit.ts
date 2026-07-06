@@ -7,7 +7,17 @@
 
 import OpenAI, { toFile } from 'openai';
 
+import { imageDimensions } from './image-trim';
+
 export const IMAGE_MODEL = 'gpt-image-2';
+
+/**
+ * White padding around a matted two-up input: separates the artwork from the
+ * canvas edge and gives the model room for the stacked layout (see image-matte).
+ */
+const PAD_FRACTION = 0.3;
+const PAD_MIN = 28;
+const PAD_MAX = 128;
 
 /** Input mime types gpt-image-2's edit endpoint accepts. Anything else 400s. */
 const EDIT_INPUT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -71,6 +81,41 @@ export async function toEditableImage(
     return { bytes: png, mimeType: 'image/png' };
   } catch (err) {
     console.error(`image conversion (${actual} → png) failed:`, err);
+    return null;
+  }
+}
+
+/**
+ * Prepare a transparent image for the two-up edit: one Cloudflare Images pass
+ * that mattes the transparency onto solid white (`background`) and pads every
+ * side with white (`border` — pixels are added, nothing is resized), emitting
+ * an opaque PNG. The caller has already established the image is a PNG with
+ * meaningful transparency (image-matte's hasMeaningfulTransparency), so this
+ * also normalizes shapes fast-png solves poorly (e.g. indexed PNGs with tRNS)
+ * into plain truecolor for the edit. Null on failure so the caller can fail
+ * the image instead of sending an unmatted input.
+ */
+export async function matteAndPadForTwoUp(
+  images: ImagesBinding,
+  bytes: Uint8Array,
+): Promise<Uint8Array | null> {
+  const dims = imageDimensions(bytes);
+  if (!dims) return null;
+  const pad = Math.min(
+    PAD_MAX,
+    Math.max(PAD_MIN, Math.round(dims.height * PAD_FRACTION)),
+  );
+  try {
+    const result = await images
+      .input(new Response(bytes).body as ReadableStream<Uint8Array>)
+      .transform({
+        background: '#FFFFFF',
+        border: { color: '#FFFFFF', width: pad },
+      })
+      .output({ format: 'image/png' });
+    return new Uint8Array(await result.response().arrayBuffer());
+  } catch (err) {
+    console.error('two-up matte/pad transform failed:', err);
     return null;
   }
 }
