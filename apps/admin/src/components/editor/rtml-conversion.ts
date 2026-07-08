@@ -12,9 +12,9 @@
 import { $createLinkNode, $isLinkNode } from '@lexical/link';
 import {
   $createListItemNode,
-  $createListNode,
   $isListItemNode,
   $isListNode,
+  type ListItemNode,
   type ListNode,
 } from '@lexical/list';
 import {
@@ -22,6 +22,16 @@ import {
   $isHorizontalRuleNode,
 } from '@lexical/react/LexicalHorizontalRuleNode';
 import { $isHeadingNode } from '@lexical/rich-text';
+import {
+  $createTableCellNode,
+  $createTableRowNode,
+  $isTableCellNode,
+  $isTableNode,
+  $isTableRowNode,
+  TableCellHeaderStates,
+  type TableCellNode,
+  type TableNode,
+} from '@lexical/table';
 import {
   $createLineBreakNode,
   $createParagraphNode,
@@ -44,6 +54,8 @@ import {
   type LinkNode as RtmlLink,
   type ListNode as RtmlList,
   type ParagraphNode as RtmlParagraph,
+  type TableNode as RtmlTable,
+  type TableCell as RtmlTableCell,
 } from '@hiroba/richtext';
 
 import {
@@ -51,13 +63,19 @@ import {
   $createEventWrapperNode,
   $createIconChipNode,
   $createPreservedBlockNode,
+  $createRtmlButtonNode,
   $createRtmlHeadingNode,
+  $createRtmlListNode,
+  $createRtmlTableNode,
   $createTimeWrapperNode,
   BadgeChipNode,
   EventWrapperNode,
   IconChipNode,
   PreservedBlockNode,
+  RtmlButtonNode,
   RtmlHeadingNode,
+  RtmlListNode,
+  RtmlTableNode,
   TimeWrapperNode,
 } from './rtml-nodes';
 
@@ -129,23 +147,102 @@ function $createInlineNodes(
   return out;
 }
 
-/** Lists map natively only when unstyled and inline-only; anything richer
- * (caution variant, block children) stays a preserved block. */
-function isSimpleList(block: RtmlList): boolean {
-  return (
-    (!block.variant || block.variant === 'default') &&
-    block.items.every((item) => item.children.every(isInline))
-  );
+/** A list maps natively when each item is inline content, a single paragraph
+ * (unwrapped into the item), or a single editable nested list. Items mixing
+ * several blocks stay preserved — Lexical list items can't hold them. */
+function isEditableList(block: RtmlList): boolean {
+  return block.items.every((item) => {
+    if (item.children.every(isInline)) return true;
+    if (item.children.length !== 1) return false;
+    const only = item.children[0];
+    if (isInline(only)) return true;
+    if (only.type === 'paragraph') return true;
+    return only.type === 'list' && isEditableList(only);
+  });
 }
 
-function $createSimpleListNode(block: RtmlList): ListNode {
-  const list = $createListNode(block.ordered ? 'number' : 'bullet');
+function $createListFromRtml(block: RtmlList): RtmlListNode {
+  const list = $createRtmlListNode(
+    block.ordered ? 'number' : 'bullet',
+    block.variant,
+  );
   for (const item of block.items) {
     const li = $createListItemNode();
-    li.append(...$createInlineNodes(item.children as Inline[], {}));
+    const only = item.children.length === 1 ? item.children[0] : null;
+    if (only && !isInline(only) && only.type === 'paragraph') {
+      li.append(...$createInlineNodes(only.children, {}));
+    } else if (only && !isInline(only) && only.type === 'list') {
+      li.append($createListFromRtml(only));
+    } else {
+      li.append(...$createInlineNodes(item.children as Inline[], {}));
+    }
     list.append(li);
   }
   return list;
+}
+
+/** Fill a table cell (or any element) from RTML's mixed ContentNode list:
+ * consecutive inlines group into one paragraph, blocks convert recursively. */
+function $appendContentNodes(
+  parent: TableCellNode | ListItemNode,
+  children: ContentNode[],
+): void {
+  let inlineRun: Inline[] = [];
+  const flush = () => {
+    if (inlineRun.length === 0) return;
+    const p = $createParagraphNode();
+    p.append(...$createInlineNodes(inlineRun, {}));
+    parent.append(p);
+    inlineRun = [];
+  };
+  for (const child of children) {
+    if (isInline(child)) {
+      inlineRun.push(child);
+    } else {
+      flush();
+      parent.append($createBlockNode(child));
+    }
+  }
+  flush();
+  // An empty cell still needs a paragraph to place the caret in.
+  if (parent.getChildrenSize() === 0) parent.append($createParagraphNode());
+}
+
+function $createCellFromRtml(
+  cell: RtmlTableCell,
+  headerState: number,
+): TableCellNode {
+  // ROW marks membership in the table's `headers` row; COLUMN carries the
+  // per-cell `header` flag. They compose bitwise, so a flagged cell inside
+  // the headers row keeps both and round-trips exactly.
+  const state =
+    headerState |
+    (cell.header
+      ? TableCellHeaderStates.COLUMN
+      : TableCellHeaderStates.NO_STATUS);
+  const cellNode = $createTableCellNode(state, cell.colSpan ?? 1);
+  if (cell.rowSpan && cell.rowSpan > 1) cellNode.setRowSpan(cell.rowSpan);
+  $appendContentNodes(cellNode, cell.children);
+  return cellNode;
+}
+
+function $createTableFromRtml(block: RtmlTable): RtmlTableNode {
+  const table = $createRtmlTableNode(block.variant);
+  if (block.headers) {
+    const row = $createTableRowNode();
+    for (const cell of block.headers) {
+      row.append($createCellFromRtml(cell, TableCellHeaderStates.ROW));
+    }
+    table.append(row);
+  }
+  for (const cells of block.rows) {
+    const row = $createTableRowNode();
+    for (const cell of cells) {
+      row.append($createCellFromRtml(cell, TableCellHeaderStates.NO_STATUS));
+    }
+    table.append(row);
+  }
+  return table;
 }
 
 function $createBlockNode(block: Block): LexicalNode {
@@ -168,8 +265,15 @@ function $createBlockNode(block: Block): LexicalNode {
     case 'divider':
       return $createHorizontalRuleNode();
     case 'list':
-      if (isSimpleList(block)) return $createSimpleListNode(block);
+      if (isEditableList(block)) return $createListFromRtml(block);
       return $createPreservedBlockNode(block);
+    case 'button': {
+      const btn = $createRtmlButtonNode(block.href, block.variant);
+      btn.append(...$createInlineNodes(block.children, {}));
+      return btn;
+    }
+    case 'table':
+      return $createTableFromRtml(block);
     default:
       return $createPreservedBlockNode(block);
   }
@@ -303,7 +407,75 @@ function $exportList(list: ListNode): RtmlList {
     }
     items.push({ children });
   }
-  return { type: 'list', ordered: list.getListType() === 'number', items };
+  const block: RtmlList = {
+    type: 'list',
+    ordered: list.getListType() === 'number',
+    items,
+  };
+  if (list instanceof RtmlListNode) {
+    const variant = list.getVariant();
+    if (variant) block.variant = variant;
+  }
+  return block;
+}
+
+/** Cell contents: a lone unaligned paragraph unwraps back to inline children
+ * (the inverse of $appendContentNodes); anything richer exports as blocks. */
+function $exportCellChildren(cell: TableCellNode): ContentNode[] {
+  const kids = cell.getChildren();
+  if (
+    kids.length === 1 &&
+    $isParagraphNode(kids[0]) &&
+    !kids[0].getFormatType()
+  ) {
+    return $exportInlines(kids[0]);
+  }
+  const out: ContentNode[] = [];
+  for (const kid of kids) {
+    const block = $exportBlock(kid);
+    if (block) out.push(block);
+  }
+  return out;
+}
+
+function $exportTable(table: TableNode): RtmlTable {
+  const lexRows = table.getChildren().filter($isTableRowNode);
+  const allCells = lexRows.map((row) =>
+    row.getChildren().filter($isTableCellNode),
+  );
+
+  // A first row of ROW-header cells came from (and goes back to) `headers`;
+  // COLUMN-header cells inside body rows round-trip as per-cell `header` flags.
+  const firstRowIsHeader =
+    allCells.length > 0 &&
+    allCells[0].length > 0 &&
+    allCells[0].every((cell) => cell.hasHeaderState(TableCellHeaderStates.ROW));
+
+  const exportCell = (cell: TableCellNode) => {
+    const out: RtmlTableCell = { children: $exportCellChildren(cell) };
+    if (cell.hasHeaderState(TableCellHeaderStates.COLUMN)) {
+      out.header = true;
+    }
+    const colSpan = cell.getColSpan();
+    const rowSpan = cell.getRowSpan();
+    if (colSpan > 1) out.colSpan = colSpan as RtmlTableCell['colSpan'];
+    if (rowSpan > 1) out.rowSpan = rowSpan as RtmlTableCell['rowSpan'];
+    return out;
+  };
+
+  const bodyCells = firstRowIsHeader ? allCells.slice(1) : allCells;
+  const block: RtmlTable = {
+    type: 'table',
+    rows: bodyCells.map((cells) => cells.map(exportCell)),
+  };
+  if (firstRowIsHeader) {
+    block.headers = allCells[0].map(exportCell);
+  }
+  if (table instanceof RtmlTableNode) {
+    const variant = table.getVariant();
+    if (variant) block.variant = variant;
+  }
+  return block;
 }
 
 function $exportBlock(node: LexicalNode): Block | null {
@@ -325,6 +497,17 @@ function $exportBlock(node: LexicalNode): Block | null {
     return heading;
   }
   if ($isListNode(node)) return $exportList(node);
+  if ($isTableNode(node)) return $exportTable(node);
+  if (node instanceof RtmlButtonNode) {
+    const button: Block = {
+      type: 'button',
+      href: node.getHref(),
+      children: $exportInlines(node),
+    };
+    const variant = node.getVariant();
+    if (variant) button.variant = variant;
+    return button;
+  }
   if ($isParagraphNode(node)) {
     const paragraph: RtmlParagraph = {
       type: 'paragraph',

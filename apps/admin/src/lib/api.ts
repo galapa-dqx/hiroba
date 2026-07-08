@@ -212,6 +212,15 @@ export async function updateArticleSource(
   });
 }
 
+export async function triggerArticleWorkflow(
+  kind: ArticleKind,
+  id: string,
+): Promise<{ success: boolean }> {
+  return adminFetch(`${articleApiBase(kind)}/${id}/workflow`, {
+    method: 'POST',
+  });
+}
+
 export async function updateArticleTranslation(
   kind: ArticleKind,
   id: string,

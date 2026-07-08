@@ -5,27 +5,40 @@
  * link, text formats). Everything Lexical can't express natively lives here:
  *
  * - RtmlHeadingNode — HeadingNode plus the RTML `variant`/`anchor` fields
+ * - RtmlListNode — ListNode plus the RTML `variant` field
+ * - RtmlTableNode — TableNode plus the RTML `variant` field (cells are plain
+ *   Lexical TableCellNodes; header flags map onto headerState)
+ * - RtmlButtonNode — block CTA with editable text; href/variant ride along
  * - TimeWrapperNode / EventWrapperNode — inline elements with editable text
  *   whose non-linguistic attributes (datetime, event id/start/end) ride along
  * - BadgeChipNode / IconChipNode — atomic inline decorations
- * - PreservedBlockNode — any block the editor doesn't edit natively (tables,
- *   info boxes, images, interviews, …), carried verbatim as JSON and shown as
- *   a rendered preview card with a raw-JSON escape hatch
+ * - PreservedBlockNode — any block the editor doesn't edit natively (images,
+ *   info boxes, interviews, …), carried verbatim as JSON and shown as a
+ *   rendered preview card with a raw-JSON escape hatch
  */
 
+import {
+  ListNode,
+  type ListType,
+  type SerializedListNode,
+} from '@lexical/list';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
   HeadingNode,
   type HeadingTagType,
   type SerializedHeadingNode,
 } from '@lexical/rich-text';
+import { TableNode, type SerializedTableNode } from '@lexical/table';
 import {
   $applyNodeReplacement,
+  $createParagraphNode,
   $getNodeByKey,
   DecoratorNode,
   ElementNode,
   type EditorConfig,
   type NodeKey,
+  type ParagraphNode,
+  type RangeSelection,
   type SerializedElementNode,
   type SerializedLexicalNode,
   type Spread,
@@ -38,6 +51,8 @@ import {
   type BadgeNode as RtmlBadge,
   type HeadingNode as RtmlHeading,
   type IconNode as RtmlIcon,
+  type ListNode as RtmlList,
+  type TableNode as RtmlTable,
 } from '@hiroba/richtext';
 
 /* ------------------------------------------------------------------ *
@@ -120,6 +135,228 @@ export function $createRtmlHeadingNode(
   anchor?: string,
 ): RtmlHeadingNode {
   return $applyNodeReplacement(new RtmlHeadingNode(tag, variant, anchor));
+}
+
+/* ------------------------------------------------------------------ *
+ * RtmlListNode — ListNode plus the RTML variant
+ * ------------------------------------------------------------------ */
+
+type SerializedRtmlListNode = Spread<
+  { variant?: RtmlList['variant'] },
+  SerializedListNode
+>;
+
+export class RtmlListNode extends ListNode {
+  __variant?: RtmlList['variant'];
+
+  static getType(): string {
+    return 'rtml-list';
+  }
+
+  static clone(node: RtmlListNode): RtmlListNode {
+    return new RtmlListNode(
+      node.__listType,
+      node.__start,
+      node.__variant,
+      node.__key,
+    );
+  }
+
+  constructor(
+    listType: ListType,
+    start: number,
+    variant?: RtmlList['variant'],
+    key?: NodeKey,
+  ) {
+    super(listType, start, key);
+    this.__variant = variant;
+  }
+
+  getVariant(): RtmlList['variant'] | undefined {
+    return this.getLatest().__variant;
+  }
+
+  createDOM(config: EditorConfig): HTMLElement {
+    const dom = super.createDOM(config);
+    // Mirror renderBlocks' rt-list-{variant} class for WYSIWYG parity.
+    if (this.__variant && this.__variant !== 'default') {
+      dom.classList.add(`rt-list-${this.__variant}`);
+    }
+    return dom;
+  }
+
+  exportJSON(): SerializedRtmlListNode {
+    return {
+      ...super.exportJSON(),
+      type: 'rtml-list',
+      variant: this.__variant,
+    };
+  }
+
+  static importJSON(json: SerializedRtmlListNode): RtmlListNode {
+    return $createRtmlListNode(json.listType, json.variant).updateFromJSON(
+      json,
+    );
+  }
+}
+
+export function $createRtmlListNode(
+  listType: ListType,
+  variant?: RtmlList['variant'],
+): RtmlListNode {
+  return $applyNodeReplacement(new RtmlListNode(listType, 1, variant));
+}
+
+/* ------------------------------------------------------------------ *
+ * RtmlTableNode — TableNode plus the RTML variant
+ * ------------------------------------------------------------------ */
+
+type SerializedRtmlTableNode = Spread<
+  { variant?: RtmlTable['variant'] },
+  SerializedTableNode
+>;
+
+export class RtmlTableNode extends TableNode {
+  __variant?: RtmlTable['variant'];
+
+  static getType(): string {
+    return 'rtml-table';
+  }
+
+  static clone(node: RtmlTableNode): RtmlTableNode {
+    return new RtmlTableNode(node.__variant, node.__key);
+  }
+
+  constructor(variant?: RtmlTable['variant'], key?: NodeKey) {
+    super(key);
+    this.__variant = variant;
+  }
+
+  getVariant(): RtmlTable['variant'] | undefined {
+    return this.getLatest().__variant;
+  }
+
+  createDOM(config: EditorConfig): HTMLElement {
+    const dom = super.createDOM(config);
+    // The ledger look from article-body.css. The layout/contents variants
+    // keep their grid rendering in the editor (data-variant='layout' turns
+    // cells into display:block, which would fight table editing), so the
+    // variant is preserved in the model but not painted here.
+    const table = dom.tagName === 'TABLE' ? dom : dom.querySelector('table');
+    table?.classList.add('rt-table');
+    return dom;
+  }
+
+  exportJSON(): SerializedRtmlTableNode {
+    return {
+      ...super.exportJSON(),
+      type: 'rtml-table',
+      variant: this.__variant,
+    };
+  }
+
+  static importJSON(json: SerializedRtmlTableNode): RtmlTableNode {
+    return $createRtmlTableNode(json.variant).updateFromJSON(json);
+  }
+}
+
+export function $createRtmlTableNode(
+  variant?: RtmlTable['variant'],
+): RtmlTableNode {
+  return $applyNodeReplacement(new RtmlTableNode(variant));
+}
+
+/* ------------------------------------------------------------------ *
+ * RtmlButtonNode — block CTA with editable text
+ * ------------------------------------------------------------------ */
+
+type SerializedRtmlButtonNode = Spread<
+  { href: string; variant?: string },
+  SerializedElementNode
+>;
+
+export class RtmlButtonNode extends ElementNode {
+  __href: string;
+  __variant?: string;
+
+  static getType(): string {
+    return 'rtml-button';
+  }
+
+  static clone(node: RtmlButtonNode): RtmlButtonNode {
+    return new RtmlButtonNode(node.__href, node.__variant, node.__key);
+  }
+
+  constructor(href: string, variant?: string, key?: NodeKey) {
+    super(key);
+    this.__href = href;
+    this.__variant = variant;
+  }
+
+  getHref(): string {
+    return this.getLatest().__href;
+  }
+
+  getVariant(): string | undefined {
+    return this.getLatest().__variant;
+  }
+
+  canBeEmpty(): boolean {
+    return false;
+  }
+
+  createDOM(): HTMLElement {
+    // Styled by article-body.css exactly like the rendered <a class="rt-button">;
+    // a div here so clicks edit instead of navigating.
+    const el = document.createElement('div');
+    el.className = 'rt-button';
+    if (this.__variant) el.dataset.variant = this.__variant;
+    el.title = `→ ${this.__href}`;
+    return el;
+  }
+
+  updateDOM(prevNode: RtmlButtonNode, dom: HTMLElement): boolean {
+    if (prevNode.__href !== this.__href) dom.title = `→ ${this.__href}`;
+    return false;
+  }
+
+  // Enter at the end escapes into a fresh paragraph instead of splitting
+  // the CTA into two buttons (same behavior as headings).
+  insertNewAfter(
+    _selection: RangeSelection,
+    restoreSelection = true,
+  ): ParagraphNode {
+    const paragraph = $createParagraphNode();
+    this.insertAfter(paragraph, restoreSelection);
+    return paragraph;
+  }
+
+  collapseAtStart(): boolean {
+    const paragraph = $createParagraphNode();
+    paragraph.append(...this.getChildren());
+    this.replace(paragraph);
+    return true;
+  }
+
+  exportJSON(): SerializedRtmlButtonNode {
+    return {
+      ...super.exportJSON(),
+      type: 'rtml-button',
+      href: this.__href,
+      variant: this.__variant,
+    };
+  }
+
+  static importJSON(json: SerializedRtmlButtonNode): RtmlButtonNode {
+    return $createRtmlButtonNode(json.href, json.variant).updateFromJSON(json);
+  }
+}
+
+export function $createRtmlButtonNode(
+  href: string,
+  variant?: string,
+): RtmlButtonNode {
+  return $applyNodeReplacement(new RtmlButtonNode(href, variant));
 }
 
 /* ------------------------------------------------------------------ *

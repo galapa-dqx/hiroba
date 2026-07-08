@@ -29,12 +29,14 @@ import { LinkPlugin } from '@lexical/react/LexicalLinkPlugin';
 import { ListPlugin } from '@lexical/react/LexicalListPlugin';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
+import { TablePlugin } from '@lexical/react/LexicalTablePlugin';
 import {
   $isHeadingNode,
   HeadingNode,
   type HeadingTagType,
 } from '@lexical/rich-text';
 import { $patchStyleText, $setBlocksType } from '@lexical/selection';
+import { TableCellNode, TableNode, TableRowNode } from '@lexical/table';
 import { mergeRegister } from '@lexical/utils';
 import {
   $createParagraphNode,
@@ -71,7 +73,10 @@ import {
   EventWrapperNode,
   IconChipNode,
   PreservedBlockNode,
+  RtmlButtonNode,
   RtmlHeadingNode,
+  RtmlListNode,
+  RtmlTableNode,
   TimeWrapperNode,
 } from './rtml-nodes';
 
@@ -327,7 +332,24 @@ const RtmlEditor = forwardRef<RtmlEditorHandle, RtmlEditorProps>(
           withKlass: RtmlHeadingNode,
         },
         ListNode,
+        RtmlListNode,
+        {
+          replace: ListNode,
+          with: (node: ListNode) =>
+            new RtmlListNode(node.getListType(), node.getStart()),
+          withKlass: RtmlListNode,
+        },
         ListItemNode,
+        TableNode,
+        RtmlTableNode,
+        {
+          replace: TableNode,
+          with: () => new RtmlTableNode(),
+          withKlass: RtmlTableNode,
+        },
+        TableRowNode,
+        TableCellNode,
+        RtmlButtonNode,
         LinkNode,
         HorizontalRuleNode,
         TimeWrapperNode,
@@ -360,6 +382,7 @@ const RtmlEditor = forwardRef<RtmlEditorHandle, RtmlEditorProps>(
           <HistoryPlugin />
           <ListPlugin />
           <LinkPlugin />
+          <TablePlugin />
           <HorizontalRulePlugin />
           {onDirty && (
             <OnChangePlugin

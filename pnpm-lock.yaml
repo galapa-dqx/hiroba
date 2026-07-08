@@ -95,6 +95,9 @@ importers:
       '@lexical/selection':
         specifier: ^0.46.0
         version: 0.46.0(typescript@5.9.3)
+      '@lexical/table':
+        specifier: ^0.46.0
+        version: 0.46.0(typescript@5.9.3)
       '@lexical/utils':
         specifier: ^0.46.0
         version: 0.46.0(typescript@5.9.3)

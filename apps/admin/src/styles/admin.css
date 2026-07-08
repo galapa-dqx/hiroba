@@ -1310,12 +1310,21 @@ hr.divider {
   font-style: italic;
 }
 
-/* tabs — parchment folders against the gilt rule */
+/* tabs — parchment folders against the gilt rule; the save action sits on
+ * the same rule, top right */
 .article-edit__tabs {
   display: flex;
+  align-items: center;
   gap: 0.3rem;
   margin-bottom: 1.1rem;
   border-bottom: 2px solid var(--gold-edge);
+}
+.article-edit__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-left: auto;
+  padding-bottom: 0.3rem;
 }
 .article-edit__tabs button {
   padding: 0.45rem 1.1rem;
@@ -1364,12 +1373,9 @@ hr.divider {
   margin-top: 0.4rem;
   font-size: 1.05rem;
 }
-.article-edit__save {
-  margin-top: 1rem;
-}
 .article-edit__status {
-  margin-top: 0.75rem;
   color: var(--ink-soft);
+  font-size: 0.85rem;
   font-style: italic;
 }
 .article-edit__empty {
@@ -1378,6 +1384,17 @@ hr.divider {
   color: var(--ink-faint);
   background: var(--surface-panel);
   border: 1px dashed var(--border);
+}
+.article-edit__empty button {
+  margin-top: 1rem;
+}
+.article-edit__run-error {
+  margin-top: 0.75rem;
+  color: var(--red-11);
+}
+/* a run card shown above the retry box in the empty state */
+.article-edit__panel .wf-run {
+  margin-bottom: 1rem;
 }
 
 /* --------------------------------------------------------- editor frame --- */
@@ -1430,6 +1447,10 @@ hr.divider {
   padding: 0.4rem 0.5rem;
   background: var(--surface-panel-2);
   border-bottom: 1px solid var(--rule-strong);
+  /* ride along just under the sticky page header (~4.25rem tall, z 20) */
+  position: sticky;
+  top: 4.25rem;
+  z-index: 10;
 }
 .rtml-toolbar button {
   min-width: 2rem;
@@ -1582,6 +1603,13 @@ hr.divider {
 .rtml-toolbar__color,
 .rtml-preserved__actions button {
   border-radius: 0;
+}
+
+/* folder tabs: scooped shoulders, square base sitting flush on the rule */
+@supports (corner-shape: scoop) {
+  .article-edit__tabs button {
+    border-radius: 8px 8px 0 0;
+  }
 }
 
 /* external "view original" arrow beside list titles */
