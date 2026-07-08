@@ -1,7 +1,10 @@
 /**
  * Trim the padding gpt-image-2 adds around its edit, then crop to the original
- * image's aspect ratio. Pure-JS PNG codec (fast-png) so it runs in the Worker;
- * the geometry (contentBox / fitAspect / crop) is exported for testing.
+ * image's aspect ratio — but only when the trimmed content has drifted more
+ * than ASPECT_TOLERANCE from that ratio, so we don't shave slivers off images
+ * the model got near-enough right. Pure-JS PNG codec (fast-png) so it runs in
+ * the Worker; the geometry (contentBox / fitAspect / crop) is exported for
+ * testing.
  *
  * Note: this trims *edge* padding — solid background rows/columns from each side
  * — so it removes an added border without touching the interior. Background is
@@ -16,6 +19,15 @@ const BG_THRESHOLD = 240;
 
 /** alpha ≤ this ⇒ background (see-through padding, e.g. from image-matte). */
 const BG_ALPHA = 8;
+
+/**
+ * How far the trimmed content box's aspect may drift from the original before
+ * we center-crop to correct it (relative to the target, so 0.05 = 5%).
+ * gpt-image-2 rarely returns the exact requested ratio; within this band we
+ * keep its slightly-off dimensions rather than shaving a sliver off every
+ * image for no real gain.
+ */
+export const ASPECT_TOLERANCE = 0.05;
 
 export type Raster = {
   data: Uint8Array;
@@ -96,10 +108,20 @@ export function contentBox(r: Raster, threshold = BG_THRESHOLD): Box {
   return { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
-/** Center-crop a box to `aspect` (w/h) — only ever removes, never adds. */
-export function fitAspect(box: Box, aspect: number): Box {
+/**
+ * Center-crop a box to `aspect` (w/h) — only ever removes, never adds. When the
+ * box is already within `tolerance` (relative) of the target aspect, it's left
+ * unchanged: the model's output is close enough that correcting it would only
+ * remove a sliver.
+ */
+export function fitAspect(
+  box: Box,
+  aspect: number,
+  tolerance = ASPECT_TOLERANCE,
+): Box {
   let { x, y, width: w, height: h } = box;
   const cur = w / h;
+  if (Math.abs(cur - aspect) <= aspect * tolerance) return box;
   if (cur > aspect) {
     const nw = Math.max(1, Math.round(h * aspect));
     x += Math.floor((w - nw) / 2);

@@ -106,6 +106,37 @@ describe('fitAspect', () => {
       height: 3,
     });
   });
+
+  it('leaves a near-match within tolerance unchanged (no sliver crop)', () => {
+    // 101×100 is 1% off square — inside the default 3% band, so keep it as-is
+    // rather than trimming a 1px sliver.
+    expect(fitAspect({ x: 0, y: 0, width: 101, height: 100 }, 1)).toEqual({
+      x: 0,
+      y: 0,
+      width: 101,
+      height: 100,
+    });
+  });
+
+  it('still crops once the drift exceeds tolerance', () => {
+    // 110×100 is 10% off square — outside the band, so center-crop to square.
+    expect(fitAspect({ x: 0, y: 0, width: 110, height: 100 }, 1)).toEqual({
+      x: 5,
+      y: 0,
+      width: 100,
+      height: 100,
+    });
+  });
+
+  it('honors an explicit tolerance', () => {
+    // Same 10% drift, but a 20% tolerance keeps it untouched.
+    expect(fitAspect({ x: 0, y: 0, width: 110, height: 100 }, 1, 0.2)).toEqual({
+      x: 0,
+      y: 0,
+      width: 110,
+      height: 100,
+    });
+  });
 });
 
 describe('crop', () => {
