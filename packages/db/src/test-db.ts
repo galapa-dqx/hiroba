@@ -24,6 +24,7 @@ const TABLES = [
   'events',
   'glossary',
   'images',
+  'languages',
   'news_items',
   'topics',
   'translations',

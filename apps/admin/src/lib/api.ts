@@ -12,7 +12,15 @@ async function adminFetch<T>(
   const res = await fetch(path, options);
 
   if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+    // Surface the server's error message when it sent one.
+    let message = `API error: ${res.status}`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // Non-JSON error body — keep the status message.
+    }
+    throw new Error(message);
   }
 
   return res.json() as Promise<T>;
@@ -307,6 +315,54 @@ export async function lookupGlossary(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, lang }),
+  });
+}
+
+// Languages API (the translation-target whitelist)
+
+export type LanguageEntry = {
+  code: string;
+  label: string;
+  nativeLabel: string;
+  enabled: boolean;
+  updatedAt: string; // ISO-8601 UTC instant
+};
+
+export async function getLanguages(): Promise<{
+  languages: LanguageEntry[];
+}> {
+  return adminFetch('/api/languages');
+}
+
+export async function addLanguage(entry: {
+  code: string;
+  label: string;
+  nativeLabel: string;
+  enabled?: boolean;
+}): Promise<{ success: boolean; code: string }> {
+  return adminFetch('/api/languages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  });
+}
+
+export async function updateLanguage(
+  code: string,
+  patch: { label?: string; nativeLabel?: string; enabled?: boolean },
+): Promise<{ success: boolean; code: string }> {
+  return adminFetch(`/api/languages/${encodeURIComponent(code)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteLanguage(
+  code: string,
+): Promise<{ success: boolean; code: string }> {
+  return adminFetch(`/api/languages/${encodeURIComponent(code)}`, {
+    method: 'DELETE',
   });
 }
 

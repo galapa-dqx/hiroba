@@ -1,15 +1,17 @@
 ---
-import ArticlePage from "../../components/ArticlePage.astro";
-import LocalTime from "../../components/LocalTime.astro";
+import ArticlePage from "../../../components/ArticlePage.astro";
+import LocalTime from "../../../components/LocalTime.astro";
 import { computeSnapshot, createDb, getArticleTranslations, getEventsForSource, getTopic } from "@hiroba/db";
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
-import { hydrateArticleImages } from "../../lib/article-images";
-import { triggerWorkflow } from "../../lib/workflow";
+import { hydrateArticleImages } from "../../../lib/article-images";
+import { triggerWorkflow } from "../../../lib/workflow";
 
+// Validated against the whitelist by the middleware.
+const lang = Astro.params.lang!;
 const { id } = Astro.params;
 if (!id) {
-	return Astro.redirect("/topics");
+	return Astro.redirect(`/${lang}/topics`);
 }
 
 const runtime = Astro.locals.runtime;
@@ -18,13 +20,13 @@ const db = createDb(runtime.env.DB);
 // fetch-body creates the row, so a never-seen id is valid — no 404.
 const topic = await getTopic(db, id);
 
-const { title: enTitle, blocks: enBlocks, translatedAt } = await getArticleTranslations(db, "topic", id, "en");
-const isTranslated = !!enBlocks;
+const { title: localizedTitle, blocks: localizedBlocks, translatedAt } = await getArticleTranslations(db, "topic", id, lang);
+const isTranslated = !!localizedBlocks;
 
 // The article displays only once its pipeline has settled — fetched, translated,
 // and every text-bearing image localized (or given up on). Until then the page
 // shows the processing notice and the SSE stream drives progress + reload.
-const snapshot = await computeSnapshot(db, "topic", id, "en");
+const snapshot = await computeSnapshot(db, "topic", id, lang);
 const ready = isSnapshotSettled(snapshot);
 
 // Fire the pipeline unless everything already finished cleanly — a
@@ -34,17 +36,18 @@ if (!isSnapshotComplete(snapshot)) {
 	triggerWorkflow(runtime, "topic", id);
 }
 
-const title = enTitle ?? topic?.titleJa ?? "Loading topic…";
-const blocks: Block[] = enBlocks ?? (topic?.blocksJa as Block[] | null) ?? [];
+const title = localizedTitle ?? topic?.titleJa ?? "Loading topic…";
+const blocks: Block[] = localizedBlocks ?? (topic?.blocksJa as Block[] | null) ?? [];
 
 const imageSrc = await hydrateArticleImages(db, blocks, {
 	isTranslated,
+	language: lang,
 	imageBase: runtime.env.IMAGE_BASE,
 });
 const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHref });
 
 // Events extracted from this topic (only meaningful once the body is shown).
-const events = ready ? await getEventsForSource(db, "topic", id, "en") : [];
+const events = ready ? await getEventsForSource(db, "topic", id, lang) : [];
 ---
 
 <ArticlePage
@@ -57,7 +60,7 @@ const events = ready ? await getEventsForSource(db, "topic", id, "en") : [];
 	events={events}
 	originalUrl={`https://hiroba.dqx.jp/sc/topics/detail/${id}/`}
 	translatedAtMs={translatedAt?.epochMilliseconds}
-	backHref="/topics"
+	backHref={`/${lang}/topics`}
 	backLabel="Back to topics"
 >
 	<Fragment slot="meta">

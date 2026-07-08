@@ -7,9 +7,9 @@
  * 2. extract-events    — LLM calendar-event extraction (RTML input) → events
  * 3. mirror-images     — copy every referenced image into R2 (self-hosted)
  * 4. transcribe-images — Gemini vision reads baked-in image text → images table
- * 5. translate         — whole-document JA→EN → translations (title + content),
- *                        plus per-image spans and event titles
- * 6. localize-images   — bake the EN translations back into text-bearing images
+ * 5. translate         — whole-document JA→each enabled language → translations
+ *                        (title + content), plus per-image spans and event titles
+ * 6. localize-images   — bake the translations back into text-bearing images
  *
  * The image steps (mirror/transcribe/localize) no-op when the document
  * references no images — the case for news — so one pipeline serves both types.
@@ -25,7 +25,7 @@ import {
   type WorkflowStep,
 } from 'cloudflare:workers';
 
-import { createDb, failPipelineStates } from '@hiroba/db';
+import { createDb, failPipelineStates, getEnabledLanguages } from '@hiroba/db';
 
 import { getArticleBlocks } from './article';
 import { createLogger, runStep } from './logger';
@@ -55,20 +55,29 @@ export class ArticleWorkflow extends WorkflowEntrypoint<
     const db = createDb(this.env.DB);
     const log = createLogger(this.env, `${itemType}:${itemId}`);
 
+    // The whitelist of target languages, read once so every step (and the
+    // failure handler) works on the same set even if the admin edits it
+    // mid-run.
+    const languages = await step.do('load-languages', () =>
+      getEnabledLanguages(db),
+    );
+
     try {
-      return await this.runSteps(itemType, itemId, db, log, step);
+      return await this.runSteps(itemType, itemId, languages, db, log, step);
     } catch (err) {
       // Terminal workflow failure (a step exhausted its retries): settle every
       // state this item still holds open so SSE clients and later triggers see
       // failed, not an eternal running. Shared image rows settle themselves.
       await step.do('mark-failed', async () => {
-        await failPipelineStates(
-          db,
-          itemType,
-          itemId,
-          'en',
-          err instanceof Error ? err.message : 'workflow failed',
-        );
+        for (const { code } of languages) {
+          await failPipelineStates(
+            db,
+            itemType,
+            itemId,
+            code,
+            err instanceof Error ? err.message : 'workflow failed',
+          );
+        }
       });
       throw err;
     }
@@ -77,6 +86,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<
   private async runSteps(
     itemType: ItemType,
     itemId: string,
+    languages: Array<{ code: string; label: string }>,
     db: ReturnType<typeof createDb>,
     log: ReturnType<typeof createLogger>,
     step: WorkflowStep,
@@ -154,12 +164,13 @@ export class ArticleWorkflow extends WorkflowEntrypoint<
         itemType,
         itemId,
         extractEvents.eventIds,
+        languages,
       ),
     );
 
-    // Step 6: bake the EN translations back into text-bearing images (no-op when
+    // Step 6: bake the translations back into text-bearing images (no-op when
     // the doc has none). Runs even when translation failed: candidates without
-    // EN text then get their url rows marked failed, settling the snapshot.
+    // translated text then get their url rows marked failed, settling the snapshot.
     const localize = await runStep(step, log, 'localize-images', async () =>
       localizeImages(
         db,
@@ -167,6 +178,7 @@ export class ArticleWorkflow extends WorkflowEntrypoint<
         this.env.IMAGES,
         this.env.OPENAI_API_KEY,
         await getArticleBlocks(db, itemType, itemId),
+        languages,
       ),
     );
 

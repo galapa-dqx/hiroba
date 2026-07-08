@@ -26,6 +26,7 @@ import {
   computeImageDetail,
   computeSnapshot,
   createDb,
+  getEnabledLanguages,
   getNewsItem,
   getTitleTranslations,
   getTopic,
@@ -44,7 +45,6 @@ import {
   type WorkflowRunStatus,
 } from '@hiroba/shared';
 
-import { TARGET_LANGUAGES } from './steps/translate-titles';
 import type { Env, ItemType } from './types';
 
 /** How long settled runs stay in the tracker's listing. */
@@ -265,8 +265,9 @@ export class WorkflowManager extends DurableObject<Env> {
       return Response.json({ status: 'empty', enqueued: 0 });
     }
 
+    const languages = await getEnabledLanguages(createDb(this.env.DB));
     const instance = await this.env.TITLE_WORKFLOW.create({
-      params: { itemType, itemIds, languages: [...TARGET_LANGUAGES] },
+      params: { itemType, itemIds, languages: languages.map((l) => l.code) },
     });
     return Response.json({
       status: 'enqueued',

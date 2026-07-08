@@ -10,8 +10,19 @@ type RuntimeEnv = {
 };
 
 declare namespace App {
+  /** An enabled language from the whitelist (see @hiroba/db languages). */
+  type SiteLanguage = {
+    code: string;
+    label: string;
+    nativeLabel: string;
+  };
+
   type Locals = {
     runtime: { env: RuntimeEnv };
+    /** The page's language, validated against the whitelist (pages only). */
+    lang?: string;
+    /** The enabled languages, resolved once per request (pages only). */
+    languages?: SiteLanguage[];
   };
 }
 

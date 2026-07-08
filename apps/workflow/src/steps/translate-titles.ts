@@ -19,6 +19,7 @@
 
 import {
   findMatchingGlossaryEntries,
+  getLanguageLabel,
   setTranslationStates,
   upsertItemTranslation,
   type Database,
@@ -28,12 +29,6 @@ import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import type { ItemType } from '../types';
 
 /**
- * Languages titles are eagerly translated into at discovery. Kept as a constant
- * so DQX-13's bulk backfill can drive the same workflow over more languages.
- */
-export const TARGET_LANGUAGES = ['en'] as const;
-
-/**
  * Max titles per LLM call (one workflow step). Titles are short, so this isn't a
  * token limit — it bounds each request, caps the blast radius of a single
  * dropped/garbled response, and keeps a retried step small. Steady-state hourly
@@ -41,8 +36,8 @@ export const TARGET_LANGUAGES = ['en'] as const;
  */
 export const TITLE_BATCH_SIZE = 25;
 
-const SYSTEM_PROMPT =
-  'Translate each Japanese article title to natural English, keeping Dragon Quest X game-specific terms recognizable and strictly adhering to the translation glossary. You are given a JSON array of {"id","title"} objects. Respond with ONLY a JSON array of the same objects with each title replaced by its English translation, preserving every id. No other text.';
+const systemPrompt = (language: string) =>
+  `Translate each Japanese article title to natural ${language}, keeping Dragon Quest X game-specific terms recognizable and strictly adhering to the translation glossary. You are given a JSON array of {"id","title"} objects. Respond with ONLY a JSON array of the same objects with each title replaced by its ${language} translation, preserving every id. No other text.`;
 
 /** Render matching glossary entries as a prompt section (empty when none match). */
 function glossarySection(
@@ -55,7 +50,7 @@ function glossarySection(
 }
 
 /**
- * Parse the batch response into an id → English-title map. Tolerant of a
+ * Parse the batch response into an id → translated-title map. Tolerant of a
  * mangled response: entries without a string id/title (or a blank title) are
  * dropped, and ids the model omitted simply never appear (the caller resets
  * those to `pending`). Exported for testing.
@@ -120,6 +115,7 @@ export async function translateTitleChunk(
   // No try/catch around the call: a transport/API error propagates so the
   // workflow step retries the whole chunk.
   const client = createGemini(apiKey);
+  const label = await getLanguageLabel(db, language);
   const glossary = await findMatchingGlossaryEntries(
     db,
     chunk.map((i) => i.titleJa).join('\n'),
@@ -129,7 +125,10 @@ export async function translateTitleChunk(
     model: GEMINI_MODEL,
     temperature: 0.3,
     messages: [
-      { role: 'system', content: SYSTEM_PROMPT + glossarySection(glossary) },
+      {
+        role: 'system',
+        content: systemPrompt(label) + glossarySection(glossary),
+      },
       {
         role: 'user',
         content: JSON.stringify(
@@ -145,14 +144,14 @@ export async function translateTitleChunk(
   let translated = 0;
   let failed = 0;
   for (const item of chunk) {
-    const en = byId.get(item.id);
-    if (en) {
+    const value = byId.get(item.id);
+    if (value) {
       await upsertItemTranslation(db, {
         itemType,
         itemId: item.id,
         language,
         field: 'title',
-        value: en,
+        value,
         model: GEMINI_MODEL,
       });
       translated++;

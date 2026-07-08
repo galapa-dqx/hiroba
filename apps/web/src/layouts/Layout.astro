@@ -14,31 +14,56 @@ interface Props {
 	 *  point it at the Hiroba original so we defer to the source in search
 	 *  rather than competing with it for the same content. */
 	canonical?: string;
-	/** hreflang language alternates, emitted as <link rel="alternate">. */
+	/** hreflang language alternates, emitted as <link rel="alternate">.
+	 *  Defaults to this page's own path in every enabled language. */
 	alternates?: { hreflang: string; href: string }[];
 }
 
-const { title, category, canonical, alternates = [] } = Astro.props;
+const { title, category, canonical, alternates } = Astro.props;
 
-// Fall back to deriving the active category from the URL (/category/<slug>).
+// Set by the middleware, which validated the /<lang>/ prefix against the
+// admin-managed whitelist.
+const lang = Astro.locals.lang ?? "en";
+const languages = Astro.locals.languages ?? [
+	{ code: "en", label: "English", nativeLabel: "English" },
+];
+const base = `/${lang}`;
+
 const pathname = Astro.url.pathname;
+// The language-independent remainder of the path ('' on the home page).
+const pathAfterLang = pathname.startsWith(base)
+	? pathname.slice(base.length).replace(/^\/$/, "")
+	: pathname;
+
+// Fall back to deriving the active category from the URL (/<lang>/category/<slug>).
 const active =
 	category ??
-	(CATEGORIES.find((c) => pathname.startsWith(`/category/${c}`)) as Category | undefined);
+	(CATEGORIES.find((c) => pathAfterLang.startsWith(`/category/${c}`)) as Category | undefined);
 
 // Self-referential by default (query/hash dropped); overridden per-page.
 const canonicalUrl = canonical ?? new URL(pathname, Astro.url.origin).href;
+
+// Mirror pages: unless the page supplied its own alternates (articles do),
+// declare this path in every enabled language.
+const alternateLinks =
+	alternates ??
+	(languages.length > 1
+		? languages.map((l) => ({
+				hreflang: l.code,
+				href: new URL(`/${l.code}${pathAfterLang}`, Astro.url.origin).href,
+			}))
+		: []);
 ---
 
 <!doctype html>
-<html lang="en">
+<html lang={lang}>
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<meta name="description" content="Dragon Quest X news, translated to English" />
+		<meta name="description" content="Dragon Quest X news, translated from the official Hiroba" />
 		<meta name="color-scheme" content="light dark" />
 		<link rel="canonical" href={canonicalUrl} />
-		{alternates.map((a) => <link rel="alternate" hreflang={a.hreflang} href={a.href} />)}
+		{alternateLinks.map((a) => <link rel="alternate" hreflang={a.hreflang} href={a.href} />)}
 		<title>{title} | DQX News</title>
 		{/* Apply the saved theme before first paint to avoid a flash. */}
 		<script is:inline>
@@ -53,7 +78,7 @@ const canonicalUrl = canonical ?? new URL(pathname, Astro.url.origin).href;
 	<body>
 		<header class="site-header">
 			<div class="site-header__inner">
-				<a href="/" class="brand" aria-label="DQX News — home">
+				<a href={base} class="brand" aria-label="DQX News — home">
 					<Rosette class="brand__mark" />
 					<span class="brand__word">DQX&nbsp;<em>News</em></span>
 				</a>
@@ -63,7 +88,7 @@ const canonicalUrl = canonical ?? new URL(pathname, Astro.url.origin).href;
 							<a
 								class="nav__link"
 								data-cat={c}
-								href={`/category/${c}`}
+								href={`${base}/category/${c}`}
 								aria-current={active === c ? "page" : undefined}
 							>
 								{CATEGORY_LABELS[c]}
@@ -72,11 +97,35 @@ const canonicalUrl = canonical ?? new URL(pathname, Astro.url.origin).href;
 					}
 					<a
 						class="nav__link"
-						href="/topics"
-						aria-current={pathname.startsWith("/topics") ? "page" : undefined}
+						href={`${base}/topics`}
+						aria-current={pathAfterLang.startsWith("/topics") ? "page" : undefined}
 					>
 						Topics
 					</a>
+					{
+						languages.length > 1 && (
+							<details class="lang-menu">
+								<summary aria-label="Change language">
+									<span aria-hidden="true">🌐</span>
+									{languages.find((l) => l.code === lang)?.nativeLabel ?? lang}
+								</summary>
+								<ul>
+									{languages.map((l) => (
+										<li>
+											<a
+												href={`/${l.code}${pathAfterLang}${Astro.url.search}`}
+												lang={l.code}
+												hreflang={l.code}
+												aria-current={l.code === lang ? "page" : undefined}
+											>
+												{l.nativeLabel}
+											</a>
+										</li>
+									))}
+								</ul>
+							</details>
+						)
+					}
 					<ThemeToggle />
 				</nav>
 			</div>
@@ -94,5 +143,66 @@ const canonicalUrl = canonical ?? new URL(pathname, Astro.url.origin).href;
 				> — a fan project, not affiliated with Square Enix.
 			</p>
 		</footer>
+
+		<style>
+			/* Language switcher — a quiet dropdown at the end of the nav. */
+			.lang-menu {
+				position: relative;
+			}
+			.lang-menu summary {
+				list-style: none;
+				cursor: pointer;
+				padding: 0.4rem 0.7rem;
+				font-size: 0.92rem;
+				font-weight: 600;
+				color: var(--ink-soft);
+				display: inline-flex;
+				align-items: center;
+				gap: 0.35rem;
+				white-space: nowrap;
+			}
+			.lang-menu summary::-webkit-details-marker {
+				display: none;
+			}
+			.lang-menu summary:hover {
+				color: var(--gold-edge);
+			}
+			.lang-menu ul {
+				position: absolute;
+				right: 0;
+				margin: 0.25rem 0 0;
+				padding: 0.3rem;
+				list-style: none;
+				min-width: 9rem;
+				background: var(--surface-panel);
+				border: 1px solid var(--rule-strong);
+				box-shadow: var(--shadow-sm);
+				z-index: 60;
+			}
+			.lang-menu li a {
+				display: block;
+				padding: 0.35rem 0.6rem;
+				font-size: 0.92rem;
+				font-weight: 600;
+				color: var(--ink-soft);
+				text-decoration: none;
+			}
+			.lang-menu li a:hover {
+				color: var(--gold-edge);
+			}
+			.lang-menu li a[aria-current="page"] {
+				color: var(--gold-edge);
+			}
+		</style>
+		<script>
+			// Close the language menu when clicking elsewhere.
+			document.querySelectorAll<HTMLDetailsElement>(".lang-menu").forEach((menu) => {
+				document.addEventListener("click", (e) => {
+					if (menu.open && e.target instanceof Node && !menu.contains(e.target)) {
+						menu.open = false;
+					}
+				});
+			});
+		</script>
 	</body>
 </html>

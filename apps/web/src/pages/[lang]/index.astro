@@ -1,10 +1,13 @@
 ---
-import Layout from "../layouts/Layout.astro";
-import ArticleList from "../components/ArticleList.astro";
-import PanelSection from "../components/PanelSection.astro";
+import Layout from "../../layouts/Layout.astro";
+import ArticleList from "../../components/ArticleList.astro";
+import PanelSection from "../../components/PanelSection.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import { createDb, getNewsItems } from "@hiroba/db";
 import { CATEGORIES, CATEGORY_LABELS } from "@hiroba/shared";
+
+// Validated against the whitelist by the middleware.
+const lang = Astro.params.lang!;
 
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
@@ -12,7 +15,7 @@ const db = createDb(runtime.env.DB);
 const newsByCategory = await Promise.all(
 	CATEGORIES.map(async (category) => {
 		try {
-			const { items } = await getNewsItems(db, { category, limit: 5 });
+			const { items } = await getNewsItems(db, { category, limit: 5, language: lang });
 			return { category, items };
 		} catch {
 			return { category, items: [] };
@@ -25,7 +28,7 @@ const newsByCategory = await Promise.all(
 <Layout title="Latest News">
 	<section class="home-hero">
 		<h1>DQX&nbsp;News</h1>
-		<p class="subtitle">Dispatches from Astoltia — Dragon Quest&nbsp;X news, translated to English.</p>
+		<p class="subtitle">Dispatches from Astoltia — Dragon Quest&nbsp;X news, translated from the official Hiroba.</p>
 		<Ornament class="home-hero__rule" />
 	</section>
 
@@ -34,11 +37,11 @@ const newsByCategory = await Promise.all(
 			newsByCategory.map(({ category, items }) => (
 				<PanelSection
 					title={CATEGORY_LABELS[category]}
-					titleHref={`/category/${category}`}
-					moreHref={`/category/${category}`}
+					titleHref={`/${lang}/category/${category}`}
+					moreHref={`/${lang}/category/${category}`}
 					category={category}
 				>
-					<ArticleList items={items} hrefBase="/news" />
+					<ArticleList items={items} hrefBase={`/${lang}/news`} />
 				</PanelSection>
 			))
 		}

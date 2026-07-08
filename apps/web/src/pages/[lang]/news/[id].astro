@@ -1,16 +1,18 @@
 ---
-import ArticlePage from "../../components/ArticlePage.astro";
-import LocalTime from "../../components/LocalTime.astro";
+import ArticlePage from "../../../components/ArticlePage.astro";
+import LocalTime from "../../../components/LocalTime.astro";
 import CategoryDot from "@hiroba/ui/CategoryDot.astro";
 import { computeSnapshot, createDb, getArticleTranslations, getEventsForSource, getNewsItem } from "@hiroba/db";
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { CATEGORY_LABELS, describeSnapshot, isSnapshotComplete, isSnapshotSettled, type Category } from "@hiroba/shared";
-import { hydrateArticleImages } from "../../lib/article-images";
-import { triggerWorkflow } from "../../lib/workflow";
+import { hydrateArticleImages } from "../../../lib/article-images";
+import { triggerWorkflow } from "../../../lib/workflow";
 
+// Validated against the whitelist by the middleware.
+const lang = Astro.params.lang!;
 const { id } = Astro.params;
 if (!id) {
-	return Astro.redirect("/");
+	return Astro.redirect(`/${lang}`);
 }
 
 const runtime = Astro.locals.runtime;
@@ -23,14 +25,14 @@ if (!item) {
 	return new Response("Not found", { status: 404 });
 }
 
-const { title: enTitle, blocks: enBlocks, translatedAt } = await getArticleTranslations(db, "news", id, "en");
-const isTranslated = !!enBlocks;
+const { title: localizedTitle, blocks: localizedBlocks, translatedAt } = await getArticleTranslations(db, "news", id, lang);
+const isTranslated = !!localizedBlocks;
 
 // The article displays only once its pipeline has settled — fetched and
 // translated (news has no image steps, so its snapshot carries images: null).
 // Until then the page shows the processing notice and the SSE stream drives
 // progress + reload.
-const snapshot = await computeSnapshot(db, "news", id, "en");
+const snapshot = await computeSnapshot(db, "news", id, lang);
 const ready = isSnapshotSettled(snapshot);
 
 // Fire the pipeline unless everything already finished cleanly — a
@@ -40,17 +42,18 @@ if (!isSnapshotComplete(snapshot)) {
 	triggerWorkflow(runtime, "news", id);
 }
 
-const title = enTitle ?? item.titleJa;
-const blocks: Block[] = enBlocks ?? (item.blocksJa as Block[] | null) ?? [];
+const title = localizedTitle ?? item.titleJa;
+const blocks: Block[] = localizedBlocks ?? (item.blocksJa as Block[] | null) ?? [];
 
 const imageSrc = await hydrateArticleImages(db, blocks, {
 	isTranslated,
+	language: lang,
 	imageBase: runtime.env.IMAGE_BASE,
 });
 const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHref });
 
 // Events extracted from this article (only meaningful once the body is shown).
-const events = ready ? await getEventsForSource(db, "news", id, "en") : [];
+const events = ready ? await getEventsForSource(db, "news", id, lang) : [];
 
 const category = item.category as Category;
 const categoryLabel = CATEGORY_LABELS[category] || item.category;
@@ -67,11 +70,11 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 	events={events}
 	originalUrl={`https://hiroba.dqx.jp/sc/news/detail/${id}/`}
 	translatedAtMs={translatedAt?.epochMilliseconds}
-	backHref="/"
+	backHref={`/${lang}`}
 	backLabel="Back to home"
 >
 	<Fragment slot="meta">
-		<a href={`/category/${category}`} class="chip"><CategoryDot category={category} />{categoryLabel}</a>
+		<a href={`/${lang}/category/${category}`} class="chip"><CategoryDot category={category} />{categoryLabel}</a>
 		<LocalTime epochMs={item.publishedAt.epochMilliseconds} />
 	</Fragment>
 </ArticlePage>

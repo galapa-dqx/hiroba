@@ -44,10 +44,12 @@ export async function proxyWorkflowSse(
   runtime: Runtime,
   itemType: ArticleType,
   id: string,
+  language?: string,
 ): Promise<Response> {
   const stub = workflowStub(runtime, itemType, id);
+  const langParam = language ? `&language=${encodeURIComponent(language)}` : '';
   const res = await stub.fetch(
-    `http://internal/sse?itemId=${id}&itemType=${itemType}`,
+    `http://internal/sse?itemId=${id}&itemType=${itemType}${langParam}`,
   );
 
   return new Response(res.body, {

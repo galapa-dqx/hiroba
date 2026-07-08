@@ -1,0 +1,47 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import ArticleList from "../../../components/ArticleList.astro";
+import BackLink from "../../../components/BackLink.astro";
+import Pagination from "../../../components/Pagination.astro";
+import PanelSection from "../../../components/PanelSection.astro";
+import { createDb, getTopics, type LocalizedTopic } from "@hiroba/db";
+
+// Validated against the whitelist by the middleware.
+const lang = Astro.params.lang!;
+const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
+
+const runtime = Astro.locals.runtime;
+const db = createDb(runtime.env.DB);
+
+let items: LocalizedTopic[] = [];
+let hasMore = false;
+let nextCursor: string | undefined;
+
+try {
+	const result = await getTopics(db, { limit: 20, cursor, language: lang });
+	items = result.items;
+	hasMore = result.hasMore;
+	nextCursor = result.nextCursor;
+} catch {
+	// Show empty list on error
+}
+
+---
+
+<Layout title="Topics">
+	{/* Gilt identity, distinct from the four news categories. */}
+	<div data-cat="topic">
+		<PanelSection title="Topics">
+			<ArticleList items={items} hrefBase={`/${lang}/topics`}>
+				<p class="empty" slot="empty">
+					No topics yet. Open a topic URL like <code>/{lang}/topics/&lt;id&gt;</code> to fetch,
+					transcribe and translate it — or seed them from the admin.
+				</p>
+			</ArticleList>
+		</PanelSection>
+
+		<Pagination baseUrl={`/${lang}/topics`} cursor={cursor} hasMore={hasMore} nextCursor={nextCursor} />
+
+		<BackLink href={`/${lang}`} label="Back to home" />
+	</div>
+</Layout>

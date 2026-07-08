@@ -13,6 +13,7 @@ import { Temporal } from 'temporal-polyfill';
 
 import {
   createDb,
+  getEnabledLanguages,
   glossary,
   upsertListItems,
   upsertTopicListItems,
@@ -28,7 +29,6 @@ import { CATEGORIES } from '@hiroba/shared';
 
 import { createLogger, type Logger } from './logger';
 import { processRechecks } from './recheck';
-import { TARGET_LANGUAGES } from './steps/translate-titles';
 import type { Env } from './types';
 
 // Export the Durable Object and Workflow classes
@@ -200,6 +200,7 @@ async function refreshGlossary(db: Database, log: Logger): Promise<void> {
  * a failure to enqueue is logged, never fails the refresh.
  */
 async function enqueueTitleTranslation(
+  db: Database,
   env: Env,
   log: Logger,
   itemType: 'news' | 'topic',
@@ -207,11 +208,12 @@ async function enqueueTitleTranslation(
 ): Promise<void> {
   if (items.length === 0) return;
   try {
+    const languages = await getEnabledLanguages(db);
     await env.TITLE_WORKFLOW.create({
       params: {
         itemType,
         itemIds: items.map((i) => i.id),
-        languages: [...TARGET_LANGUAGES],
+        languages: languages.map((l) => l.code),
       },
     });
     log.info(
@@ -254,7 +256,7 @@ async function refreshNews(db: Database, env: Env, log: Logger): Promise<void> {
     }
   }
 
-  await enqueueTitleTranslation(env, log, 'news', newItems);
+  await enqueueTitleTranslation(db, env, log, 'news', newItems);
 
   log.info(
     `Scheduled refresh complete: ${totalNew} new items, ${errors} errors`,
@@ -289,7 +291,7 @@ async function refreshTopics(
     log.error('Failed to scrape topics:', error);
   }
 
-  await enqueueTitleTranslation(env, log, 'topic', newItems);
+  await enqueueTitleTranslation(db, env, log, 'topic', newItems);
 
   log.info(`Topics refresh complete: ${totalNew} new topics`);
 }

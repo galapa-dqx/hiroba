@@ -1,0 +1,15 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import LanguagesList from "../../components/LanguagesList";
+---
+
+<Layout title="Languages">
+	<p class="page-description">
+		The whitelist of translation target languages. Enabled languages get a
+		route tree on the public site, eager title translation at discovery, and
+		full article translation on first view. The English name feeds the
+		translation prompts; the native name is what readers see in the site's
+		language selector.
+	</p>
+	<LanguagesList client:load />
+</Layout>

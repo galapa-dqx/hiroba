@@ -1,9 +1,10 @@
 /**
- * Localize-images step — bake the English translations into text-bearing images.
+ * Localize-images step — bake the translated text into text-bearing images,
+ * once per enabled target language.
  *
  * Reads each image's source spans (`images.texts_ja`) and their translation
  * (`translations` item_type='image', field='text'), hands the pairs to
- * gpt-image-2, and stores the result in R2 under `l10n/en/<imageKey>`. A
+ * gpt-image-2, and stores the result in R2 under `l10n/<lang>/<imageKey>`. A
  * `translations` `url` row records the R2 key + the image model, so we skip
  * images already localized by the current model and regenerate when it changes.
  *
@@ -39,9 +40,10 @@ import {
   TWO_UP_PROMPT,
 } from '../image-matte';
 import { trimToAspect } from '../image-trim';
+import type { TargetLanguage } from './translate';
 
-/** R2 key prefix for English-localized images. */
-export const LOCALIZED_PREFIX = 'l10n/en';
+/** R2 key prefix for a language's localized images. */
+export const localizedPrefix = (language: string): string => `l10n/${language}`;
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -63,24 +65,26 @@ export type LocalizeResult = {
 };
 
 /**
- * Build the localization instruction from the image's JA→EN span pairs. For a
- * matted (formerly-transparent) image the closing shifts from "keep everything
- * identical" to the two-up arrangement that differential matting solves on.
+ * Build the localization instruction from the image's JA→target span pairs.
+ * For a matted (formerly-transparent) image the closing shifts from "keep
+ * everything identical" to the two-up arrangement that differential matting
+ * solves on.
  */
 function buildPrompt(
-  pairs: Array<{ ja: string; en: string }>,
+  language: string,
+  pairs: Array<{ ja: string; translated: string }>,
   twoUp: boolean,
 ): string {
-  const mapping = pairs.map((p) => `"${p.ja}" → "${p.en}"`).join('\n');
+  const mapping = pairs.map((p) => `"${p.ja}" → "${p.translated}"`).join('\n');
   return [
-    'You are localizing a Japanese image into English. Replace each Japanese text',
-    'string in the image with its provided English translation below. Use these',
+    `You are localizing a Japanese image into ${language}. Replace each Japanese text`,
+    `string in the image with its provided ${language} translation below. Use these`,
     'exact translations — do not translate anything yourself, and do not add or',
     'remove text:',
     '',
     mapping,
     '',
-    'Reinsert each English translation in place of the matching Japanese text,',
+    `Reinsert each ${language} translation in place of the matching Japanese text,`,
     'matching the original font, size, weight, color, alignment, and effects as',
     'closely as possible.',
     ...(twoUp
@@ -122,28 +126,21 @@ async function loadOriginal(
 }
 
 /**
- * Localize every text-bearing image referenced by `blocks`. Idempotent per model.
+ * Localize every text-bearing image referenced by `blocks` into one language.
+ * Idempotent per (language, model).
  */
-export async function localizeImages(
+async function localizeImagesForLanguage(
   db: Database,
   bucket: R2Bucket,
   images: ImagesBinding,
   apiKey: string,
-  blocks: Block[],
+  rows: Awaited<ReturnType<typeof getImagesByKeys>>,
+  target: TargetLanguage,
 ): Promise<LocalizeResult> {
-  const keys = [
-    ...new Set(
-      collectImages(blocks)
-        .map((i) => imageKey(i.src))
-        .filter((k): k is string => !!k),
-    ),
-  ];
-  if (keys.length === 0) return { localized: 0, skipped: 0, failed: 0 };
-
-  const rows = await getImagesByKeys(db, keys);
+  const language = target.code;
   const ids = rows.map((r) => r.id);
-  const enText = await getImageTranslations(db, ids, 'en', 'text');
-  const localizedBy = await getLocalizedImageModels(db, ids, 'en');
+  const translatedText = await getImageTranslations(db, ids, language, 'text');
+  const localizedBy = await getLocalizedImageModels(db, ids, language);
 
   let localized = 0;
   let skipped = 0;
@@ -155,7 +152,7 @@ export async function localizeImages(
     await setTranslationStates(db, {
       itemType: 'image',
       itemId: String(imageId),
-      language: 'en',
+      language,
       fields: ['url'],
       state: 'failed',
       error,
@@ -164,11 +161,11 @@ export async function localizeImages(
 
   await mapWithConcurrency(rows, LOCALIZE_CONCURRENCY, async (row) => {
     const isCandidate = !!row.textsJa && hasJapanese(row.textsJa);
-    const enJson = enText.get(row.id);
-    if (!enJson) {
-      // No EN spans. Fine for text-free images — but a Japanese-bearing image
-      // here means its translation never landed; fail the url row explicitly
-      // so the pipeline snapshot settles instead of waiting forever.
+    const translatedJson = translatedText.get(row.id);
+    if (!translatedJson) {
+      // No translated spans. Fine for text-free images — but a Japanese-bearing
+      // image here means its translation never landed; fail the url row
+      // explicitly so the pipeline snapshot settles instead of waiting forever.
       if (isCandidate) {
         await markFailed(row.id, 'image text was never translated');
       } else {
@@ -181,10 +178,10 @@ export async function localizeImages(
       return;
     }
 
-    const enSpans = JSON.parse(enJson) as string[];
+    const translatedSpans = JSON.parse(translatedJson) as string[];
     const jaSpans = row.textsJa ?? [];
     const pairs = jaSpans
-      .map((ja, i) => ({ ja, en: enSpans[i] ?? ja }))
+      .map((ja, i) => ({ ja, translated: translatedSpans[i] ?? ja }))
       .filter((p) => hasJapanese([p.ja]));
     if (pairs.length === 0) {
       skipped++;
@@ -194,7 +191,7 @@ export async function localizeImages(
     await setTranslationStates(db, {
       itemType: 'image',
       itemId: String(row.id),
-      language: 'en',
+      language,
       fields: ['url'],
       state: 'running',
     });
@@ -236,7 +233,7 @@ export async function localizeImages(
       const edited = await editImage(apiKey, {
         imageBytes: editInput.bytes,
         mimeType: editInput.mimeType,
-        prompt: buildPrompt(pairs, matted),
+        prompt: buildPrompt(target.label, pairs, matted),
       });
       if (!edited) {
         await markFailed(row.id, 'image edit failed');
@@ -252,13 +249,13 @@ export async function localizeImages(
       }
       const localizedBytes = trimToAspect(restored, original.bytes);
 
-      const localizedKey = `${LOCALIZED_PREFIX}/${row.key}`;
+      const localizedKey = `${localizedPrefix(language)}/${row.key}`;
       await bucket.put(localizedKey, localizedBytes, {
         httpMetadata: { contentType: 'image/png', cacheControl: CACHE_CONTROL },
       });
       await upsertImageTranslation(db, {
         imageId: row.id,
-        language: 'en',
+        language,
         field: 'url',
         value: localizedKey,
         model: IMAGE_MODEL,
@@ -267,10 +264,50 @@ export async function localizeImages(
     } catch (err) {
       // One bad image shouldn't wedge the step or strand its row in 'running'
       // (shared rows aren't covered by the workflow's mark-failed).
-      console.error(`Failed to localize ${row.key}:`, err);
+      console.error(`Failed to localize ${row.key} (${language}):`, err);
       await markFailed(row.id, err instanceof Error ? err.message : 'unknown');
     }
   });
 
   return { localized, skipped, failed };
+}
+
+/**
+ * Localize every text-bearing image referenced by `blocks`, once per target
+ * language. Idempotent per (language, model).
+ */
+export async function localizeImages(
+  db: Database,
+  bucket: R2Bucket,
+  images: ImagesBinding,
+  apiKey: string,
+  blocks: Block[],
+  targetLanguages: TargetLanguage[],
+): Promise<LocalizeResult> {
+  const keys = [
+    ...new Set(
+      collectImages(blocks)
+        .map((i) => imageKey(i.src))
+        .filter((k): k is string => !!k),
+    ),
+  ];
+  if (keys.length === 0) return { localized: 0, skipped: 0, failed: 0 };
+
+  const rows = await getImagesByKeys(db, keys);
+
+  const total: LocalizeResult = { localized: 0, skipped: 0, failed: 0 };
+  for (const target of targetLanguages) {
+    const result = await localizeImagesForLanguage(
+      db,
+      bucket,
+      images,
+      apiKey,
+      rows,
+      target,
+    );
+    total.localized += result.localized;
+    total.skipped += result.skipped;
+    total.failed += result.failed;
+  }
+  return total;
 }
