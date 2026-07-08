@@ -27,6 +27,7 @@ import {
 import { CATEGORIES } from '@hiroba/shared';
 
 import { createLogger, type Logger } from './logger';
+import { processRechecks } from './recheck';
 import { TARGET_LANGUAGES } from './steps/translate-titles';
 import type { Env } from './types';
 
@@ -119,7 +120,8 @@ export default Sentry.withSentry(
      * Handle scheduled cron jobs.
      *
      * Triggers:
-     * - "0 * * * *" = Hourly news refresh (first page of each category)
+     * - "0 * * * *" = Hourly refresh: news + topics list discovery, then the
+     *   recheck queue (poll due articles for post-publication edits)
      * - "0 15 * * *" = Daily glossary refresh (midnight JST)
      */
     async scheduled(
@@ -140,6 +142,7 @@ export default Sentry.withSentry(
       } else {
         await refreshNews(db, env, log);
         await refreshTopics(db, env, log);
+        await processRechecks(db, env, log);
       }
     },
   },

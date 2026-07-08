@@ -9,14 +9,18 @@ export const GET: APIRoute = async ({ locals, request }) => {
   const db = createDb(runtime.env.DB);
 
   const url = new URL(request.url);
-  const limit = Math.min(
-    parseInt(url.searchParams.get('limit') ?? '50', 10),
+  const dueLimit = Math.min(
+    parseInt(url.searchParams.get('limit') ?? '100', 10),
     1000,
   );
+  const upcomingLimit = Math.min(
+    parseInt(url.searchParams.get('upcoming') ?? '25', 10),
+    100,
+  );
 
-  const items = await getRecheckQueue(db, limit);
+  const queue = await getRecheckQueue(db, { dueLimit, upcomingLimit });
 
-  return new Response(JSON.stringify({ items }), {
+  return new Response(JSON.stringify(queue), {
     headers: { 'Content-Type': 'application/json' },
   });
 };

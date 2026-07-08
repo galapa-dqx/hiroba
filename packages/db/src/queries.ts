@@ -22,7 +22,6 @@ import type { Block } from '@hiroba/richtext';
 import {
   ACTIVE_RUN_STATUSES,
   getNextCheckTime,
-  isDueForCheck,
   type Category,
   type PhaseState,
   type WorkflowRunStatus,
@@ -203,61 +202,282 @@ export async function getItemTitles(
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * Recheck scheduling (news + topics)
+ * ------------------------------------------------------------------ */
+
+/** One article in the recheck domain (its body has been fetched at least once). */
+export type RecheckEntry = {
+  itemType: 'news' | 'topic';
+  id: string;
+  titleJa: string;
+  category: string | null;
+  publishedAt: Temporal.Instant;
+  /** Last observed content change (publication when never seen to change). */
+  lastChangedAt: Temporal.Instant;
+  /** Last time the source page was polled. */
+  bodyCheckedAt: Temporal.Instant;
+  /** Next due poll — null once retired (quiet past the retirement horizon). */
+  nextCheckAt: Temporal.Instant | null;
+};
+
+/** Every fetched article of both types, with its recheck schedule computed. */
+async function collectRecheckEntries(
+  db: Database,
+  now: Temporal.Instant,
+): Promise<RecheckEntry[]> {
+  const [news, topicRows] = await Promise.all([
+    db
+      .select({
+        id: newsItems.id,
+        titleJa: newsItems.titleJa,
+        category: newsItems.category,
+        publishedAt: newsItems.publishedAt,
+        bodyFetchedAt: newsItems.bodyFetchedAt,
+        bodyCheckedAt: newsItems.bodyCheckedAt,
+        bodyChangedAt: newsItems.bodyChangedAt,
+      })
+      .from(newsItems)
+      .where(isNotNull(newsItems.bodyFetchedAt))
+      .all(),
+    db
+      .select({
+        id: topics.id,
+        titleJa: topics.titleJa,
+        category: topics.category,
+        publishedAt: topics.publishedAt,
+        bodyFetchedAt: topics.bodyFetchedAt,
+        bodyCheckedAt: topics.bodyCheckedAt,
+        bodyChangedAt: topics.bodyChangedAt,
+      })
+      .from(topics)
+      .where(isNotNull(topics.bodyFetchedAt))
+      .all(),
+  ]);
+
+  const toEntry = (
+    itemType: 'news' | 'topic',
+    row: Omit<(typeof news)[number], 'category'> & {
+      category: string | null;
+    },
+  ): RecheckEntry => {
+    const lastChangedAt = row.bodyChangedAt ?? row.publishedAt;
+    const bodyCheckedAt = row.bodyCheckedAt ?? row.bodyFetchedAt!;
+    return {
+      itemType,
+      id: row.id,
+      titleJa: row.titleJa,
+      category: row.category,
+      publishedAt: row.publishedAt,
+      lastChangedAt,
+      bodyCheckedAt,
+      nextCheckAt: getNextCheckTime(lastChangedAt, bodyCheckedAt, now),
+    };
+  };
+
+  return [
+    ...news.map((row) => toEntry('news', row)),
+    ...topicRows.map((row) => toEntry('topic', row)),
+  ];
+}
+
+export type RecheckQueue = {
+  /** Due now, most overdue first. */
+  due: RecheckEntry[];
+  /** Scheduled in the future, soonest first. */
+  upcoming: RecheckEntry[];
+  /** Articles quiet past the retirement horizon — no longer checked. */
+  retired: number;
+};
+
 /**
- * Get stats for admin dashboard.
+ * The recheck queue for the admin page: due items, the next scheduled checks,
+ * and how many articles have been retired from checking.
  */
-export async function getStats(db: Database): Promise<{
-  totalItems: number;
-  itemsWithBody: number;
-  itemsWithBodyFetchedAt: number;
-  itemsTranslated: number;
-  itemsPendingRecheck: number;
-  byCategory: Record<string, number>;
-}> {
-  const [totalResult, withBodyResult, translatedResult, categoryResults] =
-    await Promise.all([
+export async function getRecheckQueue(
+  db: Database,
+  options: { dueLimit?: number; upcomingLimit?: number } = {},
+): Promise<RecheckQueue> {
+  const dueLimit = options.dueLimit ?? 100;
+  const upcomingLimit = options.upcomingLimit ?? 25;
+  const now = Temporal.Now.instant();
+
+  const entries = await collectRecheckEntries(db, now);
+  const due: RecheckEntry[] = [];
+  const upcoming: RecheckEntry[] = [];
+  let retired = 0;
+
+  for (const entry of entries) {
+    if (entry.nextCheckAt === null) retired++;
+    else if (Temporal.Instant.compare(entry.nextCheckAt, now) <= 0)
+      due.push(entry);
+    else upcoming.push(entry);
+  }
+
+  const byNextCheck = (a: RecheckEntry, b: RecheckEntry) =>
+    Temporal.Instant.compare(a.nextCheckAt!, b.nextCheckAt!);
+  due.sort(byNextCheck);
+  upcoming.sort(byNextCheck);
+
+  return {
+    due: due.slice(0, dueLimit),
+    upcoming: upcoming.slice(0, upcomingLimit),
+    retired,
+  };
+}
+
+/**
+ * Due rechecks for the cron consumer, most overdue first, with the stored
+ * block tree loaded for change detection.
+ */
+export async function getDueRechecks(
+  db: Database,
+  limit: number,
+): Promise<Array<RecheckEntry & { blocksJa: Block[] | null }>> {
+  const { due } = await getRecheckQueue(db, {
+    dueLimit: limit,
+    upcomingLimit: 0,
+  });
+
+  const out: Array<RecheckEntry & { blocksJa: Block[] | null }> = [];
+  for (const entry of due) {
+    const table = entry.itemType === 'news' ? newsItems : topics;
+    const row = await db
+      .select({ blocksJa: table.blocksJa })
+      .from(table)
+      .where(eq(table.id, entry.id))
+      .get();
+    out.push({ ...entry, blocksJa: row?.blocksJa ?? null });
+  }
+  return out;
+}
+
+/** Record that a recheck poll found no change. */
+export async function setBodyChecked(
+  db: Database,
+  itemType: 'news' | 'topic',
+  id: string,
+  at: Temporal.Instant = Temporal.Now.instant(),
+): Promise<void> {
+  const table = itemType === 'news' ? newsItems : topics;
+  await db.update(table).set({ bodyCheckedAt: at }).where(eq(table.id, id));
+}
+
+/**
+ * Record that a recheck poll found changed content: store the fresh block
+ * tree (un-annotated — the pipeline re-tags it) and reset the change anchor
+ * so frequent checking resumes.
+ */
+export async function saveChangedBody(
+  db: Database,
+  itemType: 'news' | 'topic',
+  id: string,
+  params: { blocks: Block[]; titleJa?: string },
+  at: Temporal.Instant = Temporal.Now.instant(),
+): Promise<void> {
+  const table = itemType === 'news' ? newsItems : topics;
+  const set: {
+    blocksJa: Block[];
+    bodyFetchedAt: Temporal.Instant;
+    bodyCheckedAt: Temporal.Instant;
+    bodyChangedAt: Temporal.Instant;
+    fetchState: PhaseState;
+    titleJa?: string;
+  } = {
+    blocksJa: params.blocks,
+    bodyFetchedAt: at,
+    bodyCheckedAt: at,
+    bodyChangedAt: at,
+    fetchState: 'done',
+  };
+  if (params.titleJa) set.titleJa = params.titleJa;
+  await db.update(table).set(set).where(eq(table.id, id));
+}
+
+/* ------------------------------------------------------------------ *
+ * Admin stats
+ * ------------------------------------------------------------------ */
+
+export type ArticleTypeStats = {
+  total: number;
+  withBody: number;
+  /** Items with a finished English content translation. */
+  translated: number;
+  recheckDue: number;
+  recheckUpcoming: number;
+  recheckRetired: number;
+};
+
+export type AdminStats = {
+  news: ArticleTypeStats & { byCategory: Record<string, number> };
+  topics: ArticleTypeStats;
+};
+
+async function getTypeCounts(
+  db: Database,
+  itemType: 'news' | 'topic',
+): Promise<Pick<ArticleTypeStats, 'total' | 'withBody' | 'translated'>> {
+  const table = itemType === 'news' ? newsItems : topics;
+  const [totalResult, withBodyResult, translatedResult] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(table)
+      .get(),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(table)
+      .where(isNotNull(table.blocksJa))
+      .get(),
+    db
+      .select({ count: sql<number>`count(DISTINCT item_id)` })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, itemType),
+          eq(translations.language, 'en'),
+          eq(translations.field, 'content'),
+          eq(translations.state, 'done'),
+        ),
+      )
+      .get(),
+  ]);
+  return {
+    total: totalResult?.count ?? 0,
+    withBody: withBodyResult?.count ?? 0,
+    translated: translatedResult?.count ?? 0,
+  };
+}
+
+/**
+ * Symmetric per-type stats for the admin dashboard, plus the news category
+ * breakdown. Recheck numbers come from one pass over the recheck domain.
+ */
+export async function getStats(db: Database): Promise<AdminStats> {
+  const now = Temporal.Now.instant();
+  const [newsCounts, topicCounts, entries, categoryResults] = await Promise.all(
+    [
+      getTypeCounts(db, 'news'),
+      getTypeCounts(db, 'topic'),
+      collectRecheckEntries(db, now),
       db
-        .select({ count: sql<number>`count(*)` })
-        .from(newsItems)
-        .get(),
-      db
-        .select({ count: sql<number>`count(*)` })
-        .from(newsItems)
-        .where(isNotNull(newsItems.blocksJa))
-        .get(),
-      db
-        .select({ count: sql<number>`count(DISTINCT item_id)` })
-        .from(translations)
-        .where(
-          and(
-            eq(translations.itemType, 'news'),
-            eq(translations.language, 'en'),
-            eq(translations.state, 'done'),
-          ),
-        )
-        .get(),
-      db
-        .select({
-          category: newsItems.category,
-          count: sql<number>`count(*)`,
-        })
+        .select({ category: newsItems.category, count: sql<number>`count(*)` })
         .from(newsItems)
         .groupBy(newsItems.category)
         .all(),
-    ]);
+    ],
+  );
 
-  const itemsWithFetchedBody = await db
-    .select({
-      publishedAt: newsItems.publishedAt,
-      bodyFetchedAt: newsItems.bodyFetchedAt,
-    })
-    .from(newsItems)
-    .where(isNotNull(newsItems.bodyFetchedAt))
-    .all();
-
-  const itemsPendingRecheck = itemsWithFetchedBody.filter((item) =>
-    isDueForCheck(item.publishedAt, item.bodyFetchedAt),
-  ).length;
+  const recheck = {
+    news: { recheckDue: 0, recheckUpcoming: 0, recheckRetired: 0 },
+    topic: { recheckDue: 0, recheckUpcoming: 0, recheckRetired: 0 },
+  };
+  for (const entry of entries) {
+    const bucket = recheck[entry.itemType];
+    if (entry.nextCheckAt === null) bucket.recheckRetired++;
+    else if (Temporal.Instant.compare(entry.nextCheckAt, now) <= 0)
+      bucket.recheckDue++;
+    else bucket.recheckUpcoming++;
+  }
 
   const byCategory: Record<string, number> = {};
   for (const row of categoryResults) {
@@ -265,51 +485,9 @@ export async function getStats(db: Database): Promise<{
   }
 
   return {
-    totalItems: totalResult?.count ?? 0,
-    itemsWithBody: withBodyResult?.count ?? 0,
-    itemsWithBodyFetchedAt: itemsWithFetchedBody.length,
-    itemsTranslated: translatedResult?.count ?? 0,
-    itemsPendingRecheck,
-    byCategory,
+    news: { ...newsCounts, ...recheck.news, byCategory },
+    topics: { ...topicCounts, ...recheck.topic },
   };
-}
-
-/**
- * Get items due for body recheck, sorted by next check time.
- */
-export async function getRecheckQueue(
-  db: Database,
-  limit: number = 50,
-): Promise<
-  Array<{
-    id: string;
-    titleJa: string;
-    category: string;
-    publishedAt: Temporal.Instant;
-    bodyFetchedAt: Temporal.Instant;
-    nextCheckAt: Temporal.Instant;
-  }>
-> {
-  const items = await db
-    .select()
-    .from(newsItems)
-    .where(isNotNull(newsItems.bodyFetchedAt))
-    .all();
-
-  const now = Temporal.Now.instant();
-
-  return items
-    .map((item) => ({
-      id: item.id,
-      titleJa: item.titleJa,
-      category: item.category,
-      publishedAt: item.publishedAt,
-      bodyFetchedAt: item.bodyFetchedAt!,
-      nextCheckAt: getNextCheckTime(item.publishedAt, item.bodyFetchedAt!),
-    }))
-    .filter((item) => Temporal.Instant.compare(item.nextCheckAt, now) <= 0)
-    .sort((a, b) => Temporal.Instant.compare(a.nextCheckAt, b.nextCheckAt))
-    .slice(0, limit);
 }
 
 /**
@@ -375,45 +553,6 @@ export async function upsertTopicListItems(
 }
 
 /**
- * Stats for the admin Topics dashboard.
- */
-export async function getTopicStats(db: Database): Promise<{
-  total: number;
-  withBody: number;
-  translated: number;
-}> {
-  const [totalResult, withBodyResult, translatedResult] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(topics)
-      .get(),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(topics)
-      .where(isNotNull(topics.blocksJa))
-      .get(),
-    db
-      .select({ count: sql<number>`count(DISTINCT item_id)` })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'topic'),
-          eq(translations.language, 'en'),
-          eq(translations.field, 'content'),
-          eq(translations.state, 'done'),
-        ),
-      )
-      .get(),
-  ]);
-
-  return {
-    total: totalResult?.count ?? 0,
-    withBody: withBodyResult?.count ?? 0,
-    translated: translatedResult?.count ?? 0,
-  };
-}
-
-/**
  * Invalidate a topic's cached block tree (re-fetched on next view / re-run).
  */
 export async function invalidateTopicBody(
@@ -447,6 +586,10 @@ export async function upsertTopic(
   if (topic.bodyFetchedAt !== undefined)
     set.bodyFetchedAt = topic.bodyFetchedAt;
   if (topic.fetchState !== undefined) set.fetchState = topic.fetchState;
+  if (topic.bodyCheckedAt !== undefined)
+    set.bodyCheckedAt = topic.bodyCheckedAt;
+  if (topic.bodyChangedAt !== undefined)
+    set.bodyChangedAt = topic.bodyChangedAt;
 
   await db
     .insert(topics)
@@ -560,6 +703,89 @@ export async function getTopics(
     hasMore,
     nextCursor: hasMore
       ? items[items.length - 1].publishedAt.toString()
+      : undefined,
+  };
+}
+
+/**
+ * Lightweight paginated news list for the admin UI (mirrors listTopicsAdmin):
+ * no block trees on the wire — a `hasBody` flag plus per-item translation
+ * status.
+ */
+export async function listNewsAdmin(
+  db: Database,
+  options: { category?: string; limit?: number; cursor?: string } = {},
+): Promise<{
+  items: Array<{
+    id: string;
+    titleJa: string;
+    category: string;
+    publishedAt: Temporal.Instant;
+    hasBody: boolean;
+    translated: boolean;
+  }>;
+  hasMore: boolean;
+  nextCursor?: string;
+}> {
+  const limit = Math.min(options.limit ?? 50, 100);
+
+  const conditions = [];
+  if (options.category) {
+    conditions.push(eq(newsItems.category, options.category));
+  }
+  if (options.cursor) {
+    conditions.push(
+      lt(newsItems.publishedAt, Temporal.Instant.from(options.cursor)),
+    );
+  }
+
+  const rows = await db
+    .select({
+      id: newsItems.id,
+      titleJa: newsItems.titleJa,
+      category: newsItems.category,
+      publishedAt: newsItems.publishedAt,
+      hasBody: sql<number>`(${newsItems.blocksJa} IS NOT NULL)`,
+    })
+    .from(newsItems)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(newsItems.publishedAt))
+    .limit(limit + 1)
+    .all();
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, -1) : rows;
+
+  const ids = page.map((r) => r.id);
+  const translatedRows = await chunked(ids, (slice) =>
+    db
+      .select({ itemId: translations.itemId })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'news'),
+          eq(translations.language, 'en'),
+          eq(translations.field, 'content'),
+          eq(translations.state, 'done'),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
+  const translated = new Set(translatedRows.map((r) => r.itemId));
+
+  return {
+    items: page.map((r) => ({
+      id: r.id,
+      titleJa: r.titleJa,
+      category: r.category,
+      publishedAt: r.publishedAt,
+      hasBody: !!r.hasBody,
+      translated: translated.has(r.id),
+    })),
+    hasMore,
+    nextCursor: hasMore
+      ? page[page.length - 1].publishedAt.toString()
       : undefined,
   };
 }

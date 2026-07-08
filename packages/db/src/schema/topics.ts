@@ -40,6 +40,12 @@ export const topics = sqliteTable(
       .$type<PhaseState>()
       .notNull()
       .default('pending'),
+
+    // Recheck tracking (see @hiroba/shared freshness): when the source page
+    // was last polled for edits, and when polled content last differed (NULL
+    // = never seen to change; the schedule anchors on published_at).
+    bodyCheckedAt: instant('body_checked_at'),
+    bodyChangedAt: instant('body_changed_at'),
   },
   // Mirrors the CHECK constraints in migration 0009. Drizzle has no STRICT
   // table option, so strict typing lives only in the raw migration.

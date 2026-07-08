@@ -18,31 +18,42 @@ async function adminFetch<T>(
   return res.json() as Promise<T>;
 }
 
+export type ArticleTypeStats = {
+  total: number;
+  withBody: number;
+  translated: number;
+  recheckDue: number;
+  recheckUpcoming: number;
+  recheckRetired: number;
+};
+
 export type Stats = {
-  totalItems: number;
-  itemsWithBody: number;
-  itemsWithBodyFetchedAt: number;
-  itemsTranslated: number;
-  itemsPendingRecheck: number;
-  byCategory: Record<string, number>;
+  news: ArticleTypeStats & { byCategory: Record<string, number> };
+  topics: ArticleTypeStats;
 };
 
 export async function getStats(): Promise<Stats> {
   return adminFetch('/api/stats');
 }
 
-export type QueueItem = {
+export type RecheckItem = {
+  itemType: 'news' | 'topic';
   id: string;
   titleJa: string;
-  category: string;
+  category: string | null;
   publishedAt: string; // ISO-8601 UTC instant
-  bodyFetchedAt: string; // ISO-8601 UTC instant
-  nextCheckAt: string; // ISO-8601 UTC instant
+  lastChangedAt: string; // ISO-8601 UTC instant
+  bodyCheckedAt: string; // ISO-8601 UTC instant
+  nextCheckAt: string | null; // ISO-8601 UTC instant; null = retired
 };
 
-export async function getRecheckQueue(
-  limit = 50,
-): Promise<{ items: QueueItem[] }> {
+export type RecheckQueue = {
+  due: RecheckItem[];
+  upcoming: RecheckItem[];
+  retired: number;
+};
+
+export async function getRecheckQueue(limit = 100): Promise<RecheckQueue> {
   return adminFetch(`/api/recheck-queue?limit=${limit}`);
 }
 
@@ -62,20 +73,21 @@ export type NewsItem = {
   titleJa: string;
   category: string;
   publishedAt: string; // ISO-8601 UTC instant
-  blocksJa: unknown[] | null; // JSON Block[] tree, NULL until the body is fetched
+  hasBody: boolean;
+  translated: boolean;
 };
 
 export async function getNewsList(options?: {
   category?: string;
   limit?: number;
-}): Promise<{ items: NewsItem[]; hasMore: boolean }> {
+  cursor?: string;
+}): Promise<{ items: NewsItem[]; hasMore: boolean; nextCursor?: string }> {
   const params = new URLSearchParams();
   if (options?.category) params.set('category', options.category);
   if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.cursor) params.set('cursor', options.cursor);
   const url = `/api/news${params.toString() ? `?${params}` : ''}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  return adminFetch(url);
 }
 
 export async function invalidateBody(
@@ -98,16 +110,6 @@ export async function deleteTranslation(
 }
 
 // Topics API
-
-export type TopicStats = {
-  total: number;
-  withBody: number;
-  translated: number;
-};
-
-export async function getTopicStats(): Promise<TopicStats> {
-  return adminFetch('/api/topics/stats');
-}
 
 export type TopicItem = {
   id: string;

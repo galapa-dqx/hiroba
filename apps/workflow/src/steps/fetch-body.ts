@@ -69,12 +69,13 @@ export async function fetchAndSaveNewsBody(
     const blocks = await fetchNewsBody(itemId);
     const now = Temporal.Now.instant();
 
-    // Save to D1
+    // Save to D1. The fetch counts as the first recheck poll.
     await db
       .update(newsItems)
       .set({
         blocksJa: blocks,
         bodyFetchedAt: now,
+        bodyCheckedAt: now,
         fetchState: blocks.length > 0 ? 'done' : 'failed',
       })
       .where(eq(newsItems.id, itemId));
@@ -100,12 +101,15 @@ export async function fetchAndSaveTopicBody(
   await setItemFetchState(db, 'topic', itemId, 'running');
   const { titleJa, blocks } = await fetchTopicBody(itemId);
   const existing = await getTopic(db, itemId);
+  const now = Temporal.Now.instant();
   await upsertTopic(db, {
     id: itemId,
     titleJa,
-    publishedAt: existing?.publishedAt ?? Temporal.Now.instant(),
+    publishedAt: existing?.publishedAt ?? now,
     blocksJa: blocks,
-    bodyFetchedAt: Temporal.Now.instant(),
+    bodyFetchedAt: now,
+    // The fetch counts as the first recheck poll.
+    bodyCheckedAt: now,
     fetchState: blocks.length > 0 ? 'done' : 'failed',
   });
   return { success: blocks.length > 0, blockCount: blocks.length };

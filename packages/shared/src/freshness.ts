@@ -1,8 +1,20 @@
 /**
  * Freshness calculation helpers for the Hiroba news system.
  *
- * These functions determine when articles should be rechecked for updates
- * based on their age. Older articles are checked less frequently.
+ * Articles are rechecked for edits after publication on a fading schedule
+ * anchored to the last time their content *actually changed* (publication
+ * counts as the first change). Content that keeps changing keeps getting
+ * checked frequently; content that has sat still fades out and is eventually
+ * retired from checking entirely.
+ *
+ *   interval = clamp(hoursSince(lastChange) / FADE_DIVISOR, MIN, MAX)
+ *   nextCheck = lastChecked + interval
+ *   retired when hoursSince(lastChange) > RETIRE_AFTER
+ *
+ * With the defaults: content that changed an hour ago is rechecked hourly;
+ * a week after its last change every ~7 hours; a month after, roughly daily;
+ * capped at weekly — and after 60 quiet days we assume it will never change
+ * again and stop checking.
  *
  * All timestamp parameters are Temporal.Instant values (absolute moments).
  */
@@ -11,102 +23,62 @@ import { Temporal } from 'temporal-polyfill';
 
 const HOUR_MS = 60 * 60 * 1000;
 
+export const RECHECK_MIN_INTERVAL_HOURS = 1;
+export const RECHECK_MAX_INTERVAL_HOURS = 168; // 1 week
+export const RECHECK_FADE_DIVISOR = 24;
+export const RECHECK_RETIRE_AFTER_HOURS = 60 * 24; // 60 days of no changes
+
 /**
- * Calculate when an article's body should next be rechecked.
+ * The recheck interval for content whose last change was `lastChangedAt`,
+ * evaluated at `now`. Null when the content is retired (quiet for so long
+ * that we assume it will never change again).
+ */
+export function getRecheckIntervalHours(
+  lastChangedAt: Temporal.Instant,
+  now: Temporal.Instant = Temporal.Now.instant(),
+): number | null {
+  const sinceChangeHours =
+    (now.epochMilliseconds - lastChangedAt.epochMilliseconds) / HOUR_MS;
+  if (sinceChangeHours > RECHECK_RETIRE_AFTER_HOURS) return null;
+  return Math.max(
+    RECHECK_MIN_INTERVAL_HOURS,
+    Math.min(
+      RECHECK_MAX_INTERVAL_HOURS,
+      sinceChangeHours / RECHECK_FADE_DIVISOR,
+    ),
+  );
+}
+
+/**
+ * When content should next be rechecked.
  *
- * Formula: interval_hours = clamp(age_in_hours / 24, min=1, max=168)
- *
- * This means:
- * - 1-day-old article → recheck every 1 hour
- * - 1-week-old article → recheck every 7 hours
- * - 1-month+ old article → recheck weekly (168 hours max)
- *
- * @param publishedAt - When the article was published
- * @param bodyFetchedAt - When the body was last fetched
- * @returns The instant at which the next check is due
+ * @param lastChangedAt - Last time the content is known to have changed
+ *   (publication for content never seen to change since).
+ * @param lastCheckedAt - Last time the source was polled.
+ * @returns The next due instant, or null when the content is retired.
  */
 export function getNextCheckTime(
-  publishedAt: Temporal.Instant,
-  bodyFetchedAt: Temporal.Instant,
-): Temporal.Instant {
-  const now = Temporal.Now.instant();
-  const ageHours =
-    (now.epochMilliseconds - publishedAt.epochMilliseconds) / HOUR_MS;
-
-  // Clamp interval between 1 hour and 168 hours (1 week)
-  const intervalHours = Math.max(1, Math.min(168, ageHours / 24));
-
-  return bodyFetchedAt.add({
+  lastChangedAt: Temporal.Instant,
+  lastCheckedAt: Temporal.Instant,
+  now: Temporal.Instant = Temporal.Now.instant(),
+): Temporal.Instant | null {
+  const intervalHours = getRecheckIntervalHours(lastChangedAt, now);
+  if (intervalHours === null) return null;
+  return lastCheckedAt.add({
     milliseconds: Math.round(intervalHours * HOUR_MS),
   });
 }
 
 /**
- * Check if an article's body is due for a recheck.
- *
- * @param publishedAt - When the article was published
- * @param bodyFetchedAt - When the body was last fetched, or null if never
- * @returns True if the body should be rechecked
+ * Whether content is due for a recheck right now. Retired content is never
+ * due.
  */
 export function isDueForCheck(
-  publishedAt: Temporal.Instant,
-  bodyFetchedAt: Temporal.Instant | null,
+  lastChangedAt: Temporal.Instant,
+  lastCheckedAt: Temporal.Instant,
+  now: Temporal.Instant = Temporal.Now.instant(),
 ): boolean {
-  // Never fetched = always due
-  if (bodyFetchedAt === null) return true;
-
-  const nextCheck = getNextCheckTime(publishedAt, bodyFetchedAt);
-  return Temporal.Instant.compare(Temporal.Now.instant(), nextCheck) >= 0;
-}
-
-/**
- * Check if a translation is stale (source was published after translation).
- *
- * @param publishedAt - When the source content was published
- * @param translatedAt - When the translation was created
- * @returns True if the translation needs to be regenerated
- */
-export function isTranslationStale(
-  publishedAt: Temporal.Instant,
-  translatedAt: Temporal.Instant,
-): boolean {
-  return Temporal.Instant.compare(publishedAt, translatedAt) > 0;
-}
-
-/**
- * Get human-readable time until next check.
- *
- * @param publishedAt - When the article was published
- * @param bodyFetchedAt - When the body was last fetched
- * @returns Human-readable string like "2h 30m" or "now"
- */
-export function getTimeUntilCheck(
-  publishedAt: Temporal.Instant,
-  bodyFetchedAt: Temporal.Instant,
-): string {
-  const nextCheck = getNextCheckTime(publishedAt, bodyFetchedAt);
-  const diffMs =
-    nextCheck.epochMilliseconds - Temporal.Now.instant().epochMilliseconds;
-
-  if (diffMs <= 0) return 'now';
-
-  const hours = Math.floor(diffMs / HOUR_MS);
-  const minutes = Math.floor((diffMs % HOUR_MS) / (60 * 1000));
-
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-}
-
-/**
- * Calculate the recheck interval for an article based on its age.
- *
- * @param publishedAt - When the article was published
- * @returns Interval in hours
- */
-export function getRecheckIntervalHours(publishedAt: Temporal.Instant): number {
-  const ageHours =
-    (Temporal.Now.instant().epochMilliseconds - publishedAt.epochMilliseconds) /
-    HOUR_MS;
-
-  return Math.max(1, Math.min(168, ageHours / 24));
+  const nextCheck = getNextCheckTime(lastChangedAt, lastCheckedAt, now);
+  if (nextCheck === null) return false;
+  return Temporal.Instant.compare(now, nextCheck) >= 0;
 }

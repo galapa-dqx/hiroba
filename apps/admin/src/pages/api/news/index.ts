@@ -1,22 +1,21 @@
 /**
- * GET /api/news - List news items (for admin preview)
+ * GET /api/news - Lightweight news list for the admin UI.
  */
 import type { APIRoute } from 'astro';
 
-import { createDb, getNewsItems } from '@hiroba/db';
-import type { Category } from '@hiroba/shared';
+import { createDb } from '@hiroba/db';
+
+import { listNewsAdmin } from '../../../lib/db-operations';
 
 export const GET: APIRoute = async ({ locals, url }) => {
   const runtime = locals.runtime;
   const db = createDb(runtime.env.DB);
 
-  const category = url.searchParams.get('category') as Category | null;
-  const limit = Math.min(Number(url.searchParams.get('limit')) || 20, 100);
+  const category = url.searchParams.get('category') || undefined;
+  const limit = Math.min(Number(url.searchParams.get('limit')) || 50, 100);
+  const cursor = url.searchParams.get('cursor') || undefined;
 
-  const result = await getNewsItems(db, {
-    category: category || undefined,
-    limit,
-  });
+  const result = await listNewsAdmin(db, { category, limit, cursor });
 
   return new Response(JSON.stringify(result), {
     headers: { 'Content-Type': 'application/json' },

@@ -9,10 +9,10 @@ import {
   deleteTranslation,
   getRecheckQueue,
   getStats,
-  getTopicStats,
   glossary,
   invalidateBody,
   invalidateTopicBody,
+  listNewsAdmin,
   listTopicsAdmin,
   upsertListItems,
   upsertTopicListItems,
@@ -29,10 +29,10 @@ import { CATEGORIES, type Category } from '@hiroba/shared';
 // Re-export db functions
 export {
   getStats,
-  getTopicStats,
   getRecheckQueue,
   invalidateBody,
   invalidateTopicBody,
+  listNewsAdmin,
   listTopicsAdmin,
   deleteTranslation,
   upsertListItems,

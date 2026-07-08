@@ -84,6 +84,20 @@ export function formatRelativePast(value: DateInput): string {
   return 'just now';
 }
 
+/** Human-readable "how long until" duration for a future UTC instant. */
+export function formatUntil(value: DateInput): string {
+  const diff = new Date(value).getTime() - Date.now();
+  if (diff <= 0) return 'now';
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+  if (hours > 24) {
+    const days = Math.floor(hours / 24);
+    return `${days}d ${hours % 24}h`;
+  }
+  return `${hours}h ${minutes}m`;
+}
+
 /** Human-readable "how long ago" duration for an overdue UTC instant. */
 export function formatOverdue(value: DateInput): string {
   const diff = Date.now() - new Date(value).getTime();
