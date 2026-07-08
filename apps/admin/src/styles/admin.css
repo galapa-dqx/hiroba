@@ -474,11 +474,11 @@ main {
   margin-bottom: 0.6rem;
 }
 
-/* topics summary block on the dashboard (heading + its own stats grid) */
-.topics-summary {
+/* per-type summary blocks on the dashboard (heading + its own stats grid) */
+.type-summary {
   margin-bottom: 1.6rem;
 }
-.topics-summary > h3 {
+.type-summary > h3 {
   display: flex;
   align-items: baseline;
   gap: 0.6rem;
@@ -486,18 +486,26 @@ main {
   font-weight: 700;
   margin-bottom: 0.9rem;
 }
-.topics-summary > h3 a {
+.type-summary > h3 a {
   font-size: 0.85rem;
   font-weight: 650;
   color: var(--accent);
   text-decoration: none;
 }
-.topics-summary > h3 a:hover {
+.type-summary > h3 a:hover {
   text-decoration: underline;
 }
 /* the summary's stats grid shouldn't double the section's bottom gap */
-.topics-summary .stats-grid {
+.type-summary .stats-grid {
   margin-bottom: 0;
+}
+
+/* recheck queue section headings between the due/upcoming tables */
+.queue-section {
+  margin: 1.4rem 0 0.7rem;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
 /* ------------------------------------------------------------- buttons --- */

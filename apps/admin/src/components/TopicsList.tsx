@@ -5,20 +5,20 @@ import { formatLocalDate } from '@hiroba/ui/format-date';
 
 import {
   deleteTopicTranslation,
+  getStats,
   getTopicsList,
-  getTopicStats,
   invalidateTopicBody,
   scrapeTopics,
   triggerTopicWorkflow,
+  type ArticleTypeStats,
   type TopicItem,
-  type TopicStats,
 } from '../lib/api';
 
 export default function TopicsList() {
   const [items, setItems] = useState<TopicItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
-  const [stats, setStats] = useState<TopicStats | null>(null);
+  const [stats, setStats] = useState<ArticleTypeStats | null>(null);
   const [scrapeProgress, setScrapeProgress] = useState<string | null>(null);
   const [scraping, setScraping] = useState(false);
   const [workflowStatus, setWorkflowStatus] = useState<Map<string, string>>(
@@ -32,7 +32,7 @@ export default function TopicsList() {
 
   async function loadStats() {
     try {
-      setStats(await getTopicStats());
+      setStats((await getStats()).topics);
     } catch (err) {
       console.error(err);
     }
@@ -79,7 +79,7 @@ export default function TopicsList() {
   async function handleBackfill() {
     if (
       !confirm(
-        'Backfill the entire topics archive (all months)? This seeds metadata only — it does NOT run translation.',
+        'Backfill the entire topics archive (all months)? New titles are translated automatically; article bodies still fetch lazily.',
       )
     )
       return;
