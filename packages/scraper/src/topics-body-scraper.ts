@@ -9,6 +9,7 @@ import * as cheerio from 'cheerio';
 import type { Block } from '@hiroba/richtext';
 import { SCRAPE_CONFIG } from '@hiroba/shared';
 
+import { stripTitleDateSuffix } from './topics-list-scraper';
 import { parseTopicBody } from './topics-parser';
 
 export type TopicBody = {
@@ -36,10 +37,14 @@ export async function fetchTopicBody(id: string): Promise<TopicBody> {
   return parseTopicPage(await response.text());
 }
 
-/** Parse a topic detail page's HTML into a title + block tree. */
+/**
+ * Parse a topic detail page's HTML into a title + block tree. The title gets
+ * the same posting-date strip as the list scraper, so a detail-page re-upsert
+ * never flip-flops the stored title back to the dated form.
+ */
 export function parseTopicPage(html: string): TopicBody {
   const $ = cheerio.load(html);
-  const titleJa = $('h2.iconTitle').first().text().trim();
+  const titleJa = stripTitleDateSuffix($('h2.iconTitle').first().text().trim());
   const blocks = parseTopicBody(html);
   return { titleJa, blocks };
 }

@@ -39,6 +39,7 @@ export {
   fetchTopicsListPage,
   listBacknumberMonths,
   listTopicsSources,
+  stripTitleDateSuffix,
   TOPICS_LIST_URL,
   TOPICS_BACKNUMBER_URL,
   type TopicListItem,

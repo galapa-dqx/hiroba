@@ -1,7 +1,10 @@
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 
-import { parseTopicsListPage } from './topics-list-scraper';
+import {
+  parseTopicsListPage,
+  stripTitleDateSuffix,
+} from './topics-list-scraper';
 
 // DQX titles separate the title from its date with a full-width space (U+3000).
 // Use the escape (not a literal) so lint's no-irregular-whitespace stays happy
@@ -17,7 +20,7 @@ function jstMidnight(y: number, m: number, d: number): string {
 }
 
 describe('parseTopicsListPage', () => {
-  it('extracts id, verbatim title, and date from h2.iconTitle entries', () => {
+  it('extracts id, date-stripped title, and date from h2.iconTitle entries', () => {
     // Mirrors a real backnumber month page: header + a body preview that
     // cross-links to a *different* topic (which must NOT be picked up).
     const html = `
@@ -34,11 +37,13 @@ describe('parseTopicsListPage', () => {
 
     expect(items).toHaveLength(2);
     expect(items[0].id).toBe('4baf54f36935058bcc696fcef3f4689b');
-    // Full-width space preserved (matches the detail-page title verbatim).
-    expect(items[0].titleJa).toBe(`超ドラゴンクエストXTV #41${SP}(2024/1/26)`);
+    // The date suffix (and its U+3000 separator) is stripped from the stored
+    // title — publishedAt already carries the date.
+    expect(items[0].titleJa).toBe('超ドラゴンクエストXTV #41');
     expect(items[0].publishedAt.toString()).toBe(jstMidnight(2024, 1, 26));
     expect(items[1].id).toBe('60a0575e00000000000000000000dead');
     // The leading "2024年" must not be mistaken for the date — (2024/1/1) wins.
+    expect(items[1].titleJa).toBe('2024年 新年のごあいさつ');
     expect(items[1].publishedAt.toString()).toBe(jstMidnight(2024, 1, 1));
   });
 
@@ -51,8 +56,10 @@ describe('parseTopicsListPage', () => {
 
     expect(items).toHaveLength(2);
     expect(items[0].id).toBe('68897f19b106926ed889fe3f7e3d01c9');
+    expect(items[0].titleJa).toBe('毎月10日はDQXで遊ぼう！');
     expect(items[0].publishedAt.toString()).toBe(jstMidnight(2026, 7, 3));
-    // Date parsed despite the trailing 更新 before the closing paren.
+    // Date parsed (and stripped) despite the trailing 更新 before the paren.
+    expect(items[1].titleJa).toBe('アスコレ開催！');
     expect(items[1].publishedAt.toString()).toBe(jstMidnight(2024, 1, 16));
   });
 
@@ -63,6 +70,7 @@ describe('parseTopicsListPage', () => {
     const items = parseTopicsListPage(html, { year: 2013, month: 5 });
 
     expect(items).toHaveLength(1);
+    expect(items[0].titleJa).toBe('日付なしのお知らせ');
     expect(items[0].publishedAt.toString()).toBe(jstMidnight(2013, 5, 1));
   });
 
@@ -72,5 +80,34 @@ describe('parseTopicsListPage', () => {
       <h2 class="iconTitle"><a href="/sc/topics/detail/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/">タイトル${SP}（2020/2/2）</a></h2>`;
 
     expect(parseTopicsListPage(html)).toHaveLength(1);
+  });
+});
+
+describe('stripTitleDateSuffix', () => {
+  it('strips full-width parens, half-width parens, and 更新 variants', () => {
+    expect(stripTitleDateSuffix(`タイトル${SP}（2026/7/3）`)).toBe('タイトル');
+    expect(stripTitleDateSuffix(`タイトル${SP}(2024/1/26)`)).toBe('タイトル');
+    expect(stripTitleDateSuffix(`タイトル${SP}（2024/1/16更新）`)).toBe(
+      'タイトル',
+    );
+    expect(stripTitleDateSuffix('タイトル（2024年1月16日）')).toBe('タイトル');
+  });
+
+  it('leaves titles without a trailing date annotation alone', () => {
+    expect(stripTitleDateSuffix('日付なしのお知らせ')).toBe(
+      '日付なしのお知らせ',
+    );
+    // A leading/mid-title year is not a posting-date suffix.
+    expect(stripTitleDateSuffix('2024年 新年のごあいさつ')).toBe(
+      '2024年 新年のごあいさつ',
+    );
+    // Parenthesized non-date content stays.
+    expect(stripTitleDateSuffix('アップデート情報（バージョン7.2）')).toBe(
+      'アップデート情報（バージョン7.2）',
+    );
+  });
+
+  it('keeps the original when stripping would empty the title', () => {
+    expect(stripTitleDateSuffix('（2024/1/1）')).toBe('（2024/1/1）');
   });
 });

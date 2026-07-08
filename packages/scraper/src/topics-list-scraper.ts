@@ -10,8 +10,9 @@
  * (format varies: full/half-width parens, a trailing `更新`, etc.), so we pull
  * the first `YYYY/M/D` we find and fall back to the month page's year/month.
  *
- * The title is stored verbatim (`.text().trim()`) to match what the body scraper
- * writes from the detail page's own `h2.iconTitle`, so re-upserts don't flip-flop.
+ * Once extracted, the date suffix is stripped from the stored title — it just
+ * duplicates `publishedAt`. The body scraper applies the same strip to the
+ * detail page's own `h2.iconTitle`, so re-upserts don't flip-flop.
  */
 
 import * as cheerio from 'cheerio';
@@ -30,6 +31,24 @@ const DETAIL_ID_RE = /\/sc\/topics\/detail\/([a-f0-9]{32})\//;
 const MONTH_LINK_RE = /\/sc\/topics\/backnumber\/(\d{4})\/(\d{1,2})\//;
 // First YYYY/M/D anywhere in the title (also matches YYYY年M月D日).
 const TITLE_DATE_RE = /(\d{4})[/年](\d{1,2})[/月](\d{1,2})/;
+// The posting-date annotation DQX appends to titles: optional whitespace (the
+// separator is usually U+3000, which \s matches), then a parenthesized
+// YYYY/M/D (or YYYY年M月D日) with an optional 更新 suffix, at the very end.
+// Full- and half-width parens both occur in the wild.
+const TITLE_DATE_SUFFIX_RE =
+  /\s*[（(]\s*\d{4}[/年]\d{1,2}[/月]\d{1,2}日?\s*(?:更新)?\s*[)）]\s*$/;
+
+/**
+ * Strip the trailing `（YYYY/M/D）` / `（YYYY/M/D更新）` posting-date annotation
+ * from a topic title — the date lives in `publishedAt`, so keeping it in the
+ * title duplicates metadata everywhere the title is shown or translated.
+ * Returns the title unchanged when there is no suffix, or when stripping would
+ * leave nothing (a date-only "title" is still better than an empty one).
+ */
+export function stripTitleDateSuffix(title: string): string {
+  const stripped = title.replace(TITLE_DATE_SUFFIX_RE, '').trim();
+  return stripped || title;
+}
 
 /** A topic as seen on a listing page (Phase 1 metadata). */
 export type TopicListItem = {
@@ -111,13 +130,14 @@ export function parseTopicsListPage(
     if (seen.has(id)) return;
     seen.add(id);
 
-    const titleJa = $(el).text().trim();
-    if (!titleJa) return;
+    const rawTitle = $(el).text().trim();
+    if (!rawTitle) return;
 
+    // Extract the date from the raw title first — the stored title drops it.
     items.push({
       id,
-      titleJa,
-      publishedAt: extractDateFromTitle(titleJa, fallback),
+      titleJa: stripTitleDateSuffix(rawTitle),
+      publishedAt: extractDateFromTitle(rawTitle, fallback),
     });
   });
 
