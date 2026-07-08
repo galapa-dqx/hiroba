@@ -10,15 +10,24 @@ interface Props {
 	title: string;
 	/** Highlights the matching nav tab (article + category pages pass this). */
 	category?: Category;
+	/** Absolute canonical URL. Defaults to this page's own URL. Article pages
+	 *  point it at the Hiroba original so we defer to the source in search
+	 *  rather than competing with it for the same content. */
+	canonical?: string;
+	/** hreflang language alternates, emitted as <link rel="alternate">. */
+	alternates?: { hreflang: string; href: string }[];
 }
 
-const { title, category } = Astro.props;
+const { title, category, canonical, alternates = [] } = Astro.props;
 
 // Fall back to deriving the active category from the URL (/category/<slug>).
 const pathname = Astro.url.pathname;
 const active =
 	category ??
 	(CATEGORIES.find((c) => pathname.startsWith(`/category/${c}`)) as Category | undefined);
+
+// Self-referential by default (query/hash dropped); overridden per-page.
+const canonicalUrl = canonical ?? new URL(pathname, Astro.url.origin).href;
 ---
 
 <!doctype html>
@@ -28,6 +37,8 @@ const active =
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<meta name="description" content="Dragon Quest X news, translated to English" />
 		<meta name="color-scheme" content="light dark" />
+		<link rel="canonical" href={canonicalUrl} />
+		{alternates.map((a) => <link rel="alternate" hreflang={a.hreflang} href={a.href} />)}
 		<title>{title} | DQX News</title>
 		{/* Apply the saved theme before first paint to avoid a flash. */}
 		<script is:inline>

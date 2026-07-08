@@ -57,9 +57,20 @@ const {
 
 const sseUrl = `/api/${itemType === "topic" ? "topics" : "news"}/${itemId}/sse`;
 const originalNoun = itemType === "topic" ? "topic" : "article";
+
+// This is a translated republish of the Hiroba original, so we canonicalize to
+// the source (cross-domain) rather than compete with it in search. hreflang
+// declares the language pair: the Japanese source, our English rendering, and
+// the source as the x-default for unmatched locales.
+const pageUrl = new URL(Astro.url.pathname, Astro.url.origin).href;
+const alternates = [
+	{ hreflang: "ja", href: originalUrl },
+	{ hreflang: "en", href: pageUrl },
+	{ hreflang: "x-default", href: originalUrl },
+];
 ---
 
-<Layout title={title} category={category}>
+<Layout title={title} category={category} canonical={originalUrl} alternates={alternates}>
 	<article data-cat={category ?? "topic"}>
 		<header class="article-header">
 			<div class="meta">
