@@ -75,6 +75,12 @@ const alternates = [
 		<header class="article-header">
 			<div class="meta">
 				<slot name="meta" />
+				<a
+					class="meta__source"
+					href={originalUrl}
+					target="_blank"
+					rel="noopener noreferrer">View original {originalNoun} ↗</a
+				>
 			</div>
 			<h1 class="article-title">{title}</h1>
 		</header>
@@ -100,12 +106,6 @@ const alternates = [
 			{translatedAtMs && (
 				<p>Translated on <LocalTime epochMs={translatedAtMs} mode="date" /></p>
 			)}
-			<a
-				class="pill pill--ghost"
-				href={originalUrl}
-				target="_blank"
-				rel="noopener noreferrer">View original {originalNoun} ↗</a
-			>
 		</footer>
 
 		<BackLink href={backHref} label={backLabel} />
@@ -115,6 +115,21 @@ const alternates = [
 <style>
 	.article-header {
 		margin-bottom: 1.4rem;
+	}
+	/* Source link sits on the meta row, pushed to the far right of the chips. */
+	.meta__source {
+		margin-left: auto;
+		display: inline-flex;
+		align-items: center;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--ink-soft);
+		text-decoration: none;
+		white-space: nowrap;
+		transition: color 0.12s ease;
+	}
+	.meta__source:hover {
+		color: var(--gold-edge);
 	}
 	.article-title {
 		font-size: clamp(1.7rem, 1.25rem + 2.4vw, 2.5rem);
