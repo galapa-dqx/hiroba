@@ -62,6 +62,8 @@ export type ScrapeResult = {
   results: Array<{ category: string; newItems: number; totalScraped: number }>;
   totalNewItems: number;
   totalScraped: number;
+  /** New items whose title translation was enqueued (0 if enqueue failed). */
+  titlesEnqueued: number;
 };
 
 export async function triggerScrape(full = false): Promise<ScrapeResult> {
@@ -138,6 +140,8 @@ export type TopicsScrapeResult = {
   nextCursor: number;
   total: number;
   done: boolean;
+  /** New items whose title translation was enqueued (0 if enqueue failed). */
+  titlesEnqueued: number;
 };
 
 export async function scrapeTopics(options?: {

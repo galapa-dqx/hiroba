@@ -44,6 +44,7 @@ import {
   type WorkflowRunStatus,
 } from '@hiroba/shared';
 
+import { TARGET_LANGUAGES } from './steps/translate-titles';
 import type { Env, ItemType } from './types';
 
 /** How long settled runs stay in the tracker's listing. */
@@ -74,6 +75,9 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     if (url.pathname === '/runs') {
       return this.handleRuns();
+    }
+    if (url.pathname === '/enqueue-titles' && request.method === 'POST') {
+      return this.handleEnqueueTitles(request);
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
@@ -238,6 +242,37 @@ export class WorkflowManager extends DurableObject<Env> {
       console.error('Failed to record workflow run:', error);
     }
     return Response.json({ status: 'started', instanceId: instance.id });
+  }
+
+  /**
+   * Enqueue the durable TitleWorkflow for a set of newly-discovered items.
+   * Lets the admin's scrape endpoints (which only hold this DO binding) kick
+   * off the same eager title translation the hourly cron does. Global state
+   * only, so any instance can serve it — callers use the well-known
+   * 'registry' instance.
+   */
+  private async handleEnqueueTitles(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      itemType?: ItemType;
+      itemIds?: unknown;
+    };
+    const itemType: ItemType = body.itemType === 'topic' ? 'topic' : 'news';
+    const itemIds = Array.isArray(body.itemIds)
+      ? body.itemIds.filter((id): id is string => typeof id === 'string')
+      : [];
+
+    if (itemIds.length === 0) {
+      return Response.json({ status: 'empty', enqueued: 0 });
+    }
+
+    const instance = await this.env.TITLE_WORKFLOW.create({
+      params: { itemType, itemIds, languages: [...TARGET_LANGUAGES] },
+    });
+    return Response.json({
+      status: 'enqueued',
+      enqueued: itemIds.length,
+      instanceId: instance.id,
+    });
   }
 
   /** Handle status request. */

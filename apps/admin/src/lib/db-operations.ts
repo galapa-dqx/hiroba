@@ -42,8 +42,9 @@ export {
  * Scrape one batch of topic listing sources (the current page + backnumber
  * months, newest first), seeding Phase-1 metadata. Batched + cursor-driven so
  * a full backfill of the ~168 sources stays within a Worker's limits — the
- * admin client loops until `done`. Only seeds metadata; it does NOT trigger the
- * (Gemini-billed) body/translate pipeline.
+ * admin client loops until `done`. Seeds metadata and reports the new ids
+ * (`newItemIds`) so the route can enqueue eager title translation; it does NOT
+ * trigger the (Gemini-billed) body pipeline.
  */
 export async function scrapeTopicsBatch(
   db: Database,
@@ -51,6 +52,7 @@ export async function scrapeTopicsBatch(
 ): Promise<{
   processed: number;
   newItems: number;
+  newItemIds: string[];
   totalScraped: number;
   cursor: number;
   nextCursor: number;
@@ -63,19 +65,20 @@ export async function scrapeTopicsBatch(
   const sources = await listTopicsSources();
   const slice = sources.slice(cursor, cursor + batch);
 
-  let newItems = 0;
+  const newItemIds: string[] = [];
   let totalScraped = 0;
   for (const source of slice) {
     const items = await fetchTopicsListPage(source.url, source.fallback);
     totalScraped += items.length;
     const inserted = await upsertTopicListItems(db, items);
-    newItems += inserted.length;
+    newItemIds.push(...inserted.map((i) => i.id));
   }
 
   const nextCursor = cursor + slice.length;
   return {
     processed: slice.length,
-    newItems,
+    newItems: newItemIds.length,
+    newItemIds,
     totalScraped,
     cursor,
     nextCursor,
@@ -85,7 +88,8 @@ export async function scrapeTopicsBatch(
 }
 
 /**
- * Trigger a scrape for all categories.
+ * Trigger a scrape for all categories. Reports the newly-inserted ids
+ * (`newItemIds`) so the route can enqueue eager title translation.
  */
 export async function triggerScrape(
   db: Database,
@@ -97,6 +101,7 @@ export async function triggerScrape(
     totalScraped: number;
   }>;
   totalNewItems: number;
+  newItemIds: string[];
   totalScraped: number;
 }> {
   const categoriesToScrape = options.category ? [options.category] : CATEGORIES;
@@ -105,6 +110,7 @@ export async function triggerScrape(
     newItems: number;
     totalScraped: number;
   }> = [];
+  const newItemIds: string[] = [];
 
   for (const category of categoriesToScrape) {
     let newItems = 0;
@@ -114,6 +120,7 @@ export async function triggerScrape(
       totalScraped += items.length;
       const inserted = await upsertListItems(db, items);
       newItems += inserted.length;
+      newItemIds.push(...inserted.map((i) => i.id));
 
       if (!options.full && inserted.length < items.length * 0.5) {
         break;
@@ -126,6 +133,7 @@ export async function triggerScrape(
   return {
     results,
     totalNewItems: results.reduce((sum, r) => sum + r.newItems, 0),
+    newItemIds,
     totalScraped: results.reduce((sum, r) => sum + r.totalScraped, 0),
   };
 }
