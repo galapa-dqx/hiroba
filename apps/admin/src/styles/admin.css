@@ -1314,7 +1314,7 @@ hr.divider {
  * the same rule, top right */
 .article-edit__tabs {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.3rem;
   margin-bottom: 1.1rem;
   border-bottom: 2px solid var(--gold-edge);
