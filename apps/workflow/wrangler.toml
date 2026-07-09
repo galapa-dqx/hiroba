@@ -7,6 +7,12 @@ compatibility_flags = ["nodejs_compat"]
 [observability]
 enabled = true
 
+  # invocation_logs carry status, CPU time, and wall time per request/cron —
+  # the signal for chasing 500s and slow steps. Queryable in the dashboard for 7 days.
+  [observability.logs]
+  invocation_logs = true
+  head_sampling_rate = 1
+
 # Log verbosity for the leveled logger in src/logger.ts:
 #   debug | info | warn | error | silent
 # Deployed default is info. Override per-environment with an [env.<name>.vars]
