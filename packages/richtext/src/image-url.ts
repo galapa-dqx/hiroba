@@ -2,10 +2,11 @@
  * Image URL handling for DQX topics. A single {@link imageKey} maps any upstream
  * DQX image URL to a stable, collision-free storage key `<host>/<path>` used
  * both as the R2 object key (the pipeline mirrors images there — see the
- * workflow's mirror-images step) and as the tail of our `/img/<host>/<path>`
- * serving path. {@link rewriteImageSrc} turns a src into a servable URL under a
- * configurable base (default `/img`, the web worker's R2-backed route; set it to
- * a bucket custom-domain to serve straight from R2 with no worker hop).
+ * workflow's mirror-images step) and as the tail of the serving path.
+ * {@link rewriteImageSrc} turns a src into a servable URL under a configurable
+ * base: the web app points it at the bucket's public custom domain (served
+ * straight from R2's edge cache, no worker hop), while the admin panel uses its
+ * own `/img` R2-backed route (the default base) for same-origin editing.
  *
  * Corpus hosts (by frequency): cache.hiroba.dqx.jp (CDN, ~92%), root-relative
  * `/dq_resource/…`, faceicon.dqx.jp (user avatars), hiroba.dqx.jp,

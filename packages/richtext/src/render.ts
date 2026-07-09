@@ -4,9 +4,9 @@
  * escaped; we emit our own tags from structured data, so this is safe against the
  * scraped source (unlike the news path's `set:html`).
  *
- * `opts.imageSrc` rewrites image/icon URLs (pass `rewriteImageSrc` once the R2
- * proxy exists; defaults to identity so images load straight from the CDN during
- * inspection).
+ * `opts.imageSrc` rewrites image/icon URLs (pass `rewriteImageSrc` to serve from
+ * R2 — the bucket's public host in the web app; defaults to identity so images
+ * load straight from the CDN during inspection).
  */
 
 import {

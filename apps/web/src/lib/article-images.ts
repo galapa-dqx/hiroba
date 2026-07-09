@@ -12,10 +12,10 @@
  *    l10n/<lang>/<key> object, but only for images we actually localized;
  *    everything else (icons, text-free art, images not yet localized) keeps the
  *    original URL — so a browser never caches the original under an l10n URL
- *    and then keeps serving it after the localized version lands. Originals may
- *    come from a bucket custom-domain via IMAGE_BASE; the /img route still
- *    falls back to the original for a stray l10n request, but we no longer emit
- *    one for an unlocalized image.
+ *    and then keeps serving it after the localized version lands. Both variants
+ *    are served straight from the R2 bucket's public host (IMAGE_BASE); the
+ *    localize-images step never wrote an l10n object for an unlocalized image,
+ *    so an l10n URL here is always known to exist and needs no fallback probe.
  */
 
 import {
@@ -76,7 +76,7 @@ export async function hydrateArticleImages(
     const key = imageKey(src);
     const base =
       isTranslated && key && localizedKeys.has(key)
-        ? `/img/l10n/${language}`
+        ? `${originalBase}/l10n/${language}`
         : originalBase;
     return rewriteImageSrc(src, base);
   };

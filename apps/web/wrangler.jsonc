@@ -11,12 +11,12 @@
       "database_id": "local",
     },
   ],
-  "r2_buckets": [
-    {
-      "binding": "IMAGES_BUCKET",
-      "bucket_name": "dqx-tools--images",
-    },
-  ],
+  // Images are served straight from the `dqx-tools--images` R2 bucket's public
+  // custom domain (Cloudflare edge-cached), so the web worker needs no R2
+  // binding — just the base host. See apps/web/src/lib/article-images.ts.
+  "vars": {
+    "IMAGE_BASE": "https://img.news.galapa.app",
+  },
   "durable_objects": {
     "bindings": [
       {

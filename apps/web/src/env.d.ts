@@ -2,10 +2,10 @@
 
 type RuntimeEnv = {
   DB: D1Database;
-  IMAGES_BUCKET: R2Bucket;
   WORKFLOW_MANAGER: DurableObjectNamespace;
-  /** Optional base for image URLs. Unset → the `/img` worker route; set to a
-   *  bucket custom-domain (e.g. https://img.example.com) to serve straight from R2. */
+  /** Base host for image URLs — the `dqx-tools--images` R2 bucket's public
+   *  custom domain (e.g. https://img.example.com), so images are served straight
+   *  from R2's edge cache with no Worker hop. Set in wrangler.jsonc `vars`. */
   IMAGE_BASE?: string;
 };
 
