@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { Block } from '@hiroba/richtext';
+import { imageKey, rewriteImageSrc, type Block } from '@hiroba/richtext';
 import { isRunActive, type WorkflowRunEntry } from '@hiroba/shared';
 import CategoryDot from '@hiroba/ui/CategoryDot';
 import { formatLocalDate } from '@hiroba/ui/format-date';
@@ -19,12 +19,13 @@ import RunCard from './RunCard';
 
 const RUN_POLL_MS = 2500;
 
+/** The Japanese source tab — every enabled language code is a tab alongside it. */
+const SOURCE_TAB = 'ja';
+
 type Props = {
   kind: ArticleKind;
   id: string;
 };
-
-type Lang = 'ja' | 'en';
 
 function hirobaUrl(kind: ArticleKind, id: string): string {
   return kind === 'topic'
@@ -35,19 +36,29 @@ function hirobaUrl(kind: ArticleKind, id: string): string {
 export default function ArticleEdit({ kind, id }: Props) {
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Lang>('ja');
+  // Active tab: SOURCE_TAB or an enabled language code.
+  const [tab, setTab] = useState<string>(SOURCE_TAB);
 
-  const [titleJa, setTitleJa] = useState('');
-  const [titleEn, setTitleEn] = useState('');
-  const [dirty, setDirty] = useState<Record<Lang, boolean>>({
-    ja: false,
-    en: false,
-  });
+  // Title text + dirty flag, keyed by tab (SOURCE_TAB and each language code).
+  const [titles, setTitles] = useState<Record<string, string>>({});
+  const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
-  const jaEditor = useRef<RtmlEditorHandle>(null);
-  const enEditor = useRef<RtmlEditorHandle>(null);
+  // One editor handle per tab, populated by stable per-key callback refs so the
+  // save handlers can pull each tab's edited tree out on demand.
+  const editorHandles = useRef<Record<string, RtmlEditorHandle | null>>({});
+  const refSetters = useRef<
+    Record<string, (h: RtmlEditorHandle | null) => void>
+  >({});
+  function handleRef(key: string) {
+    if (!refSetters.current[key]) {
+      refSetters.current[key] = (h) => {
+        editorHandles.current[key] = h;
+      };
+    }
+    return refSetters.current[key];
+  }
 
   // Workflow tracking (for the empty states' "Run Workflow" button).
   const [run, setRun] = useState<WorkflowRunEntry | null>(null);
@@ -57,7 +68,7 @@ export default function ArticleEdit({ kind, id }: Props) {
   // keeps yesterday's settled runs, which must not end tracking instantly.
   const minStartMs = useRef<number | null>(null);
 
-  // Refs mirror the dirty/title state so async reloads never clobber edits.
+  // Refs mirror the dirty state so async reloads never clobber edits.
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
@@ -65,10 +76,18 @@ export default function ArticleEdit({ kind, id }: Props) {
     async (opts: { keepDirtyTitles?: boolean } = {}) => {
       const a = await getArticle(kind, id);
       setArticle(a);
-      if (!opts.keepDirtyTitles || !dirtyRef.current.ja) setTitleJa(a.titleJa);
-      if (!opts.keepDirtyTitles || !dirtyRef.current.en) {
-        setTitleEn(a.en.title ?? '');
-      }
+      setTitles((prev) => {
+        const next = { ...prev };
+        if (!opts.keepDirtyTitles || !dirtyRef.current[SOURCE_TAB]) {
+          next[SOURCE_TAB] = a.titleJa;
+        }
+        for (const lang of a.languages) {
+          if (!opts.keepDirtyTitles || !dirtyRef.current[lang.code]) {
+            next[lang.code] = a.translations[lang.code]?.title ?? '';
+          }
+        }
+        return next;
+      });
       return a;
     },
     [kind, id],
@@ -79,7 +98,10 @@ export default function ArticleEdit({ kind, id }: Props) {
       .then((a) => {
         // If the pipeline is already running for this article (e.g. triggered
         // from the list page), pick it up and track it.
-        if (!a.blocksJa || !a.en.blocks) {
+        const anyUntranslated = a.languages.some(
+          (l) => !a.translations[l.code]?.blocks,
+        );
+        if (!a.blocksJa || anyUntranslated) {
           getWorkflowRuns()
             .then(({ runs }) => {
               const active = runs.find(
@@ -156,26 +178,33 @@ export default function ArticleEdit({ kind, id }: Props) {
     };
   }, [trackingRun, kind, id, loadArticle]);
 
-  function markDirty(lang: Lang) {
-    setDirty((d) => (d[lang] ? d : { ...d, [lang]: true }));
+  function markDirty(key: string) {
+    setDirty((d) => (d[key] ? d : { ...d, [key]: true }));
     setStatus(null);
   }
 
-  function markClean(lang: Lang) {
-    setDirty((d) => ({ ...d, [lang]: false }));
+  function markClean(key: string) {
+    setDirty((d) => ({ ...d, [key]: false }));
+  }
+
+  function setTitle(key: string, value: string) {
+    setTitles((t) => ({ ...t, [key]: value }));
+    markDirty(key);
   }
 
   async function saveJa() {
     if (!article) return;
+    const titleJa = titles[SOURCE_TAB] ?? '';
     setSaving(true);
     setStatus(null);
     try {
       const patch: { titleJa: string; blocksJa?: Block[] } = { titleJa };
-      if (article.blocksJa && jaEditor.current) {
-        patch.blocksJa = jaEditor.current.getBlocks();
+      const handle = editorHandles.current[SOURCE_TAB];
+      if (article.blocksJa && handle) {
+        patch.blocksJa = handle.getBlocks();
       }
       await updateArticleSource(kind, id, patch);
-      markClean('ja');
+      markClean(SOURCE_TAB);
       setStatus('Japanese source saved.');
     } catch (err) {
       console.error(err);
@@ -184,30 +213,54 @@ export default function ArticleEdit({ kind, id }: Props) {
     setSaving(false);
   }
 
-  async function saveEn() {
+  async function saveTranslation(lang: string) {
     if (!article) return;
+    const label = article.languages.find((l) => l.code === lang)?.label ?? lang;
+    const title = (titles[lang] ?? '').trim();
     setSaving(true);
     setStatus(null);
     try {
       const patch: { title?: string; blocks?: Block[] } = {};
-      if (titleEn.trim()) patch.title = titleEn;
-      if (article.en.blocks && enEditor.current) {
-        patch.blocks = enEditor.current.getBlocks();
+      if (title) patch.title = title;
+      const handle = editorHandles.current[lang];
+      if (article.translations[lang]?.blocks && handle) {
+        patch.blocks = handle.getBlocks();
       }
       if (!patch.title && !patch.blocks) {
-        setStatus('Nothing to save for English yet.');
+        setStatus(`Nothing to save for ${label} yet.`);
         setSaving(false);
         return;
       }
-      await updateArticleTranslation(kind, id, 'en', patch);
-      markClean('en');
-      setStatus('English translation saved.');
+      await updateArticleTranslation(kind, id, lang, patch);
+      markClean(lang);
+      setStatus(`${label} translation saved.`);
     } catch (err) {
       console.error(err);
       setStatus('Save failed. Check console.');
     }
     setSaving(false);
   }
+
+  // One image-URL rewriter per tab: the Japanese source and each language serve
+  // originals from our own /img route; a language additionally swaps in its
+  // localized raster (`/img/l10n/<lang>/<key>`) for every image it localized.
+  const imageSrcByTab = useMemo<Record<string, (src: string) => string>>(() => {
+    const map: Record<string, (src: string) => string> = {
+      [SOURCE_TAB]: (src) => rewriteImageSrc(src, '/img'),
+    };
+    for (const lang of article?.languages ?? []) {
+      const localized = new Set(
+        article?.translations[lang.code]?.localizedImageKeys ?? [],
+      );
+      map[lang.code] = (src) => {
+        const key = imageKey(src);
+        const base =
+          key && localized.has(key) ? `/img/l10n/${lang.code}` : '/img';
+        return rewriteImageSrc(src, base);
+      };
+    }
+    return map;
+  }, [article]);
 
   if (loadError) {
     return <p className="error">{loadError}</p>;
@@ -217,6 +270,8 @@ export default function ArticleEdit({ kind, id }: Props) {
   }
 
   const listHref = kind === 'topic' ? '/topics' : '/news';
+  const activeTranslatedAt =
+    tab !== SOURCE_TAB ? article.translations[tab]?.translatedAt : null;
 
   // Empty-state body: while a run is tracked its live card shows here; once
   // it completes, loadArticle() swaps in the editor. A settled failure keeps
@@ -253,9 +308,9 @@ export default function ArticleEdit({ kind, id }: Props) {
         <a href={hirobaUrl(kind, id)} target="_blank" rel="noopener noreferrer">
           View original on Hiroba ↗
         </a>
-        {article.en.translatedAt && (
+        {activeTranslatedAt && (
           <span className="article-edit__translated-at">
-            translated {formatLocalDate(article.en.translatedAt)}
+            translated {formatLocalDate(activeTranslatedAt)}
           </span>
         )}
       </div>
@@ -264,88 +319,103 @@ export default function ArticleEdit({ kind, id }: Props) {
         <button
           type="button"
           role="tab"
-          aria-selected={tab === 'ja'}
-          className={tab === 'ja' ? 'is-active' : ''}
-          onClick={() => setTab('ja')}
+          aria-selected={tab === SOURCE_TAB}
+          className={tab === SOURCE_TAB ? 'is-active' : ''}
+          onClick={() => setTab(SOURCE_TAB)}
         >
-          日本語 (source){dirty.ja && <span className="article-edit__dot" />}
+          日本語 (source)
+          {dirty[SOURCE_TAB] && <span className="article-edit__dot" />}
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'en'}
-          className={tab === 'en' ? 'is-active' : ''}
-          onClick={() => setTab('en')}
-        >
-          English{dirty.en && <span className="article-edit__dot" />}
-        </button>
+        {article.languages.map((lang) => (
+          <button
+            key={lang.code}
+            type="button"
+            role="tab"
+            aria-selected={tab === lang.code}
+            className={tab === lang.code ? 'is-active' : ''}
+            title={lang.label}
+            onClick={() => setTab(lang.code)}
+          >
+            {lang.nativeLabel}
+            {dirty[lang.code] && <span className="article-edit__dot" />}
+          </button>
+        ))}
         <span className="article-edit__actions">
           {status && <span className="article-edit__status">{status}</span>}
           <button
             type="button"
             className="article-edit__save"
-            onClick={tab === 'ja' ? saveJa : saveEn}
+            onClick={tab === SOURCE_TAB ? saveJa : () => saveTranslation(tab)}
             disabled={
-              saving || !dirty[tab] || (tab === 'ja' && !titleJa.trim())
+              saving ||
+              !dirty[tab] ||
+              (tab === SOURCE_TAB && !(titles[SOURCE_TAB] ?? '').trim())
             }
           >
             {saving
               ? 'Saving…'
-              : tab === 'ja'
+              : tab === SOURCE_TAB
                 ? 'Save Japanese'
-                : 'Save English'}
+                : `Save ${article.languages.find((l) => l.code === tab)?.nativeLabel ?? tab}`}
           </button>
         </span>
       </div>
 
-      <section className="article-edit__panel" hidden={tab !== 'ja'}>
+      <section className="article-edit__panel" hidden={tab !== SOURCE_TAB}>
         <label className="article-edit__title">
           Title (Japanese)
           <input
             type="text"
-            value={titleJa}
-            onChange={(e) => {
-              setTitleJa(e.target.value);
-              markDirty('ja');
-            }}
+            value={titles[SOURCE_TAB] ?? ''}
+            onChange={(e) => setTitle(SOURCE_TAB, e.target.value)}
           />
         </label>
         {article.blocksJa ? (
           <RtmlEditor
-            ref={jaEditor}
+            ref={handleRef(SOURCE_TAB)}
             initialBlocks={article.blocksJa as Block[]}
-            onDirty={() => markDirty('ja')}
+            imageSrc={imageSrcByTab[SOURCE_TAB]}
+            onDirty={() => markDirty(SOURCE_TAB)}
           />
         ) : (
           emptyState('No body fetched yet — run the workflow to fetch it.')
         )}
       </section>
 
-      <section className="article-edit__panel" hidden={tab !== 'en'}>
-        <label className="article-edit__title">
-          Title (English)
-          <input
-            type="text"
-            value={titleEn}
-            onChange={(e) => {
-              setTitleEn(e.target.value);
-              markDirty('en');
-            }}
-            placeholder={article.en.title ? undefined : 'Not translated yet'}
-          />
-        </label>
-        {article.en.blocks ? (
-          <RtmlEditor
-            ref={enEditor}
-            initialBlocks={article.en.blocks as Block[]}
-            onDirty={() => markDirty('en')}
-          />
-        ) : (
-          emptyState(
-            'No English translation yet — run the workflow to generate one.',
-          )
-        )}
-      </section>
+      {article.languages.map((lang) => {
+        const translation = article.translations[lang.code];
+        return (
+          <section
+            key={lang.code}
+            className="article-edit__panel"
+            hidden={tab !== lang.code}
+          >
+            <label className="article-edit__title">
+              Title ({lang.label})
+              <input
+                type="text"
+                value={titles[lang.code] ?? ''}
+                onChange={(e) => setTitle(lang.code, e.target.value)}
+                placeholder={
+                  translation?.title ? undefined : 'Not translated yet'
+                }
+              />
+            </label>
+            {translation?.blocks ? (
+              <RtmlEditor
+                ref={handleRef(lang.code)}
+                initialBlocks={translation.blocks as Block[]}
+                imageSrc={imageSrcByTab[lang.code]}
+                onDirty={() => markDirty(lang.code)}
+              />
+            ) : (
+              emptyState(
+                `No ${lang.label} translation yet — run the workflow to generate one.`,
+              )
+            )}
+          </section>
+        );
+      })}
     </div>
   );
 }

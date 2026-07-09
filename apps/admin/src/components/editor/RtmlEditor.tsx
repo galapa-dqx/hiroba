@@ -56,6 +56,7 @@ import {
   forwardRef,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useState,
   type JSX,
   type Ref,
@@ -73,6 +74,7 @@ import {
   EventWrapperNode,
   IconChipNode,
   PreservedBlockNode,
+  PreservedRenderContext,
   RtmlButtonNode,
   RtmlHeadingNode,
   RtmlListNode,
@@ -314,10 +316,15 @@ type RtmlEditorProps = {
   /** The block tree to load. Changing this prop after mount has no effect. */
   initialBlocks: Block[];
   onDirty?: () => void;
+  /**
+   * Rewrites image URLs in preserved-block previews (e.g. to serve a language's
+   * localized rasters). Display-only — the stored blocks keep their source URLs.
+   */
+  imageSrc?: (src: string) => string;
 };
 
 const RtmlEditor = forwardRef<RtmlEditorHandle, RtmlEditorProps>(
-  function RtmlEditor({ initialBlocks, onDirty }, ref): JSX.Element {
+  function RtmlEditor({ initialBlocks, onDirty, imageSrc }, ref): JSX.Element {
     const initialConfig = {
       namespace: 'rtml-editor',
       onError(error: Error) {
@@ -361,38 +368,42 @@ const RtmlEditor = forwardRef<RtmlEditorHandle, RtmlEditorProps>(
       editorState: () => $populateEditorFromBlocks(initialBlocks),
     };
 
+    const renderContext = useMemo(() => ({ imageSrc }), [imageSrc]);
+
     return (
-      <LexicalComposer initialConfig={initialConfig}>
-        <div className="rtml-editor">
-          <Toolbar />
-          <div className="rtml-editor__body">
-            <RichTextPlugin
-              contentEditable={
-                <ContentEditable
-                  className="rtml-editor__content article-body"
-                  aria-placeholder="Write…"
-                  placeholder={
-                    <div className="rtml-editor__placeholder">Write…</div>
-                  }
-                />
-              }
-              ErrorBoundary={LexicalErrorBoundary}
-            />
+      <PreservedRenderContext.Provider value={renderContext}>
+        <LexicalComposer initialConfig={initialConfig}>
+          <div className="rtml-editor">
+            <Toolbar />
+            <div className="rtml-editor__body">
+              <RichTextPlugin
+                contentEditable={
+                  <ContentEditable
+                    className="rtml-editor__content article-body"
+                    aria-placeholder="Write…"
+                    placeholder={
+                      <div className="rtml-editor__placeholder">Write…</div>
+                    }
+                  />
+                }
+                ErrorBoundary={LexicalErrorBoundary}
+              />
+            </div>
+            <HistoryPlugin />
+            <ListPlugin />
+            <LinkPlugin />
+            <TablePlugin />
+            <HorizontalRulePlugin />
+            {onDirty && (
+              <OnChangePlugin
+                ignoreSelectionChange
+                onChange={(_state, _editor, _tags) => onDirty()}
+              />
+            )}
+            <HandleBridge handleRef={ref} />
           </div>
-          <HistoryPlugin />
-          <ListPlugin />
-          <LinkPlugin />
-          <TablePlugin />
-          <HorizontalRulePlugin />
-          {onDirty && (
-            <OnChangePlugin
-              ignoreSelectionChange
-              onChange={(_state, _editor, _tags) => onDirty()}
-            />
-          )}
-          <HandleBridge handleRef={ref} />
-        </div>
-      </LexicalComposer>
+        </LexicalComposer>
+      </PreservedRenderContext.Provider>
     );
   },
 );

@@ -43,7 +43,7 @@ import {
   type SerializedLexicalNode,
   type Spread,
 } from 'lexical';
-import { useMemo, useState, type JSX } from 'react';
+import { createContext, useContext, useMemo, useState, type JSX } from 'react';
 
 import {
   renderBlocks,
@@ -54,6 +54,24 @@ import {
   type ListNode as RtmlList,
   type TableNode as RtmlTable,
 } from '@hiroba/richtext';
+
+/* ------------------------------------------------------------------ *
+ * PreservedRenderContext — display-only options for preserved-block previews
+ * ------------------------------------------------------------------ */
+
+/**
+ * Options threaded into every {@link PreservedBlockView} preview so images can
+ * render their localized (translated) raster on a translated tab. Display-only:
+ * it rewrites the rendered `<img src>` and never touches the stored block, so
+ * saving still round-trips the original source URL.
+ */
+export type PreservedRenderContextValue = {
+  /** Rewrites image/icon URLs (e.g. → `/img/l10n/<lang>/<key>`). */
+  imageSrc?: (src: string) => string;
+};
+
+export const PreservedRenderContext =
+  createContext<PreservedRenderContextValue>({});
 
 /* ------------------------------------------------------------------ *
  * RtmlHeadingNode
@@ -739,17 +757,18 @@ function PreservedBlockView({
   block: Block;
 }): JSX.Element {
   const [editor] = useLexicalComposerContext();
+  const { imageSrc } = useContext(PreservedRenderContext);
   const [jsonOpen, setJsonOpen] = useState(false);
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
 
   const previewHtml = useMemo(() => {
     try {
-      return renderBlocks([block]);
+      return renderBlocks([block], { imageSrc });
     } catch (err) {
       return `<p class="rtml-preserved__render-error">Preview failed: ${err instanceof Error ? err.message : String(err)}</p>`;
     }
-  }, [block]);
+  }, [block, imageSrc]);
 
   function withNode(fn: (node: PreservedBlockNode) => void) {
     editor.update(() => {

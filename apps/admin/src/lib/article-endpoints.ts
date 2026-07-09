@@ -9,12 +9,15 @@ import type { APIRoute } from 'astro';
 import {
   createDb,
   getArticleTranslations,
+  getEnabledLanguages,
+  getImagesByKeys,
+  getImageTranslations,
   getNewsItem,
   getTopic,
   updateArticleSource,
   upsertItemTranslation,
 } from '@hiroba/db';
-import type { Block } from '@hiroba/richtext';
+import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 
 import { validateBlocks } from './validate-blocks';
 
@@ -33,7 +36,12 @@ function getDb(locals: App.Locals) {
   return createDb(runtime.env.DB);
 }
 
-/** GET /api/{news,topics}/[id] — source fields plus the English translation. */
+/**
+ * GET /api/{news,topics}/[id] — source fields plus one translation per enabled
+ * language. Each language also carries `localizedImageKeys`: the imageKeys whose
+ * localized (translated) raster exists for that language, so the editor can
+ * swap `/img/<key>` → `/img/l10n/<lang>/<key>` on the translated tabs.
+ */
 export function createArticleGet(itemType: 'news' | 'topic'): APIRoute {
   return async ({ locals, params }) => {
     const db = getDb(locals);
@@ -43,7 +51,45 @@ export function createArticleGet(itemType: 'news' | 'topic'): APIRoute {
       itemType === 'news' ? await getNewsItem(db, id) : await getTopic(db, id);
     if (!item) return json({ error: 'Not found' }, 404);
 
-    const en = await getArticleTranslations(db, itemType, id, 'en');
+    const languages = await getEnabledLanguages(db);
+
+    // The distinct images referenced by the article. Localization only swaps
+    // the raster (never the block tree), so the source tree carries every key.
+    const imgKeys = [
+      ...new Set(
+        collectImages((item.blocksJa as Block[] | null) ?? [])
+          .map((i) => imageKey(i.src))
+          .filter((k): k is string => !!k),
+      ),
+    ];
+    const imageRows = imgKeys.length ? await getImagesByKeys(db, imgKeys) : [];
+    const imageIds = imageRows.map((r) => r.id);
+
+    const translations: Record<
+      string,
+      {
+        title: string | null;
+        blocks: Block[] | null;
+        translatedAt: string | null;
+        localizedImageKeys: string[];
+      }
+    > = {};
+    for (const lang of languages) {
+      const t = await getArticleTranslations(db, itemType, id, lang.code);
+      let localizedImageKeys: string[] = [];
+      if (imageIds.length) {
+        const urls = await getImageTranslations(db, imageIds, lang.code, 'url');
+        localizedImageKeys = imageRows
+          .filter((r) => urls.has(r.id))
+          .map((r) => r.key);
+      }
+      translations[lang.code] = {
+        title: t.title,
+        blocks: t.blocks,
+        translatedAt: t.translatedAt?.toString() ?? null,
+        localizedImageKeys,
+      };
+    }
 
     return json({
       id: item.id,
@@ -51,11 +97,8 @@ export function createArticleGet(itemType: 'news' | 'topic'): APIRoute {
       category: item.category,
       publishedAt: item.publishedAt.toString(),
       blocksJa: item.blocksJa,
-      en: {
-        title: en.title,
-        blocks: en.blocks,
-        translatedAt: en.translatedAt?.toString() ?? null,
-      },
+      languages,
+      translations,
     });
   };
 }

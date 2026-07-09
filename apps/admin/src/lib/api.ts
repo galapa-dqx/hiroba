@@ -194,6 +194,15 @@ export type ArticleTranslation = {
   title: string | null;
   blocks: unknown[] | null;
   translatedAt: string | null; // ISO-8601 UTC instant
+  /** imageKeys whose localized raster exists for this language. */
+  localizedImageKeys: string[];
+};
+
+/** An enabled translation-target language (a tab in the editor). */
+export type ArticleLanguage = {
+  code: string;
+  label: string;
+  nativeLabel: string;
 };
 
 export type ArticleDetail = {
@@ -202,7 +211,10 @@ export type ArticleDetail = {
   category: string | null;
   publishedAt: string; // ISO-8601 UTC instant
   blocksJa: unknown[] | null;
-  en: ArticleTranslation;
+  /** Enabled languages, in code order — one editor tab each. */
+  languages: ArticleLanguage[];
+  /** Translation per language code (present for every entry in `languages`). */
+  translations: Record<string, ArticleTranslation>;
 };
 
 export async function getArticle(
@@ -407,6 +419,15 @@ export async function getImages(options: {
   if (options.limit) params.set('limit', String(options.limit));
   if (options.cursor != null) params.set('cursor', String(options.cursor));
   return adminFetch(`/api/images?${params}`);
+}
+
+/** Pre-warm a language's whole-archive title backfill (DQX-13). */
+export async function backfillLanguageTitles(
+  code: string,
+): Promise<{ success: boolean; code: string }> {
+  return adminFetch(`/api/languages/${encodeURIComponent(code)}/backfill`, {
+    method: 'POST',
+  });
 }
 
 // Events API
