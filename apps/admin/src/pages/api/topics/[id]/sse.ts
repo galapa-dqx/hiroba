@@ -1,29 +1,20 @@
 /**
- * SSE endpoint for topics workflow progress. Proxies to the WorkflowManager DO,
- * namespaced by `topic:` so it doesn't collide with the news DO of the same id.
+ * SSE endpoint for a topic's pipeline progress. The DO is namespaced `topic:`
+ * so it doesn't collide with the news DO of the same id (proxies the DO).
  */
 
 import type { APIRoute } from 'astro';
 
-export const GET: APIRoute = async ({ locals, params }) => {
+import { proxyDoSse } from '../../../../lib/sse';
+
+export const GET: APIRoute = ({ locals, params }) => {
   const runtime = locals.runtime as {
     env: { WORKFLOW_MANAGER: DurableObjectNamespace };
   };
   const id = params.id!;
-
-  const doId = runtime.env.WORKFLOW_MANAGER.idFromName(`topic:${id}`);
-  const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
-
-  const res = await stub.fetch(
-    `http://internal/sse?itemId=${id}&itemType=topic`,
+  return proxyDoSse(
+    runtime.env,
+    `topic:${id}`,
+    `/sse?itemId=${id}&itemType=topic`,
   );
-
-  return new Response(res.body, {
-    status: res.status,
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
-  });
 };

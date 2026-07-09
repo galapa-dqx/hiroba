@@ -39,13 +39,14 @@ import {
   describeSnapshot,
   isRunActive,
   isSnapshotSettled,
+  type Category,
   type SSEEvent,
   type StateSnapshot,
   type WorkflowRunEntry,
   type WorkflowRunStatus,
 } from '@hiroba/shared';
 
-import type { Env, ItemType } from './types';
+import type { Env, ItemType, NewsBackfillWorkflowOutput } from './types';
 
 /** How long settled runs stay in the tracker's listing. */
 const SETTLED_VISIBLE_HOURS = 24;
@@ -64,6 +65,17 @@ export class WorkflowManager extends DurableObject<Env> {
    * this map is the single dedup point — mirrors activeWorkflows.
    */
   private activeBackfills = new Map<string, string>();
+  /**
+   * The in-flight whole-archive scrape for this DO instance (DQX-14). A scrape
+   * DO is dedicated (named `scrape:news:<category|all>`), so one field suffices:
+   * the workflow POSTs `/scrape-progress` here after each page and the
+   * `/scrape-sse` stream reads `progress` back. In-memory — a mid-run eviction
+   * just resets the bar until the next page's report.
+   */
+  private scrape: {
+    instanceId: string;
+    progress: { label: string; done?: number; total?: number };
+  } | null = null;
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -88,6 +100,15 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     if (url.pathname === '/backfill-titles' && request.method === 'POST') {
       return this.handleBackfillTitles(request);
+    }
+    if (url.pathname === '/scrape-news' && request.method === 'POST') {
+      return this.handleScrapeNews(request);
+    }
+    if (url.pathname === '/scrape-progress' && request.method === 'POST') {
+      return this.handleScrapeProgress(request);
+    }
+    if (url.pathname === '/scrape-sse') {
+      return this.handleScrapeSSE();
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
@@ -324,6 +345,155 @@ export class WorkflowManager extends DurableObject<Env> {
     const instance = await workflow.create({ params: { language } });
     this.activeBackfills.set(language, instance.id);
     return Response.json({ status: 'started', instanceId: instance.id });
+  }
+
+  /**
+   * Start (or resume streaming an already-running) whole-archive news scrape
+   * (DQX-14). Deduped: if this DO's scrape instance is still queued/running we
+   * report it rather than launch a second. `streamKey` names this DO instance so
+   * the workflow can POST progress back to `/scrape-progress`.
+   */
+  private async handleScrapeNews(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      category?: unknown;
+      streamKey?: unknown;
+    };
+    const streamKey = typeof body.streamKey === 'string' ? body.streamKey : '';
+    if (!streamKey) {
+      return Response.json({ error: 'streamKey required' }, { status: 400 });
+    }
+    const category =
+      typeof body.category === 'string'
+        ? (body.category as Category)
+        : undefined;
+
+    const workflow = this.env.NEWS_BACKFILL_WORKFLOW;
+    if (this.scrape) {
+      try {
+        const status = await (
+          await workflow.get(this.scrape.instanceId)
+        ).status();
+        if (status.status === 'running' || status.status === 'queued') {
+          return Response.json({
+            status: 'already_running',
+            instanceId: this.scrape.instanceId,
+          });
+        }
+      } catch {
+        // The engine no longer knows the instance — fall through and start fresh.
+      }
+    }
+
+    const instance = await workflow.create({
+      params: { category, streamKey },
+    });
+    this.scrape = {
+      instanceId: instance.id,
+      progress: { label: 'Starting…' },
+    };
+    return Response.json({ status: 'started', instanceId: instance.id });
+  }
+
+  /** Sink for the scrape workflow's per-page progress reports. */
+  private async handleScrapeProgress(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      label?: unknown;
+      done?: unknown;
+      total?: unknown;
+    };
+    if (this.scrape) {
+      this.scrape.progress = {
+        label: typeof body.label === 'string' ? body.label : '',
+        done: typeof body.done === 'number' ? body.done : undefined,
+        total: typeof body.total === 'number' ? body.total : undefined,
+      };
+    }
+    return Response.json({ ok: true });
+  }
+
+  /**
+   * Stream the current scrape's progress as SSE `progress` events, closing with
+   * `complete`/`error` when the workflow instance settles. Mirrors handleSSE but
+   * over the generic progress channel instead of pipeline snapshots.
+   */
+  private handleScrapeSSE(): Response {
+    const encoder = new TextEncoder();
+    const scrape = this.scrape;
+    const workflow = this.env.NEWS_BACKFILL_WORKFLOW;
+
+    const stream = new ReadableStream({
+      start: async (controller) => {
+        const send = (event: SSEEvent) => {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify(event)}\n\n`),
+          );
+        };
+
+        if (!scrape) {
+          send({ type: 'complete', summary: 'No active scrape' });
+          controller.close();
+          return;
+        }
+
+        let lastSent: string | null = null;
+        const emit = () => {
+          const p = this.scrape?.progress;
+          if (!p) return;
+          const key = `${p.label}|${p.done}|${p.total}`;
+          if (key === lastSent) return;
+          lastSent = key;
+          send({
+            type: 'progress',
+            label: p.label,
+            done: p.done,
+            total: p.total,
+          });
+        };
+
+        emit();
+        const maxPolls = 1800; // 30 minutes at 1s
+        for (let i = 0; i < maxPolls; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          emit();
+          try {
+            const status = await (
+              await workflow.get(scrape.instanceId)
+            ).status();
+            if (status.status === 'complete') {
+              const out = status.output as
+                | NewsBackfillWorkflowOutput
+                | undefined;
+              send({
+                type: 'complete',
+                summary: out
+                  ? `${out.newItems} new item(s) across ${out.pages} page(s)`
+                  : undefined,
+              });
+              controller.close();
+              return;
+            }
+            if (status.status === 'errored' || status.status === 'terminated') {
+              send({ type: 'error', error: status.error ?? 'Scrape failed' });
+              controller.close();
+              return;
+            }
+          } catch {
+            // Instance not registered yet, or a transient engine hiccup — the
+            // next poll retries.
+          }
+        }
+        send({ type: 'error', error: 'Scrape timeout' });
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
   }
 
   /** Handle status request. */

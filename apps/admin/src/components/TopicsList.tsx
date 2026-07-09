@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 
-import { describeSnapshot } from '@hiroba/shared';
 import { formatLocalDate } from '@hiroba/ui/format-date';
 
 import {
@@ -13,6 +12,7 @@ import {
   type ArticleTypeStats,
   type TopicItem,
 } from '../lib/api';
+import { subscribeJob } from '../lib/job-stream';
 
 export default function TopicsList() {
   const [items, setItems] = useState<TopicItem[]>([]);
@@ -113,20 +113,12 @@ export default function TopicsList() {
       await triggerTopicWorkflow(id);
       setWorkflowStatus((prev) => new Map(prev).set(id, 'Starting...'));
 
-      const evtSource = new EventSource(`/api/topics/${id}/sse`);
-
-      evtSource.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'state') {
-          setWorkflowStatus((prev) =>
-            new Map(prev).set(id, describeSnapshot(data.snapshot)),
-          );
-        }
-
-        if (data.type === 'complete') {
-          evtSource.close();
-          setWorkflowStatus((prev) => new Map(prev).set(id, 'Done!'));
+      const setStatus = (line: string) =>
+        setWorkflowStatus((prev) => new Map(prev).set(id, line));
+      subscribeJob(`/api/topics/${id}/sse`, {
+        onProgress: (p) => setStatus(p.label),
+        onDone: () => {
+          setStatus('Done!');
           setTimeout(() => {
             setWorkflowStatus((prev) => {
               const next = new Map(prev);
@@ -136,20 +128,12 @@ export default function TopicsList() {
             loadStats();
             loadItems();
           }, 2000);
-        }
-
-        if (data.type === 'error') {
-          evtSource.close();
-          setWorkflowStatus((prev) =>
-            new Map(prev).set(id, `Error: ${data.error}`),
-          );
-        }
-      };
-
-      evtSource.onerror = () => {
-        evtSource.close();
-        setWorkflowStatus((prev) => new Map(prev).set(id, 'Connection lost'));
-      };
+        },
+        onError: (message) =>
+          setStatus(
+            message === 'Connection lost' ? message : `Error: ${message}`,
+          ),
+      });
     } catch (err) {
       alert('Failed to trigger workflow');
       console.error(err);

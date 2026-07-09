@@ -74,8 +74,28 @@ export type ScrapeResult = {
   titlesEnqueued: number;
 };
 
-export async function triggerScrape(full = false): Promise<ScrapeResult> {
-  return adminFetch(`/api/scrape?full=${full}`, { method: 'POST' });
+/** Incremental refresh — first page of each category, run inline. */
+export async function triggerScrape(): Promise<ScrapeResult> {
+  return adminFetch(`/api/scrape?full=false`, { method: 'POST' });
+}
+
+/** Acknowledgement that the whole-archive scrape workflow was (re)started. */
+export type ArchiveScrapeStarted = {
+  success: boolean;
+  mode: 'workflow';
+  /** Query param for GET /api/scrape/stream to follow progress. */
+  streamKey: string;
+  status: 'started' | 'already_running';
+  instanceId: string;
+};
+
+/**
+ * Kick off the whole-archive scrape (NewsBackfillWorkflow) and return
+ * immediately; follow progress via `/api/scrape/stream`. Paging the archive in
+ * one request would blow the subrequest limit — that's what the workflow fixes.
+ */
+export async function startArchiveScrape(): Promise<ArchiveScrapeStarted> {
+  return adminFetch(`/api/scrape?full=true`, { method: 'POST' });
 }
 
 export type NewsItem = {

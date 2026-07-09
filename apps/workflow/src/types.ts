@@ -2,6 +2,8 @@
  * Type definitions for the workflow worker.
  */
 
+import type { Category } from '@hiroba/shared';
+
 import type { LocalizeResult } from './steps/localize-images';
 import type { MirrorResult } from './steps/mirror-images';
 
@@ -55,6 +57,9 @@ export type Env = {
   TITLE_WORKFLOW: WorkflowBinding<TitleWorkflowParams>;
   /** Whole-archive title backfill for one language (DQX-13). */
   TITLE_BACKFILL_WORKFLOW: WorkflowBinding<TitleBackfillWorkflowParams>;
+  /** Whole-archive news list scrape — pages the archive one durable step at a
+   *  time so it isn't bound by a single request's subrequest limit (DQX-14). */
+  NEWS_BACKFILL_WORKFLOW: WorkflowBinding<NewsBackfillWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
@@ -105,6 +110,24 @@ export type TitleBackfillWorkflowOutput = {
   scanned: number;
   translated: number;
   failed: number;
+};
+
+/**
+ * Parameters for the NewsBackfillWorkflow (whole-archive list scrape, DQX-14).
+ * `category` scopes to one category (all when omitted). `streamKey` is the
+ * WorkflowManager DO instance name the caller reached — the workflow reports
+ * per-page progress back to it so the SSE stream can show a live bar.
+ */
+export type NewsBackfillWorkflowParams = {
+  category?: Category;
+  streamKey: string;
+};
+
+/** Result of the NewsBackfillWorkflow — how much of the archive it scraped. */
+export type NewsBackfillWorkflowOutput = {
+  pages: number;
+  scraped: number;
+  newItems: number;
 };
 
 /** Result of the fetch-body step (scrape + parse → blocks_ja). */

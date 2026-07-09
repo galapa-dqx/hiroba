@@ -131,9 +131,11 @@ export function parseListPage(html: string, category: Category): ListItem[] {
 }
 
 /**
- * Fetch a single list page for a category.
+ * Fetch a single list page for a category, returning its items and the total
+ * page count parsed from the pagination. Exported so a workflow can page the
+ * archive one durable step at a time (each step is a fresh subrequest budget).
  */
-async function fetchListPage(
+export async function fetchNewsListPage(
   category: Category,
   page: number,
 ): Promise<{ items: ListItem[]; totalPages: number }> {
@@ -174,7 +176,7 @@ export async function* scrapeNewsList(
   let totalPages = 1;
 
   while (page <= totalPages) {
-    const result = await fetchListPage(category, page);
+    const result = await fetchNewsListPage(category, page);
 
     if (result.items.length === 0) break;
 

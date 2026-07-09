@@ -6,6 +6,7 @@
 export {
   scrapeNewsList,
   scrapeCategory,
+  fetchNewsListPage,
   parseListPage,
   getAllCategories,
   CATEGORY_TO_ID,

@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 
-import { describeSnapshot } from '@hiroba/shared';
 import CategoryDot from '@hiroba/ui/CategoryDot';
 import { formatLocalDate } from '@hiroba/ui/format-date';
 
@@ -9,11 +8,13 @@ import {
   getNewsList,
   getStats,
   invalidateBody,
+  startArchiveScrape,
   triggerScrape,
   triggerWorkflow,
   type ArticleTypeStats,
   type NewsItem,
 } from '../lib/api';
+import { subscribeJob } from '../lib/job-stream';
 
 export default function NewsList() {
   const [items, setItems] = useState<NewsItem[]>([]);
@@ -77,7 +78,7 @@ export default function NewsList() {
     setScraping(true);
     setScrapeProgress('Scraping category list pages…');
     try {
-      const res = await triggerScrape(false);
+      const res = await triggerScrape();
       setScrapeProgress(`Done — ${res.totalNewItems} new item(s).`);
       await Promise.all([loadStats(), loadItems()]);
     } catch (err) {
@@ -95,19 +96,29 @@ export default function NewsList() {
     )
       return;
 
+    // The whole archive is too many pages for one request (subrequest limit), so
+    // this runs as a background workflow; follow its live progress over SSE.
     setScraping(true);
-    setScrapeProgress('Scraping all category pages…');
+    setScrapeProgress('Starting archive scrape…');
     try {
-      const res = await triggerScrape(true);
-      setScrapeProgress(
-        `Backfill complete — ${res.totalNewItems} new item(s).`,
-      );
-      await Promise.all([loadStats(), loadItems()]);
+      await startArchiveScrape();
+      subscribeJob('/api/scrape/stream', {
+        onProgress: (p) => setScrapeProgress(p.label),
+        onDone: (summary) => {
+          setScrapeProgress(`Backfill complete — ${summary ?? 'done'}.`);
+          setScraping(false);
+          void Promise.all([loadStats(), loadItems()]);
+        },
+        onError: (message) => {
+          setScrapeProgress(`Backfill failed — ${message}.`);
+          setScraping(false);
+        },
+      });
     } catch (err) {
       setScrapeProgress('Backfill failed. Check console.');
+      setScraping(false);
       console.error(err);
     }
-    setScraping(false);
   }
 
   async function handleInvalidateBody(id: string) {
@@ -127,20 +138,12 @@ export default function NewsList() {
       await triggerWorkflow(id);
       setWorkflowStatus((prev) => new Map(prev).set(id, 'Starting...'));
 
-      const evtSource = new EventSource(`/api/news/${id}/sse`);
-
-      evtSource.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'state') {
-          setWorkflowStatus((prev) =>
-            new Map(prev).set(id, describeSnapshot(data.snapshot)),
-          );
-        }
-
-        if (data.type === 'complete') {
-          evtSource.close();
-          setWorkflowStatus((prev) => new Map(prev).set(id, 'Done!'));
+      const setStatus = (line: string) =>
+        setWorkflowStatus((prev) => new Map(prev).set(id, line));
+      subscribeJob(`/api/news/${id}/sse`, {
+        onProgress: (p) => setStatus(p.label),
+        onDone: () => {
+          setStatus('Done!');
           setTimeout(() => {
             setWorkflowStatus((prev) => {
               const next = new Map(prev);
@@ -150,20 +153,12 @@ export default function NewsList() {
             loadStats();
             loadItems();
           }, 2000);
-        }
-
-        if (data.type === 'error') {
-          evtSource.close();
-          setWorkflowStatus((prev) =>
-            new Map(prev).set(id, `Error: ${data.error}`),
-          );
-        }
-      };
-
-      evtSource.onerror = () => {
-        evtSource.close();
-        setWorkflowStatus((prev) => new Map(prev).set(id, 'Connection lost'));
-      };
+        },
+        onError: (message) =>
+          setStatus(
+            message === 'Connection lost' ? message : `Error: ${message}`,
+          ),
+      });
     } catch (err) {
       alert('Failed to trigger workflow');
       console.error(err);

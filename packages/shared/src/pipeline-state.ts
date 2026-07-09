@@ -52,10 +52,16 @@ export type StateSnapshot = {
   } | null;
 };
 
-/** SSE wire protocol for pipeline progress. */
+/**
+ * SSE wire protocol for job progress. `state` carries the article pipeline's
+ * computed snapshot; `progress` is the generic channel for counter-style jobs
+ * (e.g. the whole-archive scrape) that report a label + optional done/total.
+ * Both terminate with `complete` (optional human summary) or `error`.
+ */
 export type SSEEvent =
   | { type: 'state'; snapshot: StateSnapshot }
-  | { type: 'complete' }
+  | { type: 'progress'; label: string; done?: number; total?: number }
+  | { type: 'complete'; summary?: string }
   | { type: 'error'; error: string };
 
 /**
