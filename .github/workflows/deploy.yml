@@ -1,0 +1,62 @@
+name: Deploy
+
+# Deploy the whole stack to Cloudflare on every push to main (or manually via
+# the Actions tab). Verifies first, applies prod D1 migrations, then ships the
+# workflow worker and both Pages projects. Requires two repo secrets:
+#   CLOUDFLARE_API_TOKEN   — scoped token: Workers Scripts + Pages + D1 (Edit)
+#   CLOUDFLARE_ACCOUNT_ID  — the account the resources live in
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time; never cancel an in-flight one mid-ship.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # Builds workspace packages and the web/admin Astro dist/ that Pages ships.
+      - name: Build
+        run: pnpm build
+
+      # Idempotent — only applies migrations not yet on the remote DB. Runs
+      # before the code deploy so new schema is in place when the workers land.
+      - name: Apply D1 migrations (production)
+        run: pnpm db:migrate:prod
+
+      - name: Deploy workflow worker
+        run: pnpm --filter @hiroba/workflow exec wrangler deploy
+
+      - name: Deploy web (Pages)
+        run: pnpm --filter @hiroba/web exec wrangler pages deploy dist --branch=main
+
+      - name: Deploy admin (Pages)
+        run: pnpm --filter @hiroba/admin exec wrangler pages deploy dist --branch=main
