@@ -35,6 +35,7 @@ import { topics, type NewTopic, type Topic } from './schema/topics';
 import {
   translations,
   type ItemType,
+  type Translation,
   type TranslationField,
 } from './schema/translations';
 import { workflowRuns, type WorkflowRun } from './schema/workflow-runs';
@@ -1406,6 +1407,80 @@ export async function getLocalizedImageModels(
       .all(),
   );
   return new Map(rows.map((r) => [Number(r.itemId), r.model!]));
+}
+
+/**
+ * One stored image plus its per-language translation rows — the shape behind
+ * the admin Images screen. `text` is the translated spans row, `url` the
+ * localized-image row (its `value` is the R2 key). Either is null when that
+ * step hasn't created a row yet for the language.
+ */
+export type AdminImageRow = {
+  image: Image;
+  text: Translation | null;
+  url: Translation | null;
+};
+
+/**
+ * List stored images newest-first (by surrogate id), each paired with its
+ * `text`/`url` translation rows for one language. Cursor-paginated on the id so
+ * the admin can lazily page the whole corpus.
+ */
+export async function listImagesForAdmin(
+  db: Database,
+  opts: { language: string; limit?: number; cursor?: number },
+): Promise<{ rows: AdminImageRow[]; hasMore: boolean; nextCursor?: number }> {
+  const limit = Math.min(opts.limit ?? 30, 100);
+  // Every page is the same `id < cursor` shape; the first page uses a sentinel
+  // above every id (ids are autoincrement, so MAX_SAFE_INTEGER matches all).
+  const cursor = opts.cursor ?? Number.MAX_SAFE_INTEGER;
+  const imgRows = await db
+    .select()
+    .from(images)
+    .where(lt(images.id, cursor))
+    .orderBy(desc(images.id))
+    .limit(limit + 1)
+    .all();
+
+  const hasMore = imgRows.length > limit;
+  const page = hasMore ? imgRows.slice(0, limit) : imgRows;
+
+  // Pull this language's text + url rows for the whole page in one fan-out.
+  const ids = page.map((r) => String(r.id));
+  const trRows = ids.length
+    ? await chunked(ids, (slice) =>
+        db
+          .select()
+          .from(translations)
+          .where(
+            and(
+              eq(translations.itemType, 'image'),
+              eq(translations.language, opts.language),
+              inArray(translations.field, ['text', 'url']),
+              inArray(translations.itemId, slice),
+            ),
+          )
+          .all(),
+      )
+    : [];
+
+  const textById = new Map<number, Translation>();
+  const urlById = new Map<number, Translation>();
+  for (const tr of trRows) {
+    (tr.field === 'url' ? urlById : textById).set(Number(tr.itemId), tr);
+  }
+
+  const rows = page.map((image) => ({
+    image,
+    text: textById.get(image.id) ?? null,
+    url: urlById.get(image.id) ?? null,
+  }));
+
+  return {
+    rows,
+    hasMore,
+    nextCursor: hasMore ? page[page.length - 1].id : undefined,
+  };
 }
 
 /* ------------------------------------------------------------------ *

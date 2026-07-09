@@ -3,7 +3,7 @@
  * No authentication needed - protected by Cloudflare Access at edge.
  */
 
-import type { WorkflowRunEntry } from '@hiroba/shared';
+import type { PhaseState, WorkflowRunEntry } from '@hiroba/shared';
 
 async function adminFetch<T>(
   path: string,
@@ -364,6 +364,49 @@ export async function deleteLanguage(
   return adminFetch(`/api/languages/${encodeURIComponent(code)}`, {
     method: 'DELETE',
   });
+}
+
+// Images API (the stored image corpus + per-language localization state)
+
+export type ImageTranslation = {
+  /** Translated-spans row state; null = not started for this language. */
+  textState: PhaseState | null;
+  /** Translated text spans (index-aligned to textsJa); null until done. */
+  texts: string[] | null;
+  /** Localized-image row state; null = not started for this language. */
+  urlState: PhaseState | null;
+  /** R2 key of the localized image (`l10n/<lang>/<key>`); null until done. */
+  localizedKey: string | null;
+  /** Failure detail when a step failed. */
+  error: string | null;
+  translatedAt: string | null; // ISO-8601 UTC instant
+};
+
+export type AdminImage = {
+  id: number;
+  key: string; // imageKey <host>/<path> — the R2 key of the original
+  textsJa: string[] | null; // transcribed source spans; null = not transcribed
+  hasText: boolean; // has >=1 Japanese span (i.e. a localization candidate)
+  mirrorState: PhaseState;
+  transcribeState: PhaseState;
+  updatedAt: string; // ISO-8601 UTC instant
+  translation: ImageTranslation;
+};
+
+export async function getImages(options: {
+  lang: string;
+  limit?: number;
+  cursor?: number;
+}): Promise<{
+  language: string;
+  items: AdminImage[];
+  hasMore: boolean;
+  nextCursor?: number;
+}> {
+  const params = new URLSearchParams({ lang: options.lang });
+  if (options.limit) params.set('limit', String(options.limit));
+  if (options.cursor != null) params.set('cursor', String(options.cursor));
+  return adminFetch(`/api/images?${params}`);
 }
 
 // Events API

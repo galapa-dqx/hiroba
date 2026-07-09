@@ -3,6 +3,7 @@
 
 type RuntimeEnv = {
   DB: D1Database;
+  IMAGES_BUCKET: R2Bucket;
   WORKFLOW_MANAGER: DurableObjectNamespace;
 };
 

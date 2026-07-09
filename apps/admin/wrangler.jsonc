@@ -1,23 +1,29 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "hiroba-admin",
-	"pages_build_output_dir": "./dist",
-	"compatibility_date": "2025-01-01",
-	"compatibility_flags": ["nodejs_compat"],
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "dqx-tools--news-db",
-			"database_id": "local"
-		}
-	],
-	"durable_objects": {
-		"bindings": [
-			{
-				"name": "WORKFLOW_MANAGER",
-				"class_name": "WorkflowManager",
-				"script_name": "hiroba-workflow"
-			}
-		]
-	}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hiroba-admin",
+  "pages_build_output_dir": "./dist",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dqx-tools--news-db",
+      "database_id": "local",
+    },
+  ],
+  "r2_buckets": [
+    {
+      "binding": "IMAGES_BUCKET",
+      "bucket_name": "dqx-tools--images",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "WORKFLOW_MANAGER",
+        "class_name": "WorkflowManager",
+        "script_name": "hiroba-workflow",
+      },
+    ],
+  },
 }

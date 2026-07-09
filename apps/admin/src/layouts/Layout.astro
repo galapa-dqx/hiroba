@@ -1,6 +1,7 @@
 ---
 import Rosette from "@hiroba/ui/Rosette.astro";
 import ThemeToggle from "@hiroba/ui/ThemeToggle.astro";
+import PrimaryLanguageSelect from "../components/PrimaryLanguageSelect";
 import "@hiroba/ui/styles/palette.css";
 import "@hiroba/ui/styles/article-body.css";
 import "../styles/admin.css";
@@ -15,6 +16,7 @@ const nav = [
 	{ href: "/", label: "Dashboard" },
 	{ href: "/news", label: "News" },
 	{ href: "/topics", label: "Topics" },
+	{ href: "/images", label: "Images" },
 	{ href: "/workflows", label: "Workflows" },
 	{ href: "/events", label: "Events" },
 	{ href: "/recheck-queue", label: "Recheck Queue" },
@@ -62,8 +64,11 @@ const isActive = (href: string) =>
 				}
 			</ul>
 			<div class="sidebar__foot">
-				<span>Keeper's console</span>
-				<ThemeToggle />
+				<PrimaryLanguageSelect client:load />
+				<div class="sidebar__foot-row">
+					<span>Keeper's console</span>
+					<ThemeToggle />
+				</div>
 			</div>
 		</nav>
 		<main>

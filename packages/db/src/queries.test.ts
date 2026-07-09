@@ -15,6 +15,7 @@ import {
   getTitleTranslations,
   getTopics,
   getTranslationStates,
+  listImagesForAdmin,
   listWorkflowRuns,
   pruneWorkflowRuns,
   recordWorkflowRun,
@@ -829,6 +830,103 @@ describe('IN-list chunking (D1 variable cap)', () => {
       'url',
     );
     expect(urls.size).toBe(5);
+  });
+});
+
+describe('listImagesForAdmin', () => {
+  it('returns every image newest-first with no cursor', async () => {
+    // Seed 5 images (ids 1..5 in insertion order).
+    const ids: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      ids.push(
+        await upsertImageTranscription(ctx.db, {
+          key: `host/img-${i}.png`,
+          textsJa: i % 2 === 0 ? [`日本語${i}`] : [],
+          model: 'gpt-vision',
+        }),
+      );
+    }
+
+    const { rows, hasMore, nextCursor } = await listImagesForAdmin(ctx.db, {
+      language: 'en',
+    });
+
+    // No cursor must not silently filter everything out (regression: an absent
+    // cursor once collapsed to id 0).
+    expect(rows).toHaveLength(5);
+    expect(hasMore).toBe(false);
+    expect(nextCursor).toBeUndefined();
+    // Newest (highest id) first.
+    expect(rows.map((r) => r.image.id)).toEqual([...ids].reverse());
+  });
+
+  it('paginates via the id cursor', async () => {
+    for (let i = 0; i < 5; i++) {
+      await upsertImageTranscription(ctx.db, {
+        key: `host/page-${i}.png`,
+        textsJa: [],
+        model: 'gpt-vision',
+      });
+    }
+
+    const first = await listImagesForAdmin(ctx.db, {
+      language: 'en',
+      limit: 2,
+    });
+    expect(first.rows).toHaveLength(2);
+    expect(first.hasMore).toBe(true);
+    expect(first.nextCursor).toBe(first.rows[1].image.id);
+
+    const second = await listImagesForAdmin(ctx.db, {
+      language: 'en',
+      limit: 2,
+      cursor: first.nextCursor,
+    });
+    expect(second.rows).toHaveLength(2);
+    // Strictly older than the first page's last id — no overlap.
+    expect(second.rows[0].image.id).toBeLessThan(first.nextCursor!);
+  });
+
+  it('attaches the text + url translation rows for the requested language only', async () => {
+    const id = await upsertImageTranscription(ctx.db, {
+      key: 'host/localized.png',
+      textsJa: ['こんにちは'],
+      model: 'gpt-vision',
+    });
+    await upsertImageTranslation(ctx.db, {
+      imageId: id,
+      language: 'en',
+      field: 'text',
+      value: JSON.stringify(['Hello']),
+      model: 'gpt-4',
+    });
+    await upsertImageTranslation(ctx.db, {
+      imageId: id,
+      language: 'en',
+      field: 'url',
+      value: 'l10n/en/host/localized.png',
+      model: 'gpt-image-2',
+    });
+    // A French row that must not leak into the English view.
+    await upsertImageTranslation(ctx.db, {
+      imageId: id,
+      language: 'fr',
+      field: 'url',
+      value: 'l10n/fr/host/localized.png',
+      model: 'gpt-image-2',
+    });
+
+    const en = await listImagesForAdmin(ctx.db, { language: 'en' });
+    const row = en.rows.find((r) => r.image.id === id)!;
+    expect(row.text?.value).toBe(JSON.stringify(['Hello']));
+    expect(row.url?.value).toBe('l10n/en/host/localized.png');
+    expect(row.url?.state).toBe('done');
+
+    const fr = await listImagesForAdmin(ctx.db, { language: 'fr' });
+    const frRow = fr.rows.find((r) => r.image.id === id)!;
+    expect(frRow.url?.value).toBe('l10n/fr/host/localized.png');
+    // No French text was translated → no text row yet.
+    expect(frRow.text).toBeNull();
   });
 });
 
