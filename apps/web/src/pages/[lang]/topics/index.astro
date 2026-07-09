@@ -5,6 +5,7 @@ import BackLink from "../../../components/BackLink.astro";
 import Pagination from "../../../components/Pagination.astro";
 import PanelSection from "../../../components/PanelSection.astro";
 import { createDb, getTopics, type LocalizedTopic } from "@hiroba/db";
+import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
@@ -22,6 +23,8 @@ try {
 	items = result.items;
 	hasMore = result.hasMore;
 	nextCursor = result.nextCursor;
+	// If this language is meaningfully behind on titles, backfill the archive.
+	maybeTriggerTitleBackfill(runtime, lang, items);
 } catch {
 	// Show empty list on error
 }

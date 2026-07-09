@@ -4,6 +4,7 @@ import { formatLocalDate } from '@hiroba/ui/format-date';
 
 import {
   addLanguage,
+  backfillLanguageTitles,
   deleteLanguage,
   getLanguages,
   updateLanguage,
@@ -53,6 +54,27 @@ export default function LanguagesList() {
       await loadLanguages();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to update language');
+      console.error(err);
+    }
+  }
+
+  async function handleBackfill(entry: LanguageEntry) {
+    if (
+      !confirm(
+        `Backfill every untranslated ${entry.label} (${entry.code}) title ` +
+          `across the whole archive? Runs in the background; already-translated ` +
+          `titles are skipped, so it's safe to re-run.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await backfillLanguageTitles(entry.code);
+      alert(
+        `Started the ${entry.label} title backfill. Lists fill in as it runs.`,
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to start backfill');
       console.error(err);
     }
   }
@@ -144,6 +166,13 @@ export default function LanguagesList() {
                     className="btn-small"
                   >
                     {entry.enabled ? 'Disable' : 'Enable'}
+                  </button>{' '}
+                  <button
+                    onClick={() => handleBackfill(entry)}
+                    className="btn-small"
+                    title="Translate every untranslated title across the archive"
+                  >
+                    Backfill titles
                   </button>{' '}
                   <button
                     onClick={() => handleDelete(entry)}

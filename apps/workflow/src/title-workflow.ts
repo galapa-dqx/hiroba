@@ -14,8 +14,9 @@
  * titles left `running` back to `pending` so nothing is stuck (lists stay on JA;
  * first view or the backfill will translate them).
  *
- * The same workflow is the intended home for DQX-13's multi-language backfill —
- * it just receives a larger id set and more languages.
+ * DQX-13's whole-archive backfill is a sibling workflow (TitleBackfillWorkflow)
+ * that scans D1 for a language's untranslated titles rather than taking an id
+ * set, but reuses this file's translateTitleChunk as its per-page unit.
  */
 
 import {

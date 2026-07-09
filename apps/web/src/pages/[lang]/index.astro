@@ -5,6 +5,7 @@ import PanelSection from "../../components/PanelSection.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import { createDb, getNewsItems } from "@hiroba/db";
 import { CATEGORIES, CATEGORY_LABELS } from "@hiroba/shared";
+import { maybeTriggerTitleBackfill } from "../../lib/workflow";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
@@ -21,6 +22,14 @@ const newsByCategory = await Promise.all(
 			return { category, items: [] };
 		}
 	})
+);
+
+// If this language is meaningfully behind on titles, backfill the archive
+// (counted across the whole home page's items).
+maybeTriggerTitleBackfill(
+	runtime,
+	lang,
+	newsByCategory.flatMap(({ items }) => items),
 );
 
 ---

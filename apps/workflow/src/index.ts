@@ -35,6 +35,7 @@ import type { Env } from './types';
 export { WorkflowManager } from './workflow-manager';
 export { ArticleWorkflow } from './article-workflow';
 export { TitleWorkflow } from './title-workflow';
+export { TitleBackfillWorkflow } from './title-backfill-workflow';
 
 export default Sentry.withSentry(
   (env: Env) => ({

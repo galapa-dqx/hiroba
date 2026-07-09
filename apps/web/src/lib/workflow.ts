@@ -39,6 +39,54 @@ export function triggerWorkflow(
   }
 }
 
+/**
+ * How many untranslated titles a list view must show before it kicks off the
+ * whole-archive backfill (DQX-13). A caught-up language only lags on the newest
+ * item or two (DQX-11 discovery), which stays under this; a freshly-enabled
+ * language shows a whole page of JA fallbacks, which clears it. Small enough
+ * that a language that's genuinely behind self-heals on the next visit.
+ */
+export const BACKFILL_TITLE_THRESHOLD = 5;
+
+/**
+ * Fire-and-forget the language's title backfill via its dedicated
+ * `title-backfill:<lang>` DO instance (which dedupes concurrent runs). Mirrors
+ * triggerWorkflow: failures are logged, never thrown — the list still renders
+ * its JA fallbacks.
+ */
+export function triggerTitleBackfill(runtime: Runtime, language: string): void {
+  try {
+    const doId = runtime.env.WORKFLOW_MANAGER.idFromName(
+      `title-backfill:${language}`,
+    );
+    const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
+    stub.fetch('http://internal/backfill-titles', {
+      method: 'POST',
+      body: JSON.stringify({ language }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (error) {
+    console.error(`Title backfill trigger failed for ${language}:`, error);
+  }
+}
+
+/**
+ * Arm the backfill from a rendered list when enough of its titles are still
+ * untranslated. Counts the JA fallbacks (`titleEn === null`) in the items the
+ * page already fetched — no extra query — and triggers only past the threshold,
+ * so a caught-up language never fires it.
+ */
+export function maybeTriggerTitleBackfill(
+  runtime: Runtime,
+  language: string,
+  items: ReadonlyArray<{ titleEn: string | null }>,
+): void {
+  const missing = items.reduce((n, i) => (i.titleEn === null ? n + 1 : n), 0);
+  if (missing >= BACKFILL_TITLE_THRESHOLD) {
+    triggerTitleBackfill(runtime, language);
+  }
+}
+
 /** Proxy the DO's SSE progress stream for an article (the api sse routes). */
 export async function proxyWorkflowSse(
   runtime: Runtime,

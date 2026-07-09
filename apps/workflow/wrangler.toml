@@ -55,12 +55,21 @@ class_name = "ArticleWorkflow"
 
 # Cloudflare Workflow for eager title translation at discovery (DQX-11): reads
 # titles by id and translates them in chunked, retried steps per language.
-# Enqueued by the hourly cron; the same workflow is the home for the DQX-13
-# multi-language backfill.
+# Enqueued by the hourly cron.
 [[workflows]]
 name = "title-workflow"
 binding = "TITLE_WORKFLOW"
 class_name = "TitleWorkflow"
+
+# Cloudflare Workflow for the whole-archive title backfill of one language
+# (DQX-13): pages D1 for untranslated titles and translates them in chunked,
+# retried steps. Fired lazily by the first list view in an under-translated
+# language (via the WorkflowManager DO, which dedupes per language) or from the
+# admin to pre-warm a language.
+[[workflows]]
+name = "title-backfill-workflow"
+binding = "TITLE_BACKFILL_WORKFLOW"
+class_name = "TitleBackfillWorkflow"
 
 # Scheduled triggers:
 # - Hourly news refresh (first page of each category)

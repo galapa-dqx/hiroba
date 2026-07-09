@@ -15,11 +15,13 @@ import {
   getTitleTranslations,
   getTopics,
   getTranslationStates,
+  getUntranslatedTitles,
   listImagesForAdmin,
   listWorkflowRuns,
   pruneWorkflowRuns,
   recordWorkflowRun,
   resetRunningTitles,
+  resetRunningTitlesForLanguage,
   saveChangedBody,
   setBodyChecked,
   setImageTranscribeState,
@@ -356,6 +358,161 @@ describe('resetRunningTitles', () => {
       'content',
     ]);
     expect(states.get('content')).toBe('running');
+  });
+});
+
+describe('getUntranslatedTitles (DQX-13 backfill scan)', () => {
+  it('returns items lacking a title value, excluding done, newest-first', async () => {
+    // publishedAt: item3 newest (BASE+3h) → item1 oldest (BASE+1h).
+    await upsertListItems(ctx.db, [
+      listItem(1, 1),
+      listItem(2, 2),
+      listItem(3, 3),
+    ]);
+    // Item 2 is fully translated (has a value) → excluded.
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(2),
+      language: 'en',
+      field: 'title',
+      value: 'Done',
+      model: 'm',
+    });
+    // Item 3 has an in-flight row with no value yet → still needs backfill.
+    await setTranslationStates(ctx.db, {
+      itemType: 'news',
+      itemId: hex(3),
+      language: 'en',
+      fields: ['title'],
+      state: 'running',
+    });
+
+    const rows = await getUntranslatedTitles(ctx.db, 'news', 'en');
+    expect(rows).toEqual([
+      { id: hex(3), titleJa: '記事3' }, // newest untranslated
+      { id: hex(1), titleJa: '記事1' },
+    ]);
+  });
+
+  it('scopes to the requested language', async () => {
+    await upsertListItems(ctx.db, [listItem(1, 1)]);
+    // Translated in English, but French is what we scan for.
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      field: 'title',
+      value: 'Done',
+      model: 'm',
+    });
+
+    expect(await getUntranslatedTitles(ctx.db, 'news', 'en')).toEqual([]);
+    expect(await getUntranslatedTitles(ctx.db, 'news', 'fr')).toEqual([
+      { id: hex(1), titleJa: '記事1' },
+    ]);
+  });
+
+  it('honors the limit and advances as titles are translated (no cursor)', async () => {
+    await upsertListItems(ctx.db, [
+      listItem(1, 1),
+      listItem(2, 2),
+      listItem(3, 3),
+    ]);
+
+    // Newest two first.
+    const page1 = await getUntranslatedTitles(ctx.db, 'news', 'en', 2);
+    expect(page1.map((r) => r.id)).toEqual([hex(3), hex(2)]);
+
+    // Translating the newest drops it from the set; the next scan returns the
+    // next-newest page — no cursor threading needed.
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(3),
+      language: 'en',
+      field: 'title',
+      value: 'Done',
+      model: 'm',
+    });
+    const page2 = await getUntranslatedTitles(ctx.db, 'news', 'en', 2);
+    expect(page2.map((r) => r.id)).toEqual([hex(2), hex(1)]);
+  });
+
+  it('reads from the topics table for itemType=topic', async () => {
+    await upsertTopic(ctx.db, {
+      id: hex(1),
+      titleJa: 'トピック1',
+      publishedAt: BASE,
+    });
+    expect(await getUntranslatedTitles(ctx.db, 'topic', 'en')).toEqual([
+      { id: hex(1), titleJa: 'トピック1' },
+    ]);
+  });
+});
+
+describe('resetRunningTitlesForLanguage (DQX-13 backfill cleanup)', () => {
+  it('resets running titles for the language across item types, sparing others', async () => {
+    // News title running in en → should reset.
+    await setTranslationStates(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      fields: ['title'],
+      state: 'running',
+    });
+    // Topic title running in en → should reset (both item types swept).
+    await setTranslationStates(ctx.db, {
+      itemType: 'topic',
+      itemId: hex(2),
+      language: 'en',
+      fields: ['title'],
+      state: 'running',
+    });
+    // Another language, running → untouched.
+    await setTranslationStates(ctx.db, {
+      itemType: 'news',
+      itemId: hex(3),
+      language: 'fr',
+      fields: ['title'],
+      state: 'running',
+    });
+    // Done in en → keeps its value.
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'news',
+      itemId: hex(4),
+      language: 'en',
+      field: 'title',
+      value: 'Done',
+      model: 'm',
+    });
+    // Content field in en, running → not a title, untouched.
+    await setTranslationStates(ctx.db, {
+      itemType: 'news',
+      itemId: hex(1),
+      language: 'en',
+      fields: ['content'],
+      state: 'running',
+    });
+
+    await resetRunningTitlesForLanguage(ctx.db, 'en');
+
+    const news = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
+      'title',
+      'content',
+    ]);
+    expect(news.get('title')).toBe('pending');
+    expect(news.get('content')).toBe('running'); // not a title
+    const topic = await getTranslationStates(ctx.db, 'topic', hex(2), 'en', [
+      'title',
+    ]);
+    expect(topic.get('title')).toBe('pending');
+    const fr = await getTranslationStates(ctx.db, 'news', hex(3), 'fr', [
+      'title',
+    ]);
+    expect(fr.get('title')).toBe('running'); // other language untouched
+    const done = await getTranslationStates(ctx.db, 'news', hex(4), 'en', [
+      'title',
+    ]);
+    expect(done.get('title')).toBe('done'); // not clobbered
   });
 });
 
