@@ -7,11 +7,11 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "dqx-tools--news-db",
+      "database_name": "galapa--news-db",
       "database_id": "local",
     },
   ],
-  // Images are served straight from the `dqx-tools--images` R2 bucket's public
+  // Images are served straight from the `galapa--images` R2 bucket's public
   // custom domain (Cloudflare edge-cached), so the web worker needs no R2
   // binding — just the base host. See apps/web/src/lib/article-images.ts.
   "vars": {

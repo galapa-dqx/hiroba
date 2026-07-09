@@ -1,4 +1,4 @@
-# Hiroba — DQX News & Topics Translation
+# Hiroba — Galapa News & Topics Translation
 
 A Cloudflare-native monorepo that scrapes news and rich-text "Topics" articles from
 [hiroba.dqx.jp](https://hiroba.dqx.jp) (the Dragon Quest X community portal), translates them
@@ -21,8 +21,8 @@ graph TD
             TW[TopicsWorkflow<br/>5 steps]
             DO[WorkflowManager DO<br/>trigger + SSE progress]
         end
-        D1[(D1: dqx-tools--news-db)]
-        R2[(R2: dqx-tools--images)]
+        D1[(D1: galapa--news-db)]
+        R2[(R2: galapa--images)]
         WEB[apps/web<br/>Astro SSR, public site]
         ADMIN[apps/admin<br/>Astro + React dashboard]
     end
@@ -277,7 +277,7 @@ pnpm deploy                   # turbo deploy — wrangler deploy per app
 ## Production topology
 
 - Worker `hiroba-workflow` — workflows, Durable Object (`WORKFLOW_MANAGER`), crons
-- D1 `dqx-tools--news-db` — bound as `DB` in all three apps
-- R2 `dqx-tools--images` — bound as `IMAGES` in workflow and web
+- D1 `galapa--news-db` — bound as `DB` in all three apps
+- R2 `galapa--images` — bound as `IMAGES_BUCKET` in workflow and admin; the web app serves images from the bucket's public custom domain (`IMAGE_BASE`)
 - Secrets: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `SENTRY_DSN` (workflow only)
 - Admin protected by Cloudflare Access at the edge (no app-level auth)

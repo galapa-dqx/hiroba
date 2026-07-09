@@ -19,15 +19,15 @@ binding = "CF_VERSION_METADATA"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "dqx-tools--news-db"
+database_name = "galapa--news-db"
 database_id = "local"
 migrations_dir = "migrations"
 
 # R2 bucket mirroring topic images (the pipeline's mirror-images step writes here;
-# the web worker's /img route reads from it).
+# the web app serves them straight from the bucket's public custom domain).
 [[r2_buckets]]
 binding = "IMAGES_BUCKET"
-bucket_name = "dqx-tools--images"
+bucket_name = "galapa--images"
 
 # Cloudflare Images binding — used by localize-images to re-encode CDN formats
 # gpt-image-2 can't ingest (e.g. GIF) into a still PNG before editing.

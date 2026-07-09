@@ -7,14 +7,14 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "dqx-tools--news-db",
+      "database_name": "galapa--news-db",
       "database_id": "local",
     },
   ],
   "r2_buckets": [
     {
       "binding": "IMAGES_BUCKET",
-      "bucket_name": "dqx-tools--images",
+      "bucket_name": "galapa--images",
     },
   ],
   "durable_objects": {

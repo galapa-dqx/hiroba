@@ -64,7 +64,7 @@ const alternateLinks =
 		<meta name="color-scheme" content="light dark" />
 		<link rel="canonical" href={canonicalUrl} />
 		{alternateLinks.map((a) => <link rel="alternate" hreflang={a.hreflang} href={a.href} />)}
-		<title>{title} | DQX News</title>
+		<title>{title} | Galapa News</title>
 		{/* Apply the saved theme before first paint to avoid a flash. */}
 		<script is:inline>
 			(() => {
@@ -78,9 +78,9 @@ const alternateLinks =
 	<body>
 		<header class="site-header">
 			<div class="site-header__inner">
-				<a href={base} class="brand" aria-label="DQX News — home">
+				<a href={base} class="brand" aria-label="Galapa News — home">
 					<Rosette class="brand__mark" />
-					<span class="brand__word">DQX&nbsp;<em>News</em></span>
+					<span class="brand__word">Galapa&nbsp;<em>News</em></span>
 				</a>
 				<nav class="nav" aria-label="Categories">
 					{
