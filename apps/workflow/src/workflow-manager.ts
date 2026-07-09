@@ -135,7 +135,7 @@ export class WorkflowManager extends DurableObject<Env> {
 
         // Item type: from the active workflow when there is one, else from the
         // caller (the proxy routes know which pipeline they front).
-        const active = this.activeWorkflows.get(itemId);
+        let active = this.activeWorkflows.get(itemId);
         const itemType: ItemType =
           active?.itemType ??
           (url.searchParams.get('itemType') === 'topic' ? 'topic' : 'news');
@@ -173,11 +173,12 @@ export class WorkflowManager extends DurableObject<Env> {
           }
 
           if (!active) {
-            // Unsettled but nothing running here (e.g. the DO restarted, or a
-            // workflow died without settling its states) — nothing to wait on.
-            send({ type: 'error', error: 'No active workflow' });
-            controller.close();
-            return;
+            // Unsettled and nothing running here: the item was never processed
+            // (the page's fire-and-forget trigger can be dropped), or the DO
+            // restarted, or the client reached the stream first. Start the
+            // pipeline ourselves rather than erroring — the stream is
+            // self-healing, so viewing an unprocessed article kicks it off.
+            active = await this.ensureArticleWorkflow(itemId, itemType);
           }
 
           const workflow = this.env.ARTICLE_WORKFLOW;
@@ -244,25 +245,38 @@ export class WorkflowManager extends DurableObject<Env> {
       return Response.json({ error: 'itemId required' }, { status: 400 });
     }
 
+    const active = await this.ensureArticleWorkflow(itemId, itemType);
+    return Response.json({ status: 'started', instanceId: active.instanceId });
+  }
+
+  /**
+   * Ensure an ArticleWorkflow is running for this item and return the tracked
+   * handle. Dedupes: an in-flight run (queued/running) is reused, a
+   * finished/forgotten one starts fresh. Records the run in the registry
+   * (best-effort — a registry miss must never fail the trigger). Shared by the
+   * `/trigger` endpoint and the self-healing SSE stream.
+   */
+  private async ensureArticleWorkflow(
+    itemId: string,
+    itemType: ItemType,
+  ): Promise<Active> {
     const workflow = this.env.ARTICLE_WORKFLOW;
 
-    // Skip if already processing.
     const existing = this.activeWorkflows.get(itemId);
     if (existing) {
-      const instance = await workflow.get(existing.instanceId);
-      const status = await instance.status();
-      if (status.status === 'running' || status.status === 'queued') {
-        return Response.json({
-          status: 'already_processing',
-          instanceId: existing.instanceId,
-        });
+      try {
+        const status = await (await workflow.get(existing.instanceId)).status();
+        if (status.status === 'running' || status.status === 'queued') {
+          return existing;
+        }
+      } catch {
+        // The engine no longer knows the instance — fall through, start fresh.
       }
     }
 
     const instance = await workflow.create({ params: { itemId, itemType } });
-    this.activeWorkflows.set(itemId, { instanceId: instance.id, itemType });
-    // Register the run so the admin tracker can enumerate it (best-effort —
-    // a registry miss must never fail the trigger).
+    const active: Active = { instanceId: instance.id, itemType };
+    this.activeWorkflows.set(itemId, active);
     try {
       await recordWorkflowRun(createDb(this.env.DB), {
         instanceId: instance.id,
@@ -272,7 +286,7 @@ export class WorkflowManager extends DurableObject<Env> {
     } catch (error) {
       console.error('Failed to record workflow run:', error);
     }
-    return Response.json({ status: 'started', instanceId: instance.id });
+    return active;
   }
 
   /**
