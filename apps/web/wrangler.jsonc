@@ -2,13 +2,13 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hiroba-web",
   "pages_build_output_dir": "./dist",
-  "compatibility_date": "2025-01-01",
+  "compatibility_date": "2026-07-08",
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "galapa--news-db",
-      "database_id": "local",
+      "database_id": "16dc90f5-02ec-4c06-99b9-179b64b4f200",
     },
   ],
   // Images are served straight from the `galapa--images` R2 bucket's public

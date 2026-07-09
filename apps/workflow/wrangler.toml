@@ -20,7 +20,7 @@ binding = "CF_VERSION_METADATA"
 [[d1_databases]]
 binding = "DB"
 database_name = "galapa--news-db"
-database_id = "local"
+database_id = "16dc90f5-02ec-4c06-99b9-179b64b4f200"
 migrations_dir = "migrations"
 
 # R2 bucket mirroring topic images (the pipeline's mirror-images step writes here;
@@ -42,7 +42,9 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["WorkflowManager"]
+# SQLite-backed DO namespace — required on the Workers free plan, and the
+# recommended default for new Durable Objects regardless of plan.
+new_sqlite_classes = ["WorkflowManager"]
 
 # Cloudflare Workflow for the unified article pipeline (news + topics):
 # fetch-body → extract-events → mirror-images → transcribe-images → translate →
