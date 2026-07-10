@@ -9,7 +9,7 @@
  * `.env` in local dev); unset or unrecognized falls back to "info".
  */
 
-import type { WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowStep, WorkflowStepConfig } from 'cloudflare:workers';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 
@@ -58,6 +58,22 @@ export function createLogger(env: { LOG_LEVEL?: string }, scope = ''): Logger {
 }
 
 /**
+ * Bounded step defaults. The platform default is 5 retries with a 10-minute
+ * per-attempt timeout and exponential backoff — on a persistently-failing step
+ * (e.g. an LLM call that keeps 524-ing) that is ~40 minutes of churn, pinning
+ * the whole instance in `running`, before the step gives up. Cap retries to 2
+ * so a wedged step settles in a few attempts. The 10-minute per-attempt timeout
+ * is kept as a backstop, not tightened: the image steps (transcribe/localize
+ * over ~120 images) legitimately run for minutes, and each individual LLM/image
+ * call is already bounded by its client-level timeout (see createGemini /
+ * editImage).
+ */
+const DEFAULT_STEP_CONFIG: WorkflowStepConfig = {
+  retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' },
+  timeout: '10 minutes',
+};
+
+/**
  * Run a workflow step with lifecycle logging: a debug line when the body starts
  * (re-fires on retry, so retries are visible) and an info line with the returned
  * summary when it resolves — or an error line if it throws.
@@ -65,14 +81,17 @@ export function createLogger(env: { LOG_LEVEL?: string }, scope = ''): Logger {
  * The logging lives *inside* the step body on purpose. A Workflow's `run()` is
  * replayed from the top on every resume, so anything logged between steps would
  * fire once per resume; a step body only runs on real execution.
+ *
+ * Pass `config` to override the bounded retry/timeout defaults for a step.
  */
 export async function runStep<T extends Rpc.Serializable<T>>(
   step: WorkflowStep,
   log: Logger,
   name: string,
   fn: () => Promise<T>,
+  config: WorkflowStepConfig = DEFAULT_STEP_CONFIG,
 ): Promise<T> {
-  return step.do(name, async () => {
+  return step.do(name, config, async () => {
     log.debug(`→ step "${name}" started`);
     const startedAt = Date.now();
     try {

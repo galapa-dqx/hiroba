@@ -128,7 +128,9 @@ export async function editImage(
   apiKey: string,
   input: { imageBytes: Uint8Array; mimeType: string; prompt: string },
 ): Promise<Uint8Array | null> {
-  const client = new OpenAI({ apiKey });
+  // Bound each edit: gpt-image-2 is slow but shouldn't hold a localize
+  // concurrency slot for the SDK's 10-minute default when a request stalls.
+  const client = new OpenAI({ apiKey, timeout: 180_000, maxRetries: 1 });
   try {
     const file = await toFile(input.imageBytes, 'input', {
       type: input.mimeType,
