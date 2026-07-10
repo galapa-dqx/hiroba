@@ -132,6 +132,21 @@ export async function triggerWorkflow(
   return adminFetch(`/api/news/${id}/workflow`, { method: 'POST' });
 }
 
+/** Result of a "translate the most recent N" fan-out. */
+export type TriggerRecentResult = {
+  success: boolean;
+  triggered: number;
+  ids: string[];
+};
+
+export async function triggerRecentNewsWorkflows(
+  count: number,
+): Promise<TriggerRecentResult> {
+  return adminFetch(`/api/news/trigger-recent?count=${count}`, {
+    method: 'POST',
+  });
+}
+
 export async function deleteTranslation(
   id: string,
   lang: string,
@@ -187,6 +202,14 @@ export async function triggerTopicWorkflow(
   id: string,
 ): Promise<{ success: boolean }> {
   return adminFetch(`/api/topics/${id}/workflow`, { method: 'POST' });
+}
+
+export async function triggerRecentTopicWorkflows(
+  count: number,
+): Promise<TriggerRecentResult> {
+  return adminFetch(`/api/topics/trigger-recent?count=${count}`, {
+    method: 'POST',
+  });
 }
 
 export async function invalidateTopicBody(

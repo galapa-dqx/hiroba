@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import CategoryDot from '@hiroba/ui/CategoryDot';
 import { formatLocalDate } from '@hiroba/ui/format-date';
@@ -9,12 +9,16 @@ import {
   getStats,
   invalidateBody,
   startArchiveScrape,
+  triggerRecentNewsWorkflows,
   triggerScrape,
   triggerWorkflow,
   type ArticleTypeStats,
   type NewsItem,
 } from '../lib/api';
 import { subscribeJob } from '../lib/job-stream';
+
+/** Matches the server-side cap in lib/trigger-recent.ts. */
+const MAX_RECENT_TRIGGER = 50;
 
 export default function NewsList() {
   const [items, setItems] = useState<NewsItem[]>([]);
@@ -27,6 +31,9 @@ export default function NewsList() {
   const [workflowStatus, setWorkflowStatus] = useState<Map<string, string>>(
     new Map(),
   );
+  const [recentCount, setRecentCount] = useState(10);
+  const [triggering, setTriggering] = useState(false);
+  const [triggerMsg, setTriggerMsg] = useState<string | null>(null);
 
   useEffect(() => {
     loadStats();
@@ -133,6 +140,31 @@ export default function NewsList() {
     }
   }
 
+  async function handleTriggerRecent(e: FormEvent) {
+    e.preventDefault();
+    const n = Math.min(
+      Math.max(Math.floor(recentCount), 1),
+      MAX_RECENT_TRIGGER,
+    );
+    if (
+      !confirm(
+        `Trigger the translation workflow on the ${n} most recent news items? Oversized documents translate in the background and can take a while.`,
+      )
+    )
+      return;
+
+    setTriggering(true);
+    setTriggerMsg(null);
+    try {
+      const res = await triggerRecentNewsWorkflows(n);
+      setTriggerMsg(`Triggered ${res.triggered} workflow(s).`);
+    } catch (err) {
+      setTriggerMsg('Failed to trigger. Check console.');
+      console.error(err);
+    }
+    setTriggering(false);
+  }
+
   async function handleTriggerWorkflow(id: string) {
     try {
       await triggerWorkflow(id);
@@ -225,6 +257,29 @@ export default function NewsList() {
         {scrapeProgress && (
           <span className="workflow-status">{scrapeProgress}</span>
         )}
+      </div>
+
+      <div className="actions">
+        <h3>Translate recent</h3>
+        <form className="inline-form" onSubmit={handleTriggerRecent}>
+          <label>
+            Count:
+            <input
+              type="number"
+              min={1}
+              max={MAX_RECENT_TRIGGER}
+              value={recentCount}
+              onChange={(e) => setRecentCount(Number(e.target.value))}
+              disabled={triggering}
+            />
+          </label>
+          <button type="submit" disabled={triggering}>
+            {triggering
+              ? 'Triggering…'
+              : `Run workflow on ${recentCount} most recent`}
+          </button>
+        </form>
+        {triggerMsg && <span className="workflow-status">{triggerMsg}</span>}
       </div>
 
       {loading ? (

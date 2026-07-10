@@ -511,6 +511,21 @@ main {
   margin-bottom: 0.6rem;
 }
 
+/* "Translate recent" form: keep its label + input + button on the flex row */
+.inline-form {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.inline-form label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.inline-form input[type='number'] {
+  width: 4.5rem;
+}
+
 /* per-type summary blocks on the dashboard (heading + its own stats grid) */
 .type-summary {
   margin-bottom: 1.6rem;
