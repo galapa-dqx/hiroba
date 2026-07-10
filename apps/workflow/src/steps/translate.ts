@@ -117,31 +117,38 @@ async function upsertTranslation(
 }
 
 /**
- * Translate the article document (title + body) into one language via the RTML
- * whole-doc path, storing title/content rows and per-image span rows.
- * Returns the number of fields written (0 on a failed round-trip).
+ * The exact request we send the model to translate one language's body, plus
+ * the image bookkeeping needed to route the translated spans back to per-image
+ * rows. Built by {@link buildBodyContext} (reads only, no writes) so both the
+ * synchronous path and the async batch retrieve can reconstruct it
+ * deterministically from D1 + the block tree.
  */
-async function translateBody(
+export type BodyContext = {
+  /** System prompt incl. the matched glossary section. */
+  systemContent: string;
+  /** User content: the RTML serialization with localizable image spans injected. */
+  markup: string;
+  /** Image nodes in document order (references into `blocks`). */
+  blockImages: ReturnType<typeof collectImages>;
+  /** imageKey → image row, for the images the doc references. */
+  byKey: Map<string, Awaited<ReturnType<typeof getImagesByKeys>>[number]>;
+};
+
+/**
+ * Build the request context for one language's body translation: hydrate
+ * localizable image spans into the block tree (only for text-bearing images not
+ * already translated to the target), serialize to markup, and attach the
+ * matching glossary. Mutates `blocks`' image `.text` in place — the markup reads
+ * it — so callers pass a tree they own and use the returned markup immediately.
+ * No-op image work for news (no images).
+ */
+export async function buildBodyContext(
   db: Database,
-  client: ReturnType<typeof createGemini>,
-  itemType: ItemType,
-  itemId: string,
   item: { titleJa: string },
   blocks: Block[],
   target: TargetLanguage,
-): Promise<number> {
+): Promise<BodyContext> {
   const language = target.code;
-  await setTranslationStates(db, {
-    itemType,
-    itemId,
-    language,
-    fields: ['title', 'content'],
-    state: 'running',
-  });
-
-  // Hydrate image text from the images table, injecting spans only for
-  // localizable images not already translated to the target language. No-op
-  // for news (no images).
   const blockImages = collectImages(blocks);
   const keys = [
     ...new Set(
@@ -175,23 +182,37 @@ async function translateBody(
     `${item.titleJa}\n${markup}`,
     language,
   );
+  return {
+    systemContent: bodySystemPrompt(target.label) + glossarySection(glossary),
+    markup,
+    blockImages,
+    byKey,
+  };
+}
 
-  const response = await client.chat.completions.create({
-    model: GEMINI_MODEL,
-    temperature: 0.3,
-    messages: [
-      {
-        role: 'system',
-        content: bodySystemPrompt(target.label) + glossarySection(glossary),
-      },
-      { role: 'user', content: markup },
-    ],
-  });
+/**
+ * Apply the model's translated markup for one language: parse, restore drifted
+ * non-linguistic attributes, pull the translated image spans into per-image
+ * rows, and upsert the title/content rows. Returns the number of fields written
+ * (0 on a bad round-trip, having marked the rows failed). Shared by the sync and
+ * batch paths — `blocks`/`ctx` must be the ones the request was built from.
+ */
+export async function applyBodyTranslation(
+  db: Database,
+  itemType: ItemType,
+  itemId: string,
+  item: { titleJa: string },
+  blocks: Block[],
+  target: TargetLanguage,
+  ctx: BodyContext,
+  rawText: string,
+): Promise<number> {
+  const language = target.code;
+  const { blockImages, byKey } = ctx;
 
-  const raw = response.choices[0]?.message?.content ?? '';
   let result: { title: string; blocks: Block[] } | null = null;
   try {
-    result = parseTranslation(stripCodeFence(raw));
+    result = parseTranslation(stripCodeFence(rawText));
   } catch (err) {
     console.error(
       `${itemType} ${itemId}: failed to parse translated markup (${language})`,
@@ -284,6 +305,50 @@ async function translateBody(
 }
 
 /**
+ * Translate the article document (title + body) into one language via the RTML
+ * whole-doc path, storing title/content rows and per-image span rows.
+ * Returns the number of fields written (0 on a failed round-trip).
+ */
+async function translateBody(
+  db: Database,
+  client: ReturnType<typeof createGemini>,
+  itemType: ItemType,
+  itemId: string,
+  item: { titleJa: string },
+  blocks: Block[],
+  target: TargetLanguage,
+): Promise<number> {
+  await setTranslationStates(db, {
+    itemType,
+    itemId,
+    language: target.code,
+    fields: ['title', 'content'],
+    state: 'running',
+  });
+
+  const ctx = await buildBodyContext(db, item, blocks, target);
+  const response = await client.chat.completions.create({
+    model: GEMINI_MODEL,
+    temperature: 0.3,
+    messages: [
+      { role: 'system', content: ctx.systemContent },
+      { role: 'user', content: ctx.markup },
+    ],
+  });
+  const raw = response.choices[0]?.message?.content ?? '';
+  return applyBodyTranslation(
+    db,
+    itemType,
+    itemId,
+    item,
+    blocks,
+    target,
+    ctx,
+    raw,
+  );
+}
+
+/**
  * Translate and save translations for an article (news item or topic) and its
  * events, in every target language.
  *
@@ -332,6 +397,42 @@ export async function translateArticle(
   }
 
   // 2. Translate event titles (short strings; one call each keeps them aligned).
+  fieldsTranslated += await translateEventTitles(
+    db,
+    client,
+    eventIds,
+    targetLanguages,
+  );
+
+  return { success: bodyOk, fieldsTranslated };
+}
+
+/**
+ * Serialized size (chars) of the whole-doc translation request for `blocks` —
+ * the signal the workflow uses to route oversized documents to the async batch
+ * path instead of a single synchronous request that would time out. Measured on
+ * the un-hydrated tree (image spans add a little more), which is a fine proxy.
+ */
+export function bodyMarkupSize(
+  item: { titleJa: string },
+  blocks: Block[],
+): number {
+  if (blocks.length === 0) return 0;
+  return serializeForTranslation({ title: item.titleJa, blocks }).length;
+}
+
+/**
+ * Translate the given events' titles into every target language (short strings,
+ * one call each so they stay aligned). Returns the number of title rows written.
+ * Shared by the sync path and the batch retrieve (event titles are small enough
+ * to always translate synchronously).
+ */
+export async function translateEventTitles(
+  db: Database,
+  client: ReturnType<typeof createGemini>,
+  eventIds: string[],
+  targetLanguages: TargetLanguage[],
+): Promise<number> {
   const eventRows =
     eventIds.length > 0
       ? await db
@@ -341,6 +442,7 @@ export async function translateArticle(
           .all()
       : [];
 
+  let written = 0;
   for (const target of targetLanguages) {
     for (const event of eventRows) {
       const glossary = await findMatchingGlossaryEntries(
@@ -376,9 +478,8 @@ export async function translateArticle(
         field: 'title',
         value: translated,
       });
-      fieldsTranslated++;
+      written++;
     }
   }
-
-  return { success: bodyOk, fieldsTranslated };
+  return written;
 }
