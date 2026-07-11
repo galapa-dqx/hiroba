@@ -25,65 +25,70 @@ const t = useTranslations(Astro.locals.lang ?? "en");
       aria-roledescription="carousel"
       aria-label={t("banner.aria")}
     >
-      <div class="banners__viewport">
-        <ul class="banners__track" role="list">
-          {banners.map((b, i) => (
-            <li
-              class="banners__slide"
-              role="group"
-              aria-roledescription="slide"
-              aria-label={t("banner.slide", { n: i + 1, total: banners.length })}
-            >
-              <a
-                class="banners__link"
-                href={b.href}
-                {...(b.external
-                  ? { target: "_blank", rel: "noopener noreferrer" }
-                  : {})}
+      <div class="banners__frame">
+        <div class="banners__viewport">
+          <ul class="banners__track" role="list">
+            {banners.map((b, i) => (
+              <li
+                class="banners__slide"
+                role="group"
+                aria-roledescription="slide"
+                aria-label={t("banner.slide", { n: i + 1, total: banners.length })}
               >
-                <img
-                  src={b.imageUrl}
-                  alt={b.alt}
-                  width="632"
-                  height="157"
-                  loading={i === 0 ? "eager" : "lazy"}
-                  decoding="async"
-                />
-              </a>
-            </li>
-          ))}
-        </ul>
+                <a
+                  class="banners__link"
+                  href={b.href}
+                  {...(b.external
+                    ? { target: "_blank", rel: "noopener noreferrer" }
+                    : {})}
+                >
+                  <img
+                    src={b.imageUrl}
+                    alt={b.alt}
+                    width="632"
+                    height="157"
+                    loading={i === 0 ? "eager" : "lazy"}
+                    decoding="async"
+                  />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {multiple && (
+          <>
+            <button
+              class="banners__nav banners__nav--prev"
+              type="button"
+              aria-label={t("banner.prev")}
+            >
+              ‹
+            </button>
+            <button
+              class="banners__nav banners__nav--next"
+              type="button"
+              aria-label={t("banner.next")}
+            >
+              ›
+            </button>
+          </>
+        )}
       </div>
 
       {multiple && (
-        <>
-          <button
-            class="banners__nav banners__nav--prev"
-            type="button"
-            aria-label={t("banner.prev")}
-          >
-            ‹
-          </button>
-          <button
-            class="banners__nav banners__nav--next"
-            type="button"
-            aria-label={t("banner.next")}
-          >
-            ›
-          </button>
-          <div class="banners__dots" role="tablist" aria-label={t("banner.choose")}>
-            {banners.map((_, i) => (
-              <button
-                class="banners__dot"
-                type="button"
-                role="tab"
-                aria-label={t("banner.dot", { n: i + 1 })}
-                aria-selected={i === 0 ? "true" : "false"}
-                data-dot={i}
-              />
-            ))}
-          </div>
-        </>
+        <div class="banners__dots" role="tablist" aria-label={t("banner.choose")}>
+          {banners.map((_, i) => (
+            <button
+              class="banners__dot"
+              type="button"
+              role="tab"
+              aria-label={t("banner.dot", { n: i + 1 })}
+              aria-selected={i === 0 ? "true" : "false"}
+              data-dot={i}
+            />
+          ))}
+        </div>
       )}
     </section>
   )
@@ -91,16 +96,54 @@ const t = useTranslations(Astro.locals.lang ?? "en");
 
 <style>
   .banners {
-    position: relative;
     max-width: var(--page-max, 860px);
     margin: 0 auto 1.8rem;
   }
+
+  /* Gilded matte frame around the banner — the quest-scroll treatment the rest
+     of the site uses (gold edge + inset gilt line + corner brackets). */
+  .banners__frame {
+    position: relative;
+    padding: 7px;
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklch, var(--surface-panel), var(--gold) 5%),
+      color-mix(in oklch, var(--surface-sunken), var(--gold) 9%)
+    );
+    border: 1px solid var(--gold-edge);
+    box-shadow:
+      var(--shadow-md),
+      var(--inset-top),
+      inset 0 0 0 3px color-mix(in oklch, var(--gold) 42%, var(--surface-panel));
+  }
+  /* Corner brackets, echoing .framed. */
+  .banners__frame::before,
+  .banners__frame::after {
+    content: "";
+    position: absolute;
+    width: 11px;
+    height: 11px;
+    border: 2px solid var(--gold);
+    pointer-events: none;
+    z-index: 2;
+  }
+  .banners__frame::before {
+    top: 4px;
+    left: 4px;
+    border-right: none;
+    border-bottom: none;
+  }
+  .banners__frame::after {
+    bottom: 4px;
+    right: 4px;
+    border-left: none;
+    border-top: none;
+  }
+
   .banners__viewport {
     overflow: hidden;
-    border: 1px solid var(--border-strong, var(--border));
-    border-radius: var(--radius, 0);
-    box-shadow: var(--shadow-md);
-    background: var(--surface-panel-2, var(--surface-panel));
+    border: 1px solid color-mix(in oklch, var(--gold-edge) 45%, var(--border));
+    box-shadow: inset 0 1px 3px oklch(0% 0 0 / 0.18);
   }
   .banners__track {
     display: flex;
@@ -124,61 +167,70 @@ const t = useTranslations(Astro.locals.lang ?? "en");
     object-fit: cover;
   }
 
+  /* Sharp gilt nav buttons, matching the settings control. */
   .banners__nav {
     position: absolute;
     top: 50%;
     transform: translateY(-50%);
-    width: 2.2rem;
-    height: 2.2rem;
+    width: 2rem;
+    height: 2rem;
     display: grid;
     place-items: center;
-    font-size: 1.4rem;
+    font-size: 1.35rem;
     line-height: 1;
-    color: var(--gold-ink, var(--ink));
-    background: color-mix(in oklab, var(--surface-panel) 82%, transparent);
-    border: 1px solid var(--gold-edge, var(--border-strong));
-    border-radius: 999px;
+    color: var(--gold-ink);
+    background: linear-gradient(180deg, var(--surface-panel), var(--surface-panel-2));
+    border: 1px solid var(--gold-edge);
     cursor: pointer;
-    box-shadow: var(--shadow-sm);
+    box-shadow: var(--inset-top), var(--shadow-sm);
     transition:
       background 0.15s ease,
-      color 0.15s ease;
+      color 0.15s ease,
+      border-color 0.15s ease;
   }
   .banners__nav:hover {
-    background: var(--gold, var(--surface-panel));
-    color: var(--band-ink, #fff);
+    background: linear-gradient(180deg, var(--gold), var(--gold-mid));
+    color: var(--band-ink);
+    border-color: var(--gold-edge);
   }
   .banners__nav--prev {
-    left: 0.5rem;
+    left: 0.65rem;
   }
   .banners__nav--next {
-    right: 0.5rem;
+    right: 0.65rem;
   }
 
+  /* Gold-diamond position markers, echoing the ornament gem. */
   .banners__dots {
     display: flex;
     justify-content: center;
-    gap: 0.4rem;
-    margin-top: 0.7rem;
+    gap: 0.55rem;
+    margin-top: 0.85rem;
   }
   .banners__dot {
-    width: 0.55rem;
-    height: 0.55rem;
+    width: 0.5rem;
+    height: 0.5rem;
     padding: 0;
-    border-radius: 999px;
-    border: 1px solid var(--gold-edge, var(--border-strong));
+    transform: rotate(45deg);
     background: transparent;
+    border: 1px solid var(--gold-edge);
     cursor: pointer;
-    transition: background 0.15s ease;
+    transition:
+      background 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .banners__dot:hover {
+    background: color-mix(in oklch, var(--gold) 40%, transparent);
   }
   .banners__dot[aria-selected="true"] {
-    background: var(--gold, var(--ink));
+    background: var(--gold);
+    box-shadow: var(--inset-top);
   }
 
   @media (max-width: 600px) {
     .banners__nav {
-      width: 1.9rem;
-      height: 1.9rem;
+      width: 1.8rem;
+      height: 1.8rem;
       font-size: 1.2rem;
     }
   }
