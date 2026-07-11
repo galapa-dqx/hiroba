@@ -82,19 +82,27 @@ const alternateLinks =
 					<Rosette class="brand__mark" />
 					<span class="brand__word">Galapa&nbsp;<em>News</em></span>
 				</a>
-				<nav class="nav" aria-label="Categories">
-					{
-						CATEGORIES.map((c) => (
-							<a
-								class="nav__link"
-								data-cat={c}
-								href={`${base}/category/${c}`}
-								aria-current={active === c ? "page" : undefined}
-							>
-								{CATEGORY_LABELS[c]}
-							</a>
-						))
-					}
+				<nav class="nav" aria-label="Primary">
+					{/* News categories, folded into one disclosure so the header stays
+					    roomy as sections grow. Open when on any category page. */}
+					<details class="nav-menu nav-menu--start">
+						<summary aria-current={active ? "page" : undefined}>News</summary>
+						<ul>
+							{
+								CATEGORIES.map((c) => (
+									<li>
+										<a
+											data-cat={c}
+											href={`${base}/category/${c}`}
+											aria-current={active === c ? "page" : undefined}
+										>
+											{CATEGORY_LABELS[c]}
+										</a>
+									</li>
+								))
+							}
+						</ul>
+					</details>
 					<a
 						class="nav__link"
 						href={`${base}/topics`}
@@ -111,7 +119,7 @@ const alternateLinks =
 					</a>
 					{
 						languages.length > 1 && (
-							<details class="lang-menu">
+							<details class="nav-menu nav-menu--end">
 								<summary aria-label="Change language">
 									<span aria-hidden="true">🌐</span>
 									{languages.find((l) => l.code === lang)?.nativeLabel ?? lang}
@@ -152,31 +160,52 @@ const alternateLinks =
 		</footer>
 
 		<style>
-			/* Language switcher — a quiet dropdown at the end of the nav. */
-			.lang-menu {
+			/* Header dropdowns — a quiet disclosure styled to match the nav
+			   links, shared by the News-category menu and the language switcher. */
+			.nav-menu {
 				position: relative;
 			}
-			.lang-menu summary {
+			.nav-menu > summary {
 				list-style: none;
 				cursor: pointer;
 				padding: 0.4rem 0.7rem;
 				font-size: 0.92rem;
 				font-weight: 600;
 				color: var(--ink-soft);
+				border-radius: var(--radius-sm);
 				display: inline-flex;
 				align-items: center;
 				gap: 0.35rem;
 				white-space: nowrap;
+				transition:
+					color 0.15s ease,
+					background 0.15s ease;
 			}
-			.lang-menu summary::-webkit-details-marker {
+			.nav-menu > summary::-webkit-details-marker {
 				display: none;
 			}
-			.lang-menu summary:hover {
-				color: var(--gold-edge);
+			/* Disclosure caret — a small chevron that flips when the menu opens. */
+			.nav-menu > summary::after {
+				content: "";
+				width: 0.42em;
+				height: 0.42em;
+				margin-left: 0.05em;
+				border-right: 1.5px solid currentColor;
+				border-bottom: 1.5px solid currentColor;
+				transform: translateY(-0.12em) rotate(45deg);
+				opacity: 0.55;
+				transition: transform 0.18s ease;
 			}
-			.lang-menu ul {
+			.nav-menu[open] > summary::after {
+				transform: translateY(0.05em) rotate(225deg);
+			}
+			.nav-menu > summary:hover,
+			.nav-menu > summary[aria-current="page"] {
+				color: var(--ink);
+				background: var(--surface-hover);
+			}
+			.nav-menu > ul {
 				position: absolute;
-				right: 0;
 				margin: 0.25rem 0 0;
 				padding: 0.3rem;
 				list-style: none;
@@ -186,24 +215,58 @@ const alternateLinks =
 				box-shadow: var(--shadow-sm);
 				z-index: 60;
 			}
-			.lang-menu li a {
-				display: block;
+			.nav-menu--start > ul {
+				left: 0;
+			}
+			.nav-menu--end > ul {
+				right: 0;
+			}
+			.nav-menu li a {
+				display: flex;
+				align-items: center;
+				gap: 0.5rem;
 				padding: 0.35rem 0.6rem;
 				font-size: 0.92rem;
 				font-weight: 600;
 				color: var(--ink-soft);
 				text-decoration: none;
+				border-radius: var(--radius-sm);
+				white-space: nowrap;
 			}
-			.lang-menu li a:hover {
+			.nav-menu li a:hover,
+			.nav-menu li a[aria-current="page"] {
 				color: var(--gold-edge);
+				background: var(--surface-hover);
 			}
-			.lang-menu li a[aria-current="page"] {
-				color: var(--gold-edge);
+			/* Preserve each news category's colour identity as a leading dot. */
+			.nav-menu li a[data-cat]::before {
+				content: "";
+				flex: none;
+				width: 0.5rem;
+				height: 0.5rem;
+				border-radius: 50%;
+				background: var(--cat, var(--accent));
+			}
+			.nav-menu li a[data-cat="news"] {
+				--cat: var(--blue-9);
+			}
+			.nav-menu li a[data-cat="event"] {
+				--cat: var(--purple-9);
+			}
+			.nav-menu li a[data-cat="update"] {
+				--cat: var(--green-9);
+			}
+			.nav-menu li a[data-cat="maintenance"] {
+				--cat: var(--red-9);
 			}
 		</style>
 		<script>
-			// Close the language menu when clicking elsewhere.
-			document.querySelectorAll<HTMLDetailsElement>(".lang-menu").forEach((menu) => {
+			// One header dropdown open at a time; close on outside click.
+			const menus = document.querySelectorAll<HTMLDetailsElement>(".nav-menu");
+			menus.forEach((menu) => {
+				menu.addEventListener("toggle", () => {
+					if (menu.open) menus.forEach((m) => m !== menu && (m.open = false));
+				});
 				document.addEventListener("click", (e) => {
 					if (menu.open && e.target instanceof Node && !menu.contains(e.target)) {
 						menu.open = false;
