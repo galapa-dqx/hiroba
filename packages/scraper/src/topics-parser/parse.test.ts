@@ -65,6 +65,36 @@ describe('parseTopicBody — inline extraction', () => {
     ]);
   });
 
+  it('turns expansion-pack ordinal / Suggestion Box sprite spans into badges', () => {
+    // The sprite-span form (`<span class="ico_8th">8th</span>`, glyph via CSS
+    // background) keeps its label as a chip — distinct from the <img class="img_2nd">
+    // form above, which stays an inline image node.
+    expect(
+      parseTopicBody(
+        '<p><span class="ico_8th">8th</span>を導入' +
+          '<span class="ico_teian">提案広場</span></p>',
+      ),
+    ).toEqual([
+      {
+        type: 'paragraph',
+        children: [
+          { type: 'badge', text: '8th', variant: '8th' },
+          'を導入',
+          { type: 'badge', text: '提案広場', variant: 'teian' },
+        ],
+      },
+    ]);
+    // A glyph-only span (no inner text) falls back to a readable label.
+    expect(
+      parseTopicBody('<p>対応：<span class="ico_3ds"></span></p>'),
+    ).toEqual([
+      {
+        type: 'paragraph',
+        children: ['対応：', { type: 'badge', text: '3DS', variant: '3ds' }],
+      },
+    ]);
+  });
+
   it('keeps a small ordinal/platform icon inline (and absolutizes its src)', () => {
     expect(
       parseTopicBody(

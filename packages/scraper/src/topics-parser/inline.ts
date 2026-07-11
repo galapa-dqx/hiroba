@@ -51,6 +51,21 @@ export function isInlineIcon(el: Element): boolean {
   );
 }
 
+/**
+ * Label to use for a sprite-icon badge whose source span carries no inner text
+ * (the glyph-only platform/flag icons). Keyed by the `ico_<variant>` suffix; the
+ * ordinals always ship their "Nth" text so they need no entry. `teian` keeps its
+ * Japanese label — the translation pass renders it (e.g. "Suggestion Box").
+ */
+const BADGE_FALLBACK: Record<string, string> = {
+  newsystem: 'New',
+  new_s: 'New',
+  checkmark: 'Check',
+  smt: 'SP',
+  '3ds': '3DS',
+  teian: '提案広場',
+};
+
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 
 const NAMED_COLORS: Record<string, string> = {
@@ -159,14 +174,19 @@ function pushElement(el: Element, out: Inline[]): void {
     }
     return;
   }
-  // Chip glyphs: the "New" flag (ico_newsystem) and the "Check" mark
-  // (ico_checkmark, common in TOC entries) → a badge, so they read as a chip and
-  // don't glue onto the neighbouring text.
-  const badge = classOf(el).match(/\bico_(newsystem|checkmark)\b/);
+  // Sprite-icon spans → a badge. These are `<span class="ico_*">label</span>`
+  // whose visible glyph is a CSS background GIF and whose inner text (hidden by
+  // `text-indent:-9999em` in the source) is the label. Unlike the `<img>` ordinal
+  // icons (kept inline as image nodes above), a sprite span has no <img> to key,
+  // so we keep the label as a translatable chip instead of mirroring the sprite:
+  // the "New"/"Check" flags, the expansion-pack ordinals (ico_1st…ico_8th), the
+  // platform glyphs (ico_smt/ico_3ds), and the Suggestion Box mark (ico_teian).
+  const badge = classOf(el).match(
+    /\bico_(newsystem|new_s|checkmark|[1-8](?:st|nd|rd|th)|smt|3ds|teian)\b/,
+  );
   if (badge) {
     const variant = badge[1];
-    const text =
-      textOf(el).trim() || (variant === 'newsystem' ? 'New' : 'Check');
+    const text = textOf(el).trim() || BADGE_FALLBACK[variant] || variant;
     out.push({ type: 'badge', text, variant });
     return;
   }
