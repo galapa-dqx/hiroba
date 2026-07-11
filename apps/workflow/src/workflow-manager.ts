@@ -26,6 +26,7 @@ import {
   computeImageDetail,
   computeSnapshot,
   createDb,
+  getActiveWorkflowRun,
   getEnabledLanguages,
   getNewsItem,
   getPlayguide,
@@ -272,43 +273,136 @@ export class WorkflowManager extends DurableObject<Env> {
   }
 
   /**
+   * The status (and error) the Workflows engine reports for an instance, or
+   * null when it can't be resolved. Kept in terms of the engine's own status —
+   * not a boolean — so this dedup path agrees with the tracker's reconciler
+   * (handleRuns) on what counts as live: `isRunActive` treats `paused` as
+   * in-flight too, and a finished run settles to its real terminal status
+   * rather than a misleading `unknown`.
+   *
+   * `get`/`status` throws both for a genuinely-forgotten instance and for a
+   * transient engine error, with nothing to tell them apart. We retry a few
+   * times so a one-off blip doesn't read as "gone": a null result therefore
+   * means the failure *persisted*, which — paired with a `create()` that still
+   * succeeds (see ensureArticleWorkflow) — indicates the instance really is
+   * gone, not merely briefly unreachable.
+   */
+  private async getEngineStatus(
+    instanceId: string,
+    attempts = 3,
+  ): Promise<{ status: WorkflowRunStatus; error: string | null } | null> {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const engine = await (
+          await this.env.ARTICLE_WORKFLOW.get(instanceId)
+        ).status();
+        return { status: engine.status, error: engine.error ?? null };
+      } catch {
+        if (attempt < attempts - 1) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 200 * (attempt + 1)),
+          );
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Ensure an ArticleWorkflow is running for this item and return the tracked
-   * handle. Dedupes: an in-flight run (queued/running) is reused, a
-   * finished/forgotten one starts fresh. Records the run in the registry
-   * (best-effort — a registry miss must never fail the trigger). Shared by the
+   * handle. Dedupes so an item never has two in-flight runs at once:
+   *
+   *  - the whole check-and-create runs inside `blockConcurrencyWhile`, so a
+   *    burst of concurrent triggers to this DO (e.g. a page's fire-and-forget
+   *    POST /trigger racing its own self-healing SSE stream) is serialized —
+   *    the first creates, the rest observe it and reuse;
+   *  - it consults the durable `workflow_runs` registry, not just the
+   *    in-memory map, so a trigger landing on a freshly-evicted DO (empty map)
+   *    still finds an in-flight run instead of starting a duplicate.
+   *
+   * A finished/forgotten run starts fresh. Recording the new run is
+   * best-effort — a registry miss must never fail the trigger. Shared by the
    * `/trigger` endpoint and the self-healing SSE stream.
    */
   private async ensureArticleWorkflow(
     itemId: string,
     itemType: ItemType,
   ): Promise<Active> {
-    const workflow = this.env.ARTICLE_WORKFLOW;
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const workflow = this.env.ARTICLE_WORKFLOW;
+      const db = createDb(this.env.DB);
 
-    const existing = this.activeWorkflows.get(itemId);
-    if (existing) {
-      try {
-        const status = await (await workflow.get(existing.instanceId)).status();
-        if (status.status === 'running' || status.status === 'queued') {
-          return existing;
-        }
-      } catch {
-        // The engine no longer knows the instance — fall through, start fresh.
+      // Fast path: a single optimistic probe lets a warm DO confirm its
+      // remembered run is still live without a D1 read (and covers a run whose
+      // best-effort registry write was lost). Anything ambiguous falls through
+      // to the authoritative durable path.
+      const existing = this.activeWorkflows.get(itemId);
+      if (existing) {
+        const engine = await this.getEngineStatus(existing.instanceId, 1);
+        if (engine && isRunActive(engine.status)) return existing;
       }
-    }
 
-    const instance = await workflow.create({ params: { itemId, itemType } });
-    const active: Active = { instanceId: instance.id, itemType };
-    this.activeWorkflows.set(itemId, active);
-    try {
-      await recordWorkflowRun(createDb(this.env.DB), {
-        instanceId: instance.id,
-        itemType,
-        itemId,
-      });
-    } catch (error) {
-      console.error('Failed to record workflow run:', error);
-    }
-    return active;
+      // Durable path: the registry survives DO eviction, so a trigger on a cold
+      // DO still finds an in-flight run. Reuse it while the engine reports it
+      // live; otherwise it has finished (a confirmed terminal status) or, after
+      // retries, can't be resolved at all — a run that's genuinely gone. Either
+      // way we start a replacement below and retire this row as `stale`.
+      const registered = await getActiveWorkflowRun(db, itemType, itemId);
+      let stale: {
+        instanceId: string;
+        status: WorkflowRunStatus;
+        error: string | null;
+      } | null = null;
+      if (registered) {
+        const engine = await this.getEngineStatus(registered.instanceId);
+        if (engine && isRunActive(engine.status)) {
+          const active: Active = {
+            instanceId: registered.instanceId,
+            itemType,
+          };
+          this.activeWorkflows.set(itemId, active);
+          return active;
+        }
+        stale = {
+          instanceId: registered.instanceId,
+          status: engine?.status ?? 'unknown',
+          error: engine
+            ? engine.error
+            : 'Instance no longer known to the Workflows engine',
+        };
+      }
+
+      // Create the replacement FIRST — it doubles as an engine health probe.
+      // If the engine is down this throws before we touch the registry, so a
+      // `stale` row we couldn't resolve stays active and the item is simply
+      // retried (never orphaned, never duplicated by an outage). A create that
+      // succeeds proves the engine is healthy, so an unresolvable `stale` row
+      // really is gone — not merely unreachable — and superseding it is safe.
+      const instance = await workflow.create({ params: { itemId, itemType } });
+      const active: Active = { instanceId: instance.id, itemType };
+      this.activeWorkflows.set(itemId, active);
+      try {
+        // Retire the superseded row to its real status BEFORE recording the new
+        // one, so the partial unique index (one active row per item) never sees
+        // two at once.
+        if (stale) {
+          await updateWorkflowRunStatus(
+            db,
+            stale.instanceId,
+            stale.status,
+            stale.error ?? undefined,
+          );
+        }
+        await recordWorkflowRun(db, {
+          instanceId: instance.id,
+          itemType,
+          itemId,
+        });
+      } catch (error) {
+        console.error('Failed to record workflow run:', error);
+      }
+      return active;
+    });
   }
 
   /**
