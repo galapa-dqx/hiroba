@@ -10,11 +10,14 @@
  * dropped (not fatal), and the survivors are saved to the events table.
  */
 
-import { eq } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 import { z } from 'zod';
 
-import { events, type Database, type EventType } from '@hiroba/db';
+import {
+  saveArticleEvents,
+  type Database,
+  type ResolvableEvent,
+} from '@hiroba/db';
 import {
   serializeToRtml,
   stripTimeEventTags,
@@ -24,6 +27,7 @@ import {
 import { getArticle } from '../article';
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
 import type { ExtractEventsResult, ItemType } from '../types';
+import { createEventAdjudicator } from './adjudicate-events';
 
 // Event extraction prompt (loaded inline to avoid file system reads in worker)
 const EXTRACTION_PROMPT = `# Event Extraction
@@ -58,6 +62,9 @@ Extract if the **end** date/time (or duration) is explicit in the text.
 - Pages mainly explaining how to obtain/apply/enter/redeem/submit
 - Codes/applications/redemptions/exchanges/submissions **without explicit deadline or end date**
 - Descriptions with vague/undefined end (e.g., "about one year", "around a year", "TBD", "until further notice")
+- **Standing programs**, *even with a stated end date*: membership/enrollment offers, credit-card sign-ups (e.g. 「…VISAカード」新規入会キャンペーン), point/loyalty programs, ongoing monthly perks (毎月利用特典). A far-off end is a renewal boundary, not an event.
+- **Account/data procedures**: data transfer, save-data carry-over, account linking (引継ぎ, データ移行, アカウント連携) — a how-to with a deadline, not something to attend.
+- **Support / troubleshooting notices**: inquiries, known issues, outages and their recovery (お問い合わせ, 不具合, 障害, 復旧) — status announcements, not scheduled activities. (Genuine *scheduled* maintenance with an explicit start/end **is** an event.)
 
 If end date or period is unclear/missing, **do not extract**.
 
@@ -243,28 +250,35 @@ function eventStart(event: ExtractedEvent): Temporal.ZonedDateTime {
 }
 
 /**
- * Generate a unique ID for an event based on its properties.
+ * Flatten an extracted event to the resolver's shape — the four type variants
+ * collapse to a common `{startTime, endTime}` pair. Identity (id) and provenance
+ * (source, primary) are the resolver's job now, not a source-scoped hash.
  */
-function generateEventId(event: ExtractedEvent, sourceId: string): string {
-  const parts = [sourceId, event.type, event.title];
-
-  if (event.type === 'multiDay' || event.type === 'span') {
-    parts.push(event.start.toString(), event.end.toString());
-  } else if (event.type === 'allDay') {
-    parts.push(event.date.toString());
-  } else {
-    parts.push(event.timestamp.toString());
+function toResolvable(event: ExtractedEvent): ResolvableEvent {
+  switch (event.type) {
+    case 'multiDay':
+    case 'span':
+      return {
+        type: event.type,
+        titleJa: event.title,
+        startTime: event.start,
+        endTime: event.end,
+      };
+    case 'allDay':
+      return {
+        type: 'allDay',
+        titleJa: event.title,
+        startTime: event.date,
+        endTime: null,
+      };
+    case 'mark':
+      return {
+        type: 'mark',
+        titleJa: event.title,
+        startTime: event.timestamp,
+        endTime: null,
+      };
   }
-
-  // Simple hash function
-  const str = parts.join('|');
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32bit integer
-  }
-  return Math.abs(hash).toString(16).padStart(8, '0');
 }
 
 const JST_WEEKDAYS = ['月', '火', '水', '木', '金', '土', '日'] as const;
@@ -283,58 +297,12 @@ const DAY_MS = 86_400_000;
 const MAX_DAYS_BEFORE_PUB = 180; // events rarely predate their own announcement
 const MAX_DAYS_AFTER_PUB = 540; // ~18 months out
 
-/**
- * Assemble the DB row for an extracted event. Date fields are already
- * ZonedDateTime, normalized during validation.
- */
-function toDbEvent(
-  event: ExtractedEvent,
-  sourceType: ItemType,
-  sourceId: string,
-  now: Temporal.Instant,
-): {
-  id: string;
-  type: EventType;
-  titleJa: string;
-  startTime: Temporal.ZonedDateTime;
-  endTime: Temporal.ZonedDateTime | null;
-  sourceType: string;
-  sourceId: string;
-  createdAt: Temporal.Instant;
-} {
-  const base = {
-    id: generateEventId(event, sourceId),
-    titleJa: event.title,
-    sourceType,
-    sourceId,
-    createdAt: now,
-  };
-  switch (event.type) {
-    case 'multiDay':
-      return {
-        ...base,
-        type: 'multiDay',
-        startTime: event.start,
-        endTime: event.end,
-      };
-    case 'span':
-      return {
-        ...base,
-        type: 'span',
-        startTime: event.start,
-        endTime: event.end,
-      };
-    case 'allDay':
-      return { ...base, type: 'allDay', startTime: event.date, endTime: null };
-    case 'mark':
-      return {
-        ...base,
-        type: 'mark',
-        startTime: event.timestamp,
-        endTime: null,
-      };
-  }
-}
+// Backstop for the "standing program" the prompt tells the model to skip
+// (credit-card enrollment, membership, point programs): those run for the better
+// part of a year, real time-boxed campaigns rarely past ~2 months. 180 days sits
+// well above any legitimate campaign in the archive and below the 8-month
+// enrollment offers, so it only trips on things that aren't really events.
+const MAX_EVENT_DURATION_DAYS = 180;
 
 /**
  * Extract events from RTML content using Gemini, anchored to the publication
@@ -422,6 +390,14 @@ export function parseExtractedEvents(
         );
         continue;
       }
+      const durationDays =
+        (event.end.epochMilliseconds - event.start.epochMilliseconds) / DAY_MS;
+      if (durationDays > MAX_EVENT_DURATION_DAYS) {
+        console.warn(
+          `Dropping over-long event (${Math.round(durationDays)}d — likely a standing program, not an event): ${event.title}`,
+        );
+        continue;
+      }
     }
     out.push(event);
   }
@@ -454,12 +430,15 @@ export async function extractAndSaveEvents(
     return { count: 0, eventIds: [] };
   }
 
+  // Only news/topics carry dated events; playguides are gated out upstream, but
+  // guard here too since the resolver is typed to article sources.
+  if (itemType === 'playguide') {
+    return { count: 0, eventIds: [] };
+  }
+
   // Feed the LLM the RTML serialization of the block tree — the structure
   // (links, headings, tables) the old plaintext extraction never had.
   const content = serializeToRtml({ title: item.titleJa, blocks });
-
-  // Delete existing events for this source (re-extraction)
-  await db.delete(events).where(eq(events.sourceId, itemId));
 
   // Extract events using the LLM, anchored to the item's publication date so it
   // can resolve bare/relative dates and we can bounds-check the result. (Only
@@ -470,32 +449,17 @@ export async function extractAndSaveEvents(
   );
   const extractedEvents = await extractEventsFromContent(content, apiKey, pub);
 
-  if (extractedEvents.length === 0) {
-    return { count: 0, eventIds: [] };
-  }
+  // Resolve against the existing set and persist: dedup onto shared rows, mint
+  // the rest, swap this article's provenance links, sweep orphans. Passing an
+  // empty list is meaningful — it clears this source's events on a re-run that
+  // now finds none. The Gemini-backed judge only fires on residual near-matches.
+  const result = await saveArticleEvents(
+    db,
+    itemType,
+    itemId,
+    extractedEvents.map(toResolvable),
+    { adjudicate: createEventAdjudicator(apiKey) },
+  );
 
-  // Convert to database format and insert
-  const now = Temporal.Now.instant();
-  const eventIds: string[] = [];
-
-  for (const event of extractedEvents) {
-    const dbEvent = toDbEvent(event, itemType, itemId, now);
-    eventIds.push(dbEvent.id);
-
-    await db
-      .insert(events)
-      .values(dbEvent)
-      .onConflictDoUpdate({
-        target: [events.id],
-        set: {
-          type: dbEvent.type,
-          titleJa: dbEvent.titleJa,
-          startTime: dbEvent.startTime,
-          endTime: dbEvent.endTime,
-          createdAt: Temporal.Now.instant(),
-        },
-      });
-  }
-
-  return { count: extractedEvents.length, eventIds };
+  return { count: result.eventIds.length, eventIds: result.eventIds };
 }

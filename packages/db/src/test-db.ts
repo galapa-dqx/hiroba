@@ -22,6 +22,7 @@ const MIGRATIONS_DIR = fileURLToPath(
 /** Tables to wipe on `reset()`, in no particular order (no cross-table FKs). */
 const TABLES = [
   'events',
+  'event_sources',
   'glossary',
   'images',
   'languages',

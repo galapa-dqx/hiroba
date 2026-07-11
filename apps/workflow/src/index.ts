@@ -16,6 +16,7 @@ import {
   getEnabledLanguages,
   getTranslatedItemIds,
   glossary,
+  reconcileEvents,
   replaceScheduleEvents,
   upsertListItems,
   upsertPlayguideListItems,
@@ -35,6 +36,7 @@ import { CATEGORIES } from '@hiroba/shared';
 
 import { createLogger, type Logger } from './logger';
 import { processRechecks } from './recheck';
+import { createEventAdjudicator } from './steps/adjudicate-events';
 import { buildScheduleEvents } from './steps/build-schedule-events';
 import { mirrorImages } from './steps/mirror-images';
 import { transcribeImages } from './steps/transcribe-images';
@@ -121,10 +123,25 @@ export default Sentry.withSentry(
         });
       }
 
+      // Run the event reconcile sweep on demand (the nightly cron runs it too).
+      // Used after a bulk re-extract to merge any parallel-extraction races.
+      if (url.pathname === '/reconcile' && request.method === 'POST') {
+        const db = createDb(env.DB);
+        const { merged } = await reconcileEvents(db, {
+          adjudicate: createEventAdjudicator(env.GEMINI_API_KEY),
+        });
+        return Response.json({ merged });
+      }
+
       return Response.json(
         {
           error: 'Not found',
-          endpoints: ['/health', '/trigger', '/workflow/:itemId/*'],
+          endpoints: [
+            '/health',
+            '/trigger',
+            '/reconcile',
+            '/workflow/:itemId/*',
+          ],
         },
         { status: 404 },
       );
@@ -136,7 +153,8 @@ export default Sentry.withSentry(
      * Triggers:
      * - "0 * * * *" = Hourly refresh: news + topics list discovery, then the
      *   recheck queue (poll due articles for post-publication edits)
-     * - "0 15 * * *" = Daily glossary refresh (midnight JST)
+     * - "0 15 * * *" = Daily (midnight JST): glossary + playguides + schedule
+     *   refresh, then the event reconcile sweep
      */
     async scheduled(
       controller: ScheduledController,
@@ -155,6 +173,7 @@ export default Sentry.withSentry(
         await refreshGlossary(db, log);
         await refreshPlayguides(db, env, log);
         await refreshSchedule(db, env, log);
+        await reconcileExtractedEvents(db, env, log);
       } else {
         await refreshNews(db, env, log);
         await refreshTopics(db, env, log);
@@ -177,6 +196,28 @@ async function refreshBanners(env: Env, log: Logger): Promise<void> {
     log.info(`Enqueued banner refresh (${instance.id})`);
   } catch (error) {
     log.error('Failed to enqueue banner refresh:', error);
+  }
+}
+
+/**
+ * Nightly reconcile of extracted calendar events — folds duplicates that
+ * creation-time dedup couldn't catch (two articles extracted in parallel, or a
+ * title that drifted between re-runs) onto one canonical row. The Gemini judge
+ * adjudicates cross-cluster near-misses. Best-effort: a failure is logged, never
+ * fails the cron.
+ */
+async function reconcileExtractedEvents(
+  db: Database,
+  env: Env,
+  log: Logger,
+): Promise<void> {
+  try {
+    const { merged } = await reconcileEvents(db, {
+      adjudicate: createEventAdjudicator(env.GEMINI_API_KEY),
+    });
+    log.info(`Reconciled events (${merged} duplicate rows merged)`);
+  } catch (error) {
+    log.error('Failed to reconcile events:', error);
   }
 }
 

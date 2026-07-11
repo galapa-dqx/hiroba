@@ -30,7 +30,12 @@ import {
 
 import type { Database } from './client';
 import { banners, type Banner } from './schema/banners';
-import { events, type Event, type NewEvent } from './schema/events';
+import {
+  events,
+  eventSources,
+  type Event,
+  type NewEvent,
+} from './schema/events';
 import { images, type Image } from './schema/images';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
 import {
@@ -1215,11 +1220,18 @@ export async function getEventsForSource(
   sourceId: string,
   language: string = 'en',
 ): Promise<EventWithTitle[]> {
+  // Via the provenance join, not events.source_id: a campaign mentioned here
+  // but whose *primary* source is a different article (its own dedicated page)
+  // must still appear in this article's rail.
   const rows = await db
-    .select()
+    .select(getTableColumns(events))
     .from(events)
+    .innerJoin(eventSources, eq(eventSources.eventId, events.id))
     .where(
-      and(eq(events.sourceType, sourceType), eq(events.sourceId, sourceId)),
+      and(
+        eq(eventSources.sourceType, sourceType),
+        eq(eventSources.sourceId, sourceId),
+      ),
     )
     .orderBy(asc(events.startTime))
     .all();
