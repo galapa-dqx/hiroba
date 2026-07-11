@@ -5,12 +5,14 @@ import BannerCarousel from "../../components/BannerCarousel.astro";
 import PanelSection from "../../components/PanelSection.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import { createDb, getNewsItems } from "@hiroba/db";
-import { CATEGORIES, CATEGORY_LABELS } from "@hiroba/shared";
+import { CATEGORIES } from "@hiroba/shared";
 import { maybeTriggerTitleBackfill } from "../../lib/workflow";
 import { resolveBanners } from "../../lib/banners";
+import { categoryLabel, useTranslations } from "../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
+const t = useTranslations(lang);
 
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
@@ -43,12 +45,12 @@ maybeTriggerTitleBackfill(
 
 ---
 
-<Layout title="Latest News">
+<Layout title={t("home.title")}>
 	<BannerCarousel banners={banners} />
 
 	<section class="home-hero">
 		<h1>Galapa&nbsp;News</h1>
-		<p class="subtitle">Dispatches from Astoltia — Dragon Quest&nbsp;X news, translated from the official Hiroba.</p>
+		<p class="subtitle">{t("home.heroSubtitle")}</p>
 		<Ornament class="home-hero__rule" />
 	</section>
 
@@ -56,7 +58,7 @@ maybeTriggerTitleBackfill(
 		{
 			newsByCategory.map(({ category, items }) => (
 				<PanelSection
-					title={CATEGORY_LABELS[category]}
+					title={categoryLabel(lang, category)}
 					titleHref={`/${lang}/category/${category}`}
 					moreHref={`/${lang}/category/${category}`}
 					category={category}

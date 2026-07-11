@@ -7,6 +7,7 @@
  * interactivity, so the first banner is visible without JS.
  */
 import type { CarouselBanner } from "../lib/banners";
+import { useTranslations } from "../i18n";
 
 interface Props {
   banners: CarouselBanner[];
@@ -14,6 +15,7 @@ interface Props {
 
 const { banners } = Astro.props;
 const multiple = banners.length > 1;
+const t = useTranslations(Astro.locals.lang ?? "en");
 ---
 
 {
@@ -21,7 +23,7 @@ const multiple = banners.length > 1;
     <section
       class="banners"
       aria-roledescription="carousel"
-      aria-label="Featured announcements"
+      aria-label={t("banner.aria")}
     >
       <div class="banners__viewport">
         <ul class="banners__track" role="list">
@@ -30,7 +32,7 @@ const multiple = banners.length > 1;
               class="banners__slide"
               role="group"
               aria-roledescription="slide"
-              aria-label={`${i + 1} of ${banners.length}`}
+              aria-label={t("banner.slide", { n: i + 1, total: banners.length })}
             >
               <a
                 class="banners__link"
@@ -58,24 +60,24 @@ const multiple = banners.length > 1;
           <button
             class="banners__nav banners__nav--prev"
             type="button"
-            aria-label="Previous banner"
+            aria-label={t("banner.prev")}
           >
             ‹
           </button>
           <button
             class="banners__nav banners__nav--next"
             type="button"
-            aria-label="Next banner"
+            aria-label={t("banner.next")}
           >
             ›
           </button>
-          <div class="banners__dots" role="tablist" aria-label="Choose banner">
+          <div class="banners__dots" role="tablist" aria-label={t("banner.choose")}>
             {banners.map((_, i) => (
               <button
                 class="banners__dot"
                 type="button"
                 role="tab"
-                aria-label={`Banner ${i + 1}`}
+                aria-label={t("banner.dot", { n: i + 1 })}
                 aria-selected={i === 0 ? "true" : "false"}
                 data-dot={i}
               />

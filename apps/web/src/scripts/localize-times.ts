@@ -13,6 +13,9 @@ import { formatJst, formatLocalDateTime } from '@hiroba/ui/format-date';
 
 import { localizeTimes } from './time-pref';
 
+/** UI language (from <html lang>) → the number/format locale for dates. */
+const UI_LOCALE = document.documentElement.lang || 'en-US';
+
 /**
  * Rewrite one <time> element's text into the viewer's zone, keeping the JST
  * rendering in the title tooltip. Also used by the events rail for its timed
@@ -23,8 +26,8 @@ export function localizeTimeElement(el: HTMLTimeElement): void {
   if (!dt) return;
   const date = new Date(dt);
   if (Number.isNaN(date.getTime())) return;
-  el.title = `${formatJst(date)} JST`;
-  el.textContent = formatLocalDateTime(date);
+  el.title = `${formatJst(date, UI_LOCALE)} JST`;
+  el.textContent = formatLocalDateTime(date, UI_LOCALE);
 }
 
 export function localizeArticleTimes(root: ParentNode = document): void {

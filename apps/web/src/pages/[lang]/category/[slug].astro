@@ -5,11 +5,13 @@ import BackLink from "../../../components/BackLink.astro";
 import Pagination from "../../../components/Pagination.astro";
 import PanelSection from "../../../components/PanelSection.astro";
 import { createDb, getNewsItems, type LocalizedNewsItem } from "@hiroba/db";
-import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
+import { CATEGORIES, type Category } from "@hiroba/shared";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
+import { categoryLabel, useTranslations } from "../../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
+const t = useTranslations(lang);
 const { slug } = Astro.params;
 
 if (!slug || !CATEGORIES.includes(slug as Category)) {
@@ -37,12 +39,12 @@ try {
 	// Show empty list on error
 }
 
-const categoryLabel = CATEGORY_LABELS[category];
+const label = categoryLabel(lang, category);
 ---
 
-<Layout title={categoryLabel} category={category}>
+<Layout title={label} category={category}>
 	<div data-cat={category}>
-		<PanelSection title={categoryLabel} category={category}>
+		<PanelSection title={label} category={category}>
 			<ArticleList items={items} hrefBase={`/${lang}/news`} />
 		</PanelSection>
 
@@ -53,6 +55,6 @@ const categoryLabel = CATEGORY_LABELS[category];
 			nextCursor={nextCursor}
 		/>
 
-		<BackLink href={`/${lang}`} label="Back to home" />
+		<BackLink href={`/${lang}`} label={t("back.home")} />
 	</div>
 </Layout>

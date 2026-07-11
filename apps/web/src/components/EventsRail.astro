@@ -13,17 +13,21 @@
  */
 import type { EventWithTitle } from "@hiroba/db";
 import { formatJst, formatJstDate } from "@hiroba/ui/format-date";
+import { dateLocale, useTranslations } from "../i18n";
 
 interface Props {
 	events: EventWithTitle[];
 }
 const { events } = Astro.props;
+const lang = Astro.locals.lang ?? "en";
+const t = useTranslations(lang);
+const locale = dateLocale(lang);
 
 const TYPE_LABELS: Record<string, string> = {
-	multiDay: "Multi-day",
-	allDay: "All-day",
-	span: "Timed",
-	mark: "Milestone",
+	multiDay: t("eventType.multiDay"),
+	allDay: t("eventType.allDay"),
+	span: t("eventType.span"),
+	mark: t("eventType.mark"),
 };
 
 const isDateGranular = (type: string): boolean =>
@@ -32,14 +36,16 @@ const isDateGranular = (type: string): boolean =>
 /** JST baseline text for a time cell; the client relocalizes the timed ones. */
 function jstText(zdt: EventWithTitle["startTime"], type: string): string {
 	const iso = zdt.toInstant().toString();
-	return isDateGranular(type) ? `${formatJstDate(iso)} JST` : `${formatJst(iso)} JST`;
+	return isDateGranular(type)
+		? `${formatJstDate(iso, locale)} JST`
+		: `${formatJst(iso, locale)} JST`;
 }
 ---
 
 {
 	events.length > 0 && (
-		<aside class="events-rail" aria-label="Events in this article">
-			<h2 class="events-rail__title">Events in this article</h2>
+		<aside class="events-rail" aria-label={t("eventsRail.title")}>
+			<h2 class="events-rail__title">{t("eventsRail.title")}</h2>
 			<ol class="events-rail__list">
 				{events.map((e) => (
 					<li class="event-card" data-etype={e.type}>

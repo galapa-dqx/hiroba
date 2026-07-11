@@ -6,9 +6,11 @@ import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
 import { hydrateArticleImages } from "../../../lib/article-images";
 import { triggerWorkflow } from "../../../lib/workflow";
+import { statusStrings, useTranslations } from "../../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
+const t = useTranslations(lang);
 const { id } = Astro.params;
 if (!id) {
 	return Astro.redirect(`/${lang}/topics`);
@@ -36,7 +38,7 @@ if (!isSnapshotComplete(snapshot)) {
 	triggerWorkflow(runtime, "topic", id);
 }
 
-const title = localizedTitle ?? topic?.titleJa ?? "Loading topic…";
+const title = localizedTitle ?? topic?.titleJa ?? t("article.loadingTopic");
 const blocks: Block[] = localizedBlocks ?? (topic?.blocksJa as Block[] | null) ?? [];
 
 const imageSrc = await hydrateArticleImages(db, blocks, {
@@ -55,16 +57,16 @@ const events = ready ? await getEventsForSource(db, "topic", id, lang) : [];
 	itemType="topic"
 	itemId={id}
 	ready={ready}
-	statusText={describeSnapshot(snapshot)}
+	statusText={describeSnapshot(snapshot, statusStrings(lang))}
 	contentHtml={contentHtml}
 	events={events}
 	originalUrl={`https://hiroba.dqx.jp/sc/topics/detail/${id}/`}
 	translatedAtMs={translatedAt?.epochMilliseconds}
 	backHref={`/${lang}/topics`}
-	backLabel="Back to topics"
+	backLabel={t("back.topics")}
 >
 	<Fragment slot="meta">
-		<span class="chip">Topic</span>
+		<span class="chip">{t("article.chip.topic")}</span>
 		{topic && <LocalTime epochMs={topic.publishedAt.epochMilliseconds} mode="date" />}
 	</Fragment>
 </ArticlePage>

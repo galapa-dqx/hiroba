@@ -4,12 +4,14 @@ import LocalTime from "../../../components/LocalTime.astro";
 import CategoryDot from "@hiroba/ui/CategoryDot.astro";
 import { computeSnapshot, createDb, getArticleTranslations, getEventsForSource, getNewsItem } from "@hiroba/db";
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
-import { CATEGORY_LABELS, describeSnapshot, isSnapshotComplete, isSnapshotSettled, type Category } from "@hiroba/shared";
+import { describeSnapshot, isSnapshotComplete, isSnapshotSettled, type Category } from "@hiroba/shared";
 import { hydrateArticleImages } from "../../../lib/article-images";
 import { triggerWorkflow } from "../../../lib/workflow";
+import { categoryLabel, statusStrings, useTranslations } from "../../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
+const t = useTranslations(lang);
 const { id } = Astro.params;
 if (!id) {
 	return Astro.redirect(`/${lang}`);
@@ -56,7 +58,7 @@ const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHre
 const events = ready ? await getEventsForSource(db, "news", id, lang) : [];
 
 const category = item.category as Category;
-const categoryLabel = CATEGORY_LABELS[category] || item.category;
+const label = categoryLabel(lang, category);
 ---
 
 <ArticlePage
@@ -65,16 +67,16 @@ const categoryLabel = CATEGORY_LABELS[category] || item.category;
 	itemType="news"
 	itemId={id}
 	ready={ready}
-	statusText={describeSnapshot(snapshot)}
+	statusText={describeSnapshot(snapshot, statusStrings(lang))}
 	contentHtml={contentHtml}
 	events={events}
 	originalUrl={`https://hiroba.dqx.jp/sc/news/detail/${id}/`}
 	translatedAtMs={translatedAt?.epochMilliseconds}
 	backHref={`/${lang}`}
-	backLabel="Back to home"
+	backLabel={t("back.home")}
 >
 	<Fragment slot="meta">
-		<a href={`/${lang}/category/${category}`} class="chip"><CategoryDot category={category} />{categoryLabel}</a>
+		<a href={`/${lang}/category/${category}`} class="chip"><CategoryDot category={category} />{label}</a>
 		<LocalTime epochMs={item.publishedAt.epochMilliseconds} />
 	</Fragment>
 </ArticlePage>

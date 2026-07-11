@@ -6,9 +6,11 @@ import Pagination from "../../../components/Pagination.astro";
 import PanelSection from "../../../components/PanelSection.astro";
 import { createDb, getTopics, type LocalizedTopic } from "@hiroba/db";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
+import { useTranslations } from "../../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
+const t = useTranslations(lang);
 const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
 
 const runtime = Astro.locals.runtime;
@@ -31,20 +33,19 @@ try {
 
 ---
 
-<Layout title="Topics">
+<Layout title={t("topics.title")}>
 	{/* Gilt identity, distinct from the four news categories. */}
 	<div data-cat="topic">
-		<PanelSection title="Topics">
+		<PanelSection title={t("topics.title")}>
 			<ArticleList items={items} hrefBase={`/${lang}/topics`}>
 				<p class="empty" slot="empty">
-					No topics yet. Open a topic URL like <code>/{lang}/topics/&lt;id&gt;</code> to fetch,
-					transcribe and translate it — or seed them from the admin.
+					{t("topics.emptyPre")}<code>/{lang}/topics/&lt;id&gt;</code>{t("topics.emptyPost")}
 				</p>
 			</ArticleList>
 		</PanelSection>
 
 		<Pagination baseUrl={`/${lang}/topics`} cursor={cursor} hasMore={hasMore} nextCursor={nextCursor} />
 
-		<BackLink href={`/${lang}`} label="Back to home" />
+		<BackLink href={`/${lang}`} label={t("back.home")} />
 	</div>
 </Layout>

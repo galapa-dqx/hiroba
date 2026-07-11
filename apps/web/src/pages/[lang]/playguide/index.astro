@@ -5,9 +5,11 @@ import BackLink from "../../../components/BackLink.astro";
 import PanelSection from "../../../components/PanelSection.astro";
 import { createDb, getPlayguides, type LocalizedPlayguide } from "@hiroba/db";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
+import { useTranslations } from "../../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
+const t = useTranslations(lang);
 
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
@@ -24,18 +26,17 @@ try {
 }
 ---
 
-<Layout title="Play Guide">
+<Layout title={t("playguide.title")}>
 	{/* Reuse the gilt topic identity for the guide index. */}
 	<div data-cat="topic">
-		<PanelSection title="Play Guide">
+		<PanelSection title={t("playguide.title")}>
 			<ArticleList items={items} hrefBase={`/${lang}/playguide`}>
 				<p class="empty" slot="empty">
-					No guide pages yet. They are discovered by crawling <code>guide01</code> on the
-					daily refresh — or seed them from the admin.
+					{t("playguide.emptyPre")}<code>guide01</code>{t("playguide.emptyPost")}
 				</p>
 			</ArticleList>
 		</PanelSection>
 
-		<BackLink href={`/${lang}`} label="Back to home" />
+		<BackLink href={`/${lang}`} label={t("back.home")} />
 	</div>
 </Layout>

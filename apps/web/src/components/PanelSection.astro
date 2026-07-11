@@ -6,6 +6,7 @@
  */
 import type { Category } from "@hiroba/shared";
 import Gem from "./Gem.astro";
+import { useTranslations } from "../i18n";
 
 interface Props {
 	title: string;
@@ -18,6 +19,7 @@ interface Props {
 }
 
 const { title, titleHref, moreHref, category } = Astro.props;
+const t = useTranslations(Astro.locals.lang ?? "en");
 ---
 
 <section class="panel" data-cat={category}>
@@ -28,7 +30,7 @@ const { title, titleHref, moreHref, category } = Astro.props;
 		</span>
 		{moreHref ? (
 			<a class="band-heading__more" href={moreHref}>
-				View all <span class="band-heading__chevrons" aria-hidden="true">››</span>
+				{t("panel.viewAll")} <span class="band-heading__chevrons" aria-hidden="true">››</span>
 			</a>
 		) : (
 			<span class="band-heading__chevrons" aria-hidden="true">››</span>

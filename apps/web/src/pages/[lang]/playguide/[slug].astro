@@ -5,9 +5,11 @@ import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
 import { hydrateArticleImages } from "../../../lib/article-images";
 import { triggerWorkflow } from "../../../lib/workflow";
+import { statusStrings, useTranslations } from "../../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
+const t = useTranslations(lang);
 const { slug } = Astro.params;
 if (!slug) {
 	return Astro.redirect(`/${lang}/playguide`);
@@ -35,7 +37,7 @@ if (!isSnapshotComplete(snapshot)) {
 	triggerWorkflow(runtime, "playguide", slug);
 }
 
-const title = localizedTitle ?? playguide?.titleJa ?? "Loading guide…";
+const title = localizedTitle ?? playguide?.titleJa ?? t("article.loadingGuide");
 const blocks: Block[] = localizedBlocks ?? (playguide?.blocksJa as Block[] | null) ?? [];
 
 const imageSrc = await hydrateArticleImages(db, blocks, {
@@ -51,15 +53,15 @@ const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHre
 	itemType="playguide"
 	itemId={slug}
 	ready={ready}
-	statusText={describeSnapshot(snapshot)}
+	statusText={describeSnapshot(snapshot, statusStrings(lang))}
 	contentHtml={contentHtml}
 	events={[]}
 	originalUrl={`https://hiroba.dqx.jp/sc/public/playguide/${slug}`}
 	translatedAtMs={translatedAt?.epochMilliseconds}
 	backHref={`/${lang}/playguide`}
-	backLabel="Back to play guide"
+	backLabel={t("back.playGuide")}
 >
 	<Fragment slot="meta">
-		<span class="chip">Play Guide</span>
+		<span class="chip">{t("article.chip.playGuide")}</span>
 	</Fragment>
 </ArticlePage>

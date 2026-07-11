@@ -4,6 +4,7 @@
  * appears once the reader has paged (a cursor is set); "Older" appears while
  * more pages remain.
  */
+import { useTranslations } from "../i18n";
 
 interface Props {
 	/** The list page's own URL, without any cursor query. */
@@ -15,15 +16,16 @@ interface Props {
 }
 
 const { baseUrl, cursor, hasMore, nextCursor } = Astro.props;
+const t = useTranslations(Astro.locals.lang ?? "en");
 ---
 
-<nav class="pagination" aria-label="Pagination">
+<nav class="pagination" aria-label={t("pagination.aria")}>
 	<span>
-		{cursor && <a href={baseUrl} class="pill pill--ghost">‹ Newest</a>}
+		{cursor && <a href={baseUrl} class="pill pill--ghost">{t("pagination.newest")}</a>}
 	</span>
 	<span>
 		{hasMore && nextCursor && (
-			<a href={`${baseUrl}?cursor=${encodeURIComponent(nextCursor)}`} class="pill">Older ›</a>
+			<a href={`${baseUrl}?cursor=${encodeURIComponent(nextCursor)}`} class="pill">{t("pagination.older")}</a>
 		)}
 	</span>
 </nav>

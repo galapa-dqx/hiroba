@@ -5,6 +5,8 @@
  * language. Theme + timezone persist to localStorage and apply client-side;
  * language is a URL prefix, so those are plain links.
  */
+import { useTranslations } from "../i18n";
+
 interface Props {
 	lang: string;
 	languages: App.SiteLanguage[];
@@ -14,10 +16,11 @@ interface Props {
 	search: string;
 }
 const { lang, languages, pathAfterLang, search } = Astro.props;
+const t = useTranslations(lang);
 ---
 
 <details class="settings-menu">
-	<summary aria-label="Settings">
+	<summary aria-label={t("settings.aria")}>
 		<svg
 			class="settings-menu__gear"
 			viewBox="0 0 24 24"
@@ -37,25 +40,25 @@ const { lang, languages, pathAfterLang, search } = Astro.props;
 
 	<div class="settings-menu__panel">
 		<fieldset class="settings-menu__group">
-			<legend>Theme</legend>
-			<div class="seg" role="group" aria-label="Colour theme">
-				<button type="button" class="seg__btn" data-theme-set="light">Light</button>
-				<button type="button" class="seg__btn" data-theme-set="dark">Dark</button>
+			<legend>{t("settings.theme")}</legend>
+			<div class="seg" role="group" aria-label={t("settings.themeGroup")}>
+				<button type="button" class="seg__btn" data-theme-set="light">{t("settings.light")}</button>
+				<button type="button" class="seg__btn" data-theme-set="dark">{t("settings.dark")}</button>
 			</div>
 		</fieldset>
 
 		<fieldset class="settings-menu__group">
-			<legend>Times</legend>
-			<div class="seg" role="group" aria-label="Time zone">
-				<button type="button" class="seg__btn" data-tz-set="local">Local</button>
-				<button type="button" class="seg__btn" data-tz-set="jst">JST</button>
+			<legend>{t("settings.times")}</legend>
+			<div class="seg" role="group" aria-label={t("settings.timeZone")}>
+				<button type="button" class="seg__btn" data-tz-set="local">{t("settings.local")}</button>
+				<button type="button" class="seg__btn" data-tz-set="jst">{t("settings.jst")}</button>
 			</div>
 		</fieldset>
 
 		{
 			languages.length > 1 && (
 				<fieldset class="settings-menu__group">
-					<legend>Language</legend>
+					<legend>{t("settings.language")}</legend>
 					<ul class="settings-menu__langs">
 						{languages.map((l) => (
 							<li>

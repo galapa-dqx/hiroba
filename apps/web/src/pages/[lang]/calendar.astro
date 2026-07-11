@@ -8,9 +8,11 @@ import { labelScheduleIcons } from "../../lib/schedule-labels";
 import { scheduleInfo } from "../../lib/schedule";
 import AgendaBand from "../../components/AgendaBand.astro";
 import AgendaTimeline from "../../components/AgendaTimeline.astro";
+import { dateLocale, useTranslations } from "../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
+const t = useTranslations(lang);
 
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
@@ -44,35 +46,37 @@ const prev = day.subtract({ days: 1 });
 const next = day.add({ days: 1 });
 const dateHref = (d: Temporal.PlainDate) => `/${lang}/calendar?date=${d.toString()}`;
 
-const heading = day.toLocaleString("en-US", {
+const heading = day.toLocaleString(dateLocale(lang), {
 	weekday: "long",
 	year: "numeric",
 	month: "long",
 	day: "numeric",
 });
+
+// Subtitle carries a styled inline span, so render it around the {zone} token.
+const [subtitlePre, subtitlePost] = t("calendar.subtitle").split("{zone}");
 ---
 
-<Layout title={`Events — ${heading}`}>
+<Layout title={t("calendar.pageTitle", { date: heading })}>
 	<section class="cal-head">
-		<h1 class="cal-head__title">Today in Astoltia</h1>
+		<h1 class="cal-head__title">{t("calendar.heading")}</h1>
 		<p class="cal-head__sub">
-			The day's events on the DQX server. Times shown in <span class="cal-head__tz">your local
-			zone</span> — switch to JST from the settings gear.
+			{subtitlePre}<span class="cal-head__tz">{t("calendar.subtitleZone")}</span>{subtitlePost}
 		</p>
 		<Ornament class="cal-head__rule" />
 
-		<nav class="cal-nav" aria-label="Change day">
-			<a class="pill pill--ghost" href={dateHref(prev)} rel="prev">‹ Prev</a>
+		<nav class="cal-nav" aria-label={t("calendar.changeDay")}>
+			<a class="pill pill--ghost" href={dateHref(prev)} rel="prev">{t("calendar.prev")}</a>
 			<span class="cal-nav__date" aria-current="date">
 				{heading}
-				{isToday && <span class="cal-nav__today">Today</span>}
+				{isToday && <span class="cal-nav__today">{t("calendar.today")}</span>}
 			</span>
-			<a class="pill pill--ghost" href={dateHref(next)} rel="next">Next ›</a>
+			<a class="pill pill--ghost" href={dateHref(next)} rel="next">{t("calendar.next")}</a>
 		</nav>
 		{
 			!isToday && (
 				<p class="cal-nav__back">
-					<a class="pill" href={`/${lang}/calendar`}>Back to today</a>
+					<a class="pill" href={`/${lang}/calendar`}>{t("calendar.backToToday")}</a>
 				</p>
 			)
 		}

@@ -17,6 +17,7 @@ import Layout from "../layouts/Layout.astro";
 import BackLink from "./BackLink.astro";
 import EventsRail from "./EventsRail.astro";
 import LocalTime from "./LocalTime.astro";
+import { statusStrings, useTranslations } from "../i18n";
 import "@hiroba/ui/styles/article-body.css";
 
 interface Props {
@@ -60,12 +61,28 @@ const lang = Astro.locals.lang ?? "en";
 const languages = Astro.locals.languages ?? [
 	{ code: "en", label: "English", nativeLabel: "English" },
 ];
+const t = useTranslations(lang);
 
 // Detail route + SSE proxy segment per item type (news uses plural "news",
 // topics "topics", playguides "playguide").
 const detailPath = itemType === "topic" ? "topics" : itemType === "playguide" ? "playguide" : "news";
 const sseUrl = `/api/${detailPath}/${itemId}/sse?language=${encodeURIComponent(lang)}`;
-const originalNoun = itemType === "topic" ? "topic" : itemType === "playguide" ? "guide" : "article";
+const originalNoun = t(
+	itemType === "topic"
+		? "article.noun.topic"
+		: itemType === "playguide"
+			? "article.noun.guide"
+			: "article.noun.article",
+);
+
+// Localized copy for the SSE-driven processing callout, handed to the client
+// script as JSON: the pipeline status templates plus the two completion lines.
+const calloutStrings = {
+	...statusStrings(lang),
+	doneReloading: t("status.doneReloading"),
+	errorPrefix: t("status.errorPrefix"),
+	unknownError: t("status.unknownError"),
+};
 
 // This is a translated republish of the Hiroba original, so we canonicalize to
 // the source (cross-domain) rather than compete with it in search. hreflang
@@ -90,14 +107,14 @@ const alternates = [
 					class="meta__source"
 					href={originalUrl}
 					target="_blank"
-					rel="noopener noreferrer">View original {originalNoun} ↗</a
+					rel="noopener noreferrer">{t("article.viewOriginal", { noun: originalNoun })}</a
 				>
 			</div>
 			<h1 class="article-title">{title}</h1>
 		</header>
 
 		{!ready && (
-			<div class="callout callout--busy" id="processing-notice" data-sse-url={sseUrl} role="status">
+			<div class="callout callout--busy" id="processing-notice" data-sse-url={sseUrl} data-i18n={JSON.stringify(calloutStrings)} role="status">
 				<Rosette class="callout__glyph" />
 				<p id="processing-status">{statusText}</p>
 			</div>
@@ -115,7 +132,7 @@ const alternates = [
 		<footer class="translation-info">
 			<Ornament />
 			{translatedAtMs && (
-				<p>Translated on <LocalTime epochMs={translatedAtMs} mode="date" /></p>
+				<p>{t("article.translatedOn")} <LocalTime epochMs={translatedAtMs} mode="date" /></p>
 			)}
 		</footer>
 
@@ -172,25 +189,34 @@ const alternates = [
 	const notice = document.getElementById("processing-notice");
 	if (notice?.dataset.sseUrl) {
 		const statusEl = document.getElementById("processing-status");
+		// Localized copy embedded by the server (pipeline templates + completion
+		// lines), so the callout speaks the reader's language client-side too.
+		const i18n = JSON.parse(notice.dataset.i18n || "{}");
 		const evtSource = new EventSource(notice.dataset.sseUrl);
 
 		evtSource.onmessage = (event) => {
 			const data = JSON.parse(event.data);
 			if (data.type === "state" && statusEl) {
-				statusEl.textContent = describeSnapshot(data.snapshot);
+				statusEl.textContent = describeSnapshot(data.snapshot, i18n);
 			}
 			if (data.type === "complete") {
 				evtSource.close();
 				notice.classList.remove("callout--busy");
 				notice.classList.add("callout--complete");
-				if (statusEl) statusEl.textContent = "Done! Reloading…";
+				if (statusEl) statusEl.textContent = i18n.doneReloading ?? "Done! Reloading…";
 				setTimeout(() => location.reload(), 500);
 			}
 			if (data.type === "error") {
 				evtSource.close();
 				notice.classList.remove("callout--busy");
 				notice.classList.add("callout--error");
-				if (statusEl) statusEl.textContent = `Error: ${data.error || "Unknown error"}`;
+				if (statusEl) {
+					const template = i18n.errorPrefix ?? "Error: {error}";
+					statusEl.textContent = template.replace(
+						"{error}",
+						data.error || i18n.unknownError || "Unknown error",
+					);
+				}
 			}
 		};
 		evtSource.onerror = () => evtSource.close();

@@ -1,8 +1,9 @@
 ---
-import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
+import { CATEGORIES, type Category } from "@hiroba/shared";
 import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import SettingsMenu from "../components/SettingsMenu.astro";
+import { categoryLabel, useTranslations } from "../i18n";
 import "@hiroba/ui/styles/palette.css";
 import "../styles/global.css";
 
@@ -27,6 +28,7 @@ const lang = Astro.locals.lang ?? "en";
 const languages = Astro.locals.languages ?? [
 	{ code: "en", label: "English", nativeLabel: "English" },
 ];
+const t = useTranslations(lang);
 const base = `/${lang}`;
 
 const pathname = Astro.url.pathname;
@@ -60,11 +62,11 @@ const alternateLinks =
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<meta name="description" content="Dragon Quest X news, translated from the official Hiroba" />
+		<meta name="description" content={t("meta.description")} />
 		<meta name="color-scheme" content="light dark" />
 		<link rel="canonical" href={canonicalUrl} />
 		{alternateLinks.map((a) => <link rel="alternate" hreflang={a.hreflang} href={a.href} />)}
-		<title>{title} | Galapa News</title>
+		<title>{t("title.template", { title })}</title>
 		{/* Apply the saved theme before first paint to avoid a flash. */}
 		<script is:inline>
 			(() => {
@@ -78,15 +80,15 @@ const alternateLinks =
 	<body>
 		<header class="site-header">
 			<div class="site-header__inner">
-				<a href={base} class="brand" aria-label="Galapa News — home">
+				<a href={base} class="brand" aria-label={t("a11y.brandHome")}>
 					<Rosette class="brand__mark" />
 					<span class="brand__word">Galapa&nbsp;<em>News</em></span>
 				</a>
-				<nav class="nav" aria-label="Primary">
+				<nav class="nav" aria-label={t("a11y.primaryNav")}>
 					{/* News categories, folded into one disclosure so the header stays
 					    roomy as sections grow. Open when on any category page. */}
 					<details class="nav-menu nav-menu--start">
-						<summary aria-current={active ? "page" : undefined}>News</summary>
+						<summary aria-current={active ? "page" : undefined}>{t("nav.news")}</summary>
 						<ul>
 							{
 								CATEGORIES.map((c) => (
@@ -96,7 +98,7 @@ const alternateLinks =
 											href={`${base}/category/${c}`}
 											aria-current={active === c ? "page" : undefined}
 										>
-											{CATEGORY_LABELS[c]}
+											{categoryLabel(lang, c)}
 										</a>
 									</li>
 								))
@@ -108,21 +110,21 @@ const alternateLinks =
 						href={`${base}/topics`}
 						aria-current={pathAfterLang.startsWith("/topics") ? "page" : undefined}
 					>
-						Topics
+						{t("nav.topics")}
 					</a>
 					<a
 						class="nav__link"
 						href={`${base}/playguide`}
 						aria-current={pathAfterLang.startsWith("/playguide") ? "page" : undefined}
 					>
-						Play Guide
+						{t("nav.playGuide")}
 					</a>
 					<a
 						class="nav__link"
 						href={`${base}/calendar`}
 						aria-current={pathAfterLang.startsWith("/calendar") ? "page" : undefined}
 					>
-						Calendar
+						{t("nav.calendar")}
 					</a>
 					<SettingsMenu
 						lang={lang}
@@ -141,9 +143,9 @@ const alternateLinks =
 		<footer class="site-footer">
 			<Ornament />
 			<p>
-				Translated from <a href="https://hiroba.dqx.jp" target="_blank" rel="noopener"
-					>DQX Hiroba</a
-				> — a fan project, not affiliated with Square Enix.
+				{t("footer.pre")}<a href="https://hiroba.dqx.jp" target="_blank" rel="noopener"
+					>{t("footer.source")}</a
+				>{t("footer.post")}
 			</p>
 		</footer>
 

@@ -6,6 +6,8 @@
  * during parse, so there's no flash of the unlocalized value.
  */
 
+import { dateLocale } from "../i18n";
+
 interface Props {
 	/** The instant, as epoch milliseconds (Temporal.Instant.epochMilliseconds). */
 	epochMs: number;
@@ -15,22 +17,25 @@ interface Props {
 
 const { epochMs, mode = "datetime" } = Astro.props;
 
+// The active UI language sets the date format locale (see i18n/dateLocale).
+const locale = dateLocale(Astro.locals.lang ?? "en");
+
 const options: Intl.DateTimeFormatOptions = {
 	year: "numeric",
 	month: "long",
 	day: "numeric",
 	...(mode === "datetime" ? { hour: "numeric", minute: "2-digit" } : {}),
 };
-const baseline = new Date(epochMs).toLocaleString("en-US", {
+const baseline = new Date(epochMs).toLocaleString(locale, {
 	...options,
 	timeZone: "Asia/Tokyo",
 });
 ---
 
 <time datetime={new Date(epochMs).toISOString()}
-	>{baseline}<script define:vars={{ epochMs, mode }}>
+	>{baseline}<script define:vars={{ epochMs, mode, locale }}>
 		const el = document.currentScript.parentElement;
-		el.textContent = new Date(epochMs).toLocaleString("en-US", {
+		el.textContent = new Date(epochMs).toLocaleString(locale, {
 			year: "numeric",
 			month: "long",
 			day: "numeric",

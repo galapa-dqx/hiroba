@@ -7,6 +7,7 @@
  * slot customizes the no-items message.
  */
 import { formatShortDate } from "@hiroba/ui";
+import { dateLocale, useTranslations } from "../i18n";
 
 interface Props {
 	items: Array<{
@@ -20,6 +21,9 @@ interface Props {
 }
 
 const { items, hrefBase } = Astro.props;
+const lang = Astro.locals.lang ?? "en";
+const t = useTranslations(lang);
+const locale = dateLocale(lang);
 ---
 
 {
@@ -31,7 +35,7 @@ const { items, hrefBase } = Astro.props;
 						<span class="news-list__title">{item.titleEn ?? item.titleJa}</span>
 						{item.publishedAt && (
 							<time datetime={new Date(item.publishedAt.epochMilliseconds).toISOString()}>
-								{formatShortDate(item.publishedAt.epochMilliseconds)}
+								{formatShortDate(item.publishedAt.epochMilliseconds, locale)}
 							</time>
 						)}
 					</a>
@@ -40,7 +44,7 @@ const { items, hrefBase } = Astro.props;
 		</ul>
 	) : (
 		<slot name="empty">
-			<p class="empty">No dispatches have arrived yet.</p>
+			<p class="empty">{t("list.empty")}</p>
 		</slot>
 	)
 }
