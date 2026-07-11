@@ -6,8 +6,9 @@
  * changeover day.
  *
  * All rows carry `sourceType='schedule'` and `sourceId=<content key>` so the
- * calendar can style/group them and `replaceScheduleEvents` can swap the whole
- * set each scrape. Ids are a deterministic hash so re-scrapes upsert in place.
+ * calendar can style/group them and `replaceScheduleEvents` can swap each
+ * content's re-covered window per scrape (older rows stay behind as history).
+ * Ids are a deterministic hash so re-scrapes upsert in place.
  */
 
 import { type Temporal } from 'temporal-polyfill';

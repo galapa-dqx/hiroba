@@ -96,10 +96,14 @@ name = "banner-workflow"
 binding = "BANNER_WORKFLOW"
 class_name = "BannerWorkflow"
 
-# Scheduled triggers:
+# Scheduled triggers. The nightly work is staggered into separate invocations
+# so each job gets its own subrequest/CPU budget and can't starve the next
+# (the playguide crawl alone fetches ~130 pages):
 # - Hourly news refresh (first page of each category)
-# - Daily glossary refresh (midnight JST = 15:00 UTC)
+# - Daily glossary + playguide crawl (midnight JST = 15:00 UTC)
+# - Daily つよさ予報 schedule refresh + retention prune (00:10 JST)
+# - Daily event reconcile sweep (00:20 JST)
 [triggers]
-crons = ["0 * * * *", "0 15 * * *"]
+crons = ["0 * * * *", "0 15 * * *", "10 15 * * *", "20 15 * * *"]
 
 # Local D1 persistence is handled via --persist-to CLI flag in package.json

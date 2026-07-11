@@ -16,6 +16,7 @@ import {
   getEnabledLanguages,
   getTranslatedItemIds,
   glossary,
+  pruneScheduleEvents,
   reconcileEvents,
   replaceScheduleEvents,
   upsertListItems,
@@ -150,11 +151,16 @@ export default Sentry.withSentry(
     /**
      * Handle scheduled cron jobs.
      *
+     * The nightly work is split across staggered triggers so each job gets its
+     * own invocation — its own subrequest/CPU budget, and isolation from the
+     * others' failures (the playguide crawl alone fetches ~130 pages).
+     *
      * Triggers:
      * - "0 * * * *" = Hourly refresh: news + topics list discovery, then the
      *   recheck queue (poll due articles for post-publication edits)
-     * - "0 15 * * *" = Daily (midnight JST): glossary + playguides + schedule
-     *   refresh, then the event reconcile sweep
+     * - "0 15 * * *" = Daily (midnight JST): glossary + playguide crawl
+     * - "10 15 * * *" = Daily: つよさ予報 schedule refresh + retention prune
+     * - "20 15 * * *" = Daily: event reconcile sweep
      */
     async scheduled(
       controller: ScheduledController,
@@ -164,21 +170,25 @@ export default Sentry.withSentry(
       const db = createDb(env.DB);
       const log = createLogger(env, 'cron');
 
-      const isGlossaryRefresh = controller.cron === '0 15 * * *';
-      log.info(
-        `cron fired: ${controller.cron} (${isGlossaryRefresh ? 'glossary' : 'news+topics'} refresh)`,
-      );
+      log.info(`cron fired: ${controller.cron}`);
 
-      if (isGlossaryRefresh) {
-        await refreshGlossary(db, log);
-        await refreshPlayguides(db, env, log);
-        await refreshSchedule(db, env, log);
-        await reconcileExtractedEvents(db, env, log);
-      } else {
-        await refreshNews(db, env, log);
-        await refreshTopics(db, env, log);
-        await refreshBanners(env, log);
-        await processRechecks(db, env, log);
+      switch (controller.cron) {
+        case '0 15 * * *':
+          await refreshGlossary(db, log);
+          await refreshPlayguides(db, env, log);
+          break;
+        case '10 15 * * *':
+          await refreshSchedule(db, env, log);
+          await pruneOldScheduleEvents(db, log);
+          break;
+        case '20 15 * * *':
+          await reconcileExtractedEvents(db, env, log);
+          break;
+        default:
+          await refreshNews(db, env, log);
+          await refreshTopics(db, env, log);
+          await refreshBanners(env, log);
+          await processRechecks(db, env, log);
       }
     },
   },
@@ -298,6 +308,32 @@ async function refreshSchedule(
     log.info('Translated schedule event titles');
   } catch (error) {
     log.error('Failed to translate schedule titles:', error);
+  }
+}
+
+/** How long a scraped schedule occurrence stays around after it has ended. */
+const SCHEDULE_RETENTION_MONTHS = 3;
+
+/**
+ * Drop schedule events that ended more than the retention horizon ago — they
+ * accrete daily (24–48 rows/day for the dense rotations) and only the recent
+ * past is interesting as history. Best-effort: a failure is logged, never
+ * fails the cron.
+ */
+async function pruneOldScheduleEvents(
+  db: Database,
+  log: Logger,
+): Promise<void> {
+  try {
+    const cutoff = Temporal.Now.zonedDateTimeISO('Asia/Tokyo').subtract({
+      months: SCHEDULE_RETENTION_MONTHS,
+    });
+    const pruned = await pruneScheduleEvents(db, cutoff);
+    log.info(
+      `Pruned ${pruned} schedule events older than ${cutoff.toPlainDate().toString()}`,
+    );
+  } catch (error) {
+    log.error('Failed to prune schedule events:', error);
   }
 }
 
