@@ -14,6 +14,7 @@ import { Temporal } from 'temporal-polyfill';
 import {
   createDb,
   getEnabledLanguages,
+  getTranslatedItemIds,
   glossary,
   replaceScheduleEvents,
   upsertListItems,
@@ -38,6 +39,7 @@ import { buildScheduleEvents } from './steps/build-schedule-events';
 import { mirrorImages } from './steps/mirror-images';
 import { transcribeImages } from './steps/transcribe-images';
 import { translateImageTexts } from './steps/translate-image-texts';
+import { translateTitleChunk } from './steps/translate-titles';
 import type { Env, ItemType } from './types';
 
 // Export the Durable Object and Workflow classes
@@ -189,15 +191,18 @@ async function refreshSchedule(
   log: Logger,
 ): Promise<void> {
   let forecast;
+  let rows;
   try {
     forecast = await fetchTsuyosaForecast();
-    const rows = buildScheduleEvents(forecast, Temporal.Now.instant());
+    rows = buildScheduleEvents(forecast, Temporal.Now.instant());
     await replaceScheduleEvents(db, rows);
     log.info(`Refreshed schedule events (${rows.length} rows)`);
   } catch (error) {
     log.error('Failed to refresh schedule events:', error);
     return;
   }
+
+  const languages = await getEnabledLanguages(db);
 
   // Enrich the icon-only sections: the 防衛軍 brigade banners and 深淵 boss
   // portraits carry the name as baked-in text, so mirror + transcribe (Gemini
@@ -210,18 +215,46 @@ async function refreshSchedule(
       const key = imageKey(s.iconUrl);
       if (key) keys.add(key);
     }
-    if (keys.size === 0) return;
-    const blocks: Block[] = [...keys].map((key) => ({
-      type: 'image',
-      src: imageUpstreamUrl(key),
-    }));
-    const languages = await getEnabledLanguages(db);
-    await mirrorImages(db, env.IMAGES_BUCKET, blocks);
-    await transcribeImages(db, blocks, env.GEMINI_API_KEY, env.IMAGES_BUCKET);
-    await translateImageTexts(db, env.GEMINI_API_KEY, blocks, languages);
-    log.info(`Transcribed/translated ${blocks.length} schedule icons`);
+    if (keys.size > 0) {
+      const blocks: Block[] = [...keys].map((key) => ({
+        type: 'image',
+        src: imageUpstreamUrl(key),
+      }));
+      await mirrorImages(db, env.IMAGES_BUCKET, blocks);
+      await transcribeImages(db, blocks, env.GEMINI_API_KEY, env.IMAGES_BUCKET);
+      await translateImageTexts(db, env.GEMINI_API_KEY, blocks, languages);
+      log.info(`Transcribed/translated ${keys.size} schedule icons`);
+    }
   } catch (error) {
     log.error('Failed to enrich schedule icons:', error);
+  }
+
+  // Translate the schedule event titles into each enabled language. This is the
+  // "lesser" title translator: it only fills gaps and NEVER overwrites, because
+  // article-pipeline event-title translations are authoritative. Schedule events
+  // aren't article-bound, so this is their only translation source. Best-effort.
+  try {
+    const TITLE_BATCH = 50;
+    const ids = rows.map((r) => r.id);
+    for (const language of languages) {
+      if (language.code === 'ja') continue; // source language, nothing to do
+      const done = await getTranslatedItemIds(db, 'event', ids, language.code);
+      const todo = rows
+        .filter((r) => !done.has(r.id))
+        .map((r) => ({ id: r.id, titleJa: r.titleJa }));
+      for (let i = 0; i < todo.length; i += TITLE_BATCH) {
+        await translateTitleChunk(
+          db,
+          env.GEMINI_API_KEY,
+          'event',
+          language.code,
+          todo.slice(i, i + TITLE_BATCH),
+        );
+      }
+    }
+    log.info('Translated schedule event titles');
+  } catch (error) {
+    log.error('Failed to translate schedule titles:', error);
   }
 }
 

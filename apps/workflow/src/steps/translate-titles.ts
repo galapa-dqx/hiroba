@@ -23,10 +23,10 @@ import {
   setTranslationStates,
   upsertItemTranslation,
   type Database,
+  type ItemType,
 } from '@hiroba/db';
 
 import { createGemini, GEMINI_MODEL, stripCodeFence } from '../gemini';
-import type { ItemType } from '../types';
 
 /**
  * Max titles per LLM call (one workflow step). Titles are short, so this isn't a
@@ -94,7 +94,7 @@ export function parseTitleBatch(raw: string): Map<string, string> {
 export async function translateTitleChunk(
   db: Database,
   apiKey: string,
-  itemType: ItemType,
+  itemType: Exclude<ItemType, 'image'>,
   language: string,
   chunk: ReadonlyArray<{ id: string; titleJa: string }>,
 ): Promise<{ translated: number; failed: number }> {

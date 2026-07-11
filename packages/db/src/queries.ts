@@ -1316,6 +1316,36 @@ export async function replaceScheduleEvents(
 }
 
 /**
+ * The subset of `itemIds` that already has a `done` translation for
+ * (itemType, language, field). Used to skip work — e.g. the "lesser" schedule
+ * title translator only fills gaps and must never re-translate/overwrite.
+ */
+export async function getTranslatedItemIds(
+  db: Database,
+  itemType: ItemType,
+  itemIds: string[],
+  language: string,
+  field: TranslationField = 'title',
+): Promise<Set<string>> {
+  const rows = await chunked(itemIds, (slice) =>
+    db
+      .select({ itemId: translations.itemId })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, itemType),
+          eq(translations.language, language),
+          eq(translations.field, field),
+          eq(translations.state, 'done'),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
+  return new Set(rows.map((r) => r.itemId));
+}
+
+/**
  * Upsert a finished article/event translation row (item_type='news'|'topic'|
  * 'event'), landing state='done' with the value and model attribution. The
  * generic counterpart to upsertTopicTranslation — used by the eager title step
