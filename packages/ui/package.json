@@ -21,7 +21,7 @@
     "lint": "eslint ."
   },
   "peerDependencies": {
-    "astro": "^5.1.0",
+    "astro": "^5.18.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
