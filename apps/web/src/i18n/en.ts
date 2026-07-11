@@ -37,7 +37,7 @@ export const en = {
   // Settings popover
   'settings.aria': 'Settings',
   'settings.theme': 'Theme',
-  'settings.themeGroup': 'Colour theme',
+  'settings.themeGroup': 'Color theme',
   'settings.light': 'Light',
   'settings.dark': 'Dark',
   'settings.times': 'Times',
@@ -100,15 +100,36 @@ export const en = {
   'calendar.today': 'Today',
   'calendar.backToToday': 'Back to today',
 
+  // Defense Force corps (防衛軍 兵団) — short pills shown in the swimlane.
+  // Keyed to lib/corps.ts; unrecognized badges fall back to corps.unknown.
+  'corps.fangs': 'Fangs',
+  'corps.machina': 'Machina',
+  'corps.constructs': 'Constructs',
+  'corps.invaders': 'Invaders',
+  'corps.bones': 'Bones',
+  'corps.shells': 'Shells',
+  'corps.marines': 'Marines',
+  'corps.dragons': 'Dragons',
+  'corps.blobs': 'Blobs',
+  'corps.beauties': 'Beauties',
+  'corps.wings': 'Wings',
+  'corps.woods': 'Woods',
+  'corps.produce': 'Produce',
+  'corps.ingots': 'Ingots',
+  'corps.treasures': 'Treasures',
+  'corps.brigands': 'Brigands',
+  'corps.nightmares': 'Nightmares',
+  'corps.allCorps': 'All Corps',
+  'corps.unknown': '???',
+
   // Agenda band + timeline
   'band.aria': 'Ongoing and all-day events',
   'band.ongoing': 'Ongoing',
   'band.allDay': 'All day',
   'band.rotation': 'Rotation',
   'timeline.empty': 'No timed events on this day.',
-  'timeline.now': 'Now',
   // Game rotation column headers (防衛軍 / メタルーキー battle content).
-  'timeline.swim.defense': 'Defence Force',
+  'timeline.swim.defense': 'Defense Force',
   'timeline.swim.metal': 'Metal Rookie',
 
   // Banner carousel (all aria/labels)
