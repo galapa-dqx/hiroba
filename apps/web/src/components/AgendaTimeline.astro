@@ -65,11 +65,9 @@ const empty =
 ---
 
 <div class="agenda-tl" style={`--swim-count:${lanes.length}`}>
-	{/* Header row: spacers over the gutter + main track, a label per side column. */}
-	<div class="agenda-tl__corner" aria-hidden="true" />
-	<div class="agenda-tl__corner" aria-hidden="true" />
-	{lanes.map((l) => (
-		<div class="agenda-tl__swim-head">{l.label}</div>
+	{/* Header row: a label per side column (placed explicitly). */}
+	{lanes.map((l, i) => (
+		<div class="agenda-tl__swim-head" style={`grid-column:${3 + i}`}>{l.label}</div>
 	))}
 
 	<div class="agenda-tl__gutter" aria-hidden="true">
@@ -87,11 +85,14 @@ const empty =
 		<span class="agenda-tl__turnover-label" hidden></span>
 	</div>
 
-	<div class="agenda-tl__track" data-day-start={dayStartMs}>
+	{/* Hour gridlines, spanning the main track + every side column. */}
+	<div class="agenda-tl__rules" aria-hidden="true">
 		{ticks.map((t) => (
-			<div class="agenda-tl__line" style={`--top:${t.topPct}%`} aria-hidden="true" />
+			<div class="agenda-tl__line" style={`--top:${t.topPct}%`} />
 		))}
+	</div>
 
+	<div class="agenda-tl__track" data-day-start={dayStartMs}>
 		{empty && <p class="agenda-tl__empty">No timed events on this day.</p>}
 
 		<ul class="agenda-tl__bars">
@@ -167,23 +168,18 @@ const empty =
 			})}
 		</ul>
 
-		<div class="agenda-tl__turnover" hidden></div>
-
-		{/* Current-time line (positioned + revealed by the script when today). */}
-		<div class="agenda-tl__now" hidden>
-			<span class="agenda-tl__now-dot" aria-hidden="true"></span>
-			<span class="agenda-tl__now-label">Now</span>
-		</div>
 	</div>
 
-	{lanes.map((l) => (
-		<ul class="agenda-tl__swim" data-lane={l.key}>
+	{lanes.map((l, i) => (
+		<ul class="agenda-tl__swim" data-lane={l.key} style={`grid-column:${3 + i}`}>
 			{l.bars.map(({ event, startFrac, endFrac }) => {
 				const title = event.titleEn ?? event.titleJa;
 				const icon = scheduleInfo(event)?.iconUrl;
 				return (
 					<li
 						class="agenda-tl__swim-bar"
+						data-start={startFrac}
+						data-end={endFrac}
 						style={`--top:${startFrac * 100}%; --h:${(endFrac - startFrac) * 100}%`}
 					>
 						<a
@@ -204,6 +200,16 @@ const empty =
 			})}
 		</ul>
 	))}
+
+	{/* Time markers on top, spanning the main track + every side column. */}
+	<div class="agenda-tl__markers" aria-hidden="true">
+		<div class="agenda-tl__turnover" hidden></div>
+		{/* Current-time line (positioned + revealed by the script when today). */}
+		<div class="agenda-tl__now" hidden>
+			<span class="agenda-tl__now-dot"></span>
+			<span class="agenda-tl__now-label">Now</span>
+		</div>
+	</div>
 </div>
 
 <style>
@@ -213,21 +219,39 @@ const empty =
 		grid-template-rows: auto 1fr;
 		gap: 0;
 	}
-	.agenda-tl__gutter,
-	.agenda-tl__track {
+	/* All time layers live in body row 2, placed explicitly so the gridline and
+	   marker overlays can span the main track + every side column. */
+	.agenda-tl__gutter {
+		grid-row: 2;
+		grid-column: 1;
 		position: relative;
 	}
+	.agenda-tl__rules,
+	.agenda-tl__markers {
+		grid-row: 2;
+		grid-column: 2 / -1;
+		position: relative;
+	}
+	.agenda-tl__rules {
+		z-index: 0;
+	}
+	.agenda-tl__markers {
+		z-index: 5;
+		pointer-events: none;
+	}
 	.agenda-tl__track {
+		grid-row: 2;
+		grid-column: 2;
+		z-index: 1;
+		position: relative;
 		height: clamp(620px, 74vh, 980px);
 		border-left: 1px solid var(--rule-strong);
-	}
-	.agenda-tl__corner {
-		min-height: 0;
 	}
 
 	/* Reserved side columns for the always-on dense rotations (防衛軍・メタルーキー),
 	   so a busy hourly schedule never reflows the main events. */
 	.agenda-tl__swim-head {
+		grid-row: 1;
 		font-size: 0.62rem;
 		font-weight: 700;
 		letter-spacing: 0.02em;
@@ -237,12 +261,20 @@ const empty =
 		align-self: end;
 	}
 	.agenda-tl__swim {
+		grid-row: 2;
+		z-index: 1;
 		position: relative;
 		list-style: none;
 		margin: 0;
 		padding: 0;
 		border-left: 1px solid var(--rule);
-		background: color-mix(in oklch, var(--purple-9) 5%, transparent);
+	}
+	/* The active brigade / rookie march at the current time. */
+	.agenda-tl__swim-bar.is-now .agenda-tl__swim-inner {
+		outline: 2px solid var(--red-9);
+		outline-offset: -1px;
+		border-radius: 3px;
+		background: color-mix(in oklch, var(--red-9) 12%, transparent);
 	}
 	.agenda-tl__swim-bar {
 		position: absolute;
@@ -549,14 +581,21 @@ const empty =
 
 	// Current-time line — independent of the timezone preference (now is now).
 	// Only lands inside the axis when the day being viewed is today; re-placed
-	// every couple of minutes so it keeps up on a page left open.
+	// every couple of minutes so it keeps up on a page left open. Also flags the
+	// brigade / rookie-march bar active at this moment in the side columns.
 	const now = document.querySelector<HTMLElement>(".agenda-tl__now");
+	const swimBars = document.querySelectorAll<HTMLElement>(".agenda-tl__swim-bar");
 	if (now && Number.isFinite(dayStartMs)) {
 		const placeNow = () => {
 			const frac = (Date.now() - dayStartMs) / DAY_MS;
 			const onToday = frac > 0 && frac < 1;
 			if (onToday) now.style.top = `${frac * 100}%`;
 			now.hidden = !onToday;
+			for (const bar of swimBars) {
+				const start = Number(bar.dataset.start);
+				const end = Number(bar.dataset.end);
+				bar.classList.toggle("is-now", onToday && frac >= start && frac < end);
+			}
 		};
 		placeNow();
 		setInterval(placeNow, 120_000);
