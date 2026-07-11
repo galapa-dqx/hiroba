@@ -4,6 +4,7 @@ import Layout from "../../layouts/Layout.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import { createDb, getEventsForDay } from "@hiroba/db";
 import { AGENDA_ZONE, buildDayAgenda } from "../../lib/day-agenda";
+import { labelScheduleIcons } from "../../lib/schedule-labels";
 import AgendaBand from "../../components/AgendaBand.astro";
 import AgendaTimeline from "../../components/AgendaTimeline.astro";
 
@@ -28,6 +29,8 @@ if (dateParam) {
 }
 
 const events = await getEventsForDay(db, day, lang);
+// Fold transcribed/translated icon names into the icon-only schedule events.
+await labelScheduleIcons(db, events, lang);
 const { band, bars, milestones } = buildDayAgenda(events, day);
 
 const isToday = day.equals(today);

@@ -22,6 +22,7 @@ import {
   type Database,
   type ListItem,
 } from '@hiroba/db';
+import { imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   crawlPlayguides,
   fetchGlossary,
@@ -34,6 +35,9 @@ import { CATEGORIES } from '@hiroba/shared';
 import { createLogger, type Logger } from './logger';
 import { processRechecks } from './recheck';
 import { buildScheduleEvents } from './steps/build-schedule-events';
+import { mirrorImages } from './steps/mirror-images';
+import { transcribeImages } from './steps/transcribe-images';
+import { translateImageTexts } from './steps/translate-image-texts';
 import type { Env, ItemType } from './types';
 
 // Export the Durable Object and Workflow classes
@@ -148,7 +152,7 @@ export default Sentry.withSentry(
       if (isGlossaryRefresh) {
         await refreshGlossary(db, log);
         await refreshPlayguides(db, env, log);
-        await refreshSchedule(db, log);
+        await refreshSchedule(db, env, log);
       } else {
         await refreshNews(db, env, log);
         await refreshTopics(db, env, log);
@@ -179,14 +183,45 @@ async function refreshBanners(env: Env, log: Logger): Promise<void> {
  * `events` rows. Deterministic (no LLM/Workflow) — parse straight to rows.
  * Best-effort: a scrape/parse failure is logged, never fails the cron.
  */
-async function refreshSchedule(db: Database, log: Logger): Promise<void> {
+async function refreshSchedule(
+  db: Database,
+  env: Env,
+  log: Logger,
+): Promise<void> {
+  let forecast;
   try {
-    const forecast = await fetchTsuyosaForecast();
+    forecast = await fetchTsuyosaForecast();
     const rows = buildScheduleEvents(forecast, Temporal.Now.instant());
     await replaceScheduleEvents(db, rows);
     log.info(`Refreshed schedule events (${rows.length} rows)`);
   } catch (error) {
     log.error('Failed to refresh schedule events:', error);
+    return;
+  }
+
+  // Enrich the icon-only sections: the 防衛軍 brigade banners and 深淵 boss
+  // portraits carry the name as baked-in text, so mirror + transcribe (Gemini
+  // vision) + translate them through the shared image pipeline. The calendar
+  // reads the resulting name back per image key. Idempotent (only new icons
+  // cost anything) and best-effort — a failure never fails the cron.
+  try {
+    const keys = new Set<string>();
+    for (const s of [...forecast.defense, ...forecast.abyss]) {
+      const key = imageKey(s.iconUrl);
+      if (key) keys.add(key);
+    }
+    if (keys.size === 0) return;
+    const blocks: Block[] = [...keys].map((key) => ({
+      type: 'image',
+      src: imageUpstreamUrl(key),
+    }));
+    const languages = await getEnabledLanguages(db);
+    await mirrorImages(db, env.IMAGES_BUCKET, blocks);
+    await transcribeImages(db, blocks, env.GEMINI_API_KEY, env.IMAGES_BUCKET);
+    await translateImageTexts(db, env.GEMINI_API_KEY, blocks, languages);
+    log.info(`Transcribed/translated ${blocks.length} schedule icons`);
+  } catch (error) {
+    log.error('Failed to enrich schedule icons:', error);
   }
 }
 
