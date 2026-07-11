@@ -26,6 +26,7 @@ import {
   computeImageDetail,
   computeSnapshot,
   createDb,
+  getActiveWorkflowRun,
   getEnabledLanguages,
   getNewsItem,
   getPlayguide,
@@ -272,43 +273,87 @@ export class WorkflowManager extends DurableObject<Env> {
   }
 
   /**
+   * True when the Workflows engine still reports this instance as in-flight
+   * (running or queued). A get/status miss — the engine evicted or expired the
+   * instance — counts as not-live, so callers start a fresh run.
+   */
+  private async isInstanceLive(instanceId: string): Promise<boolean> {
+    try {
+      const status = await (
+        await this.env.ARTICLE_WORKFLOW.get(instanceId)
+      ).status();
+      return status.status === 'running' || status.status === 'queued';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Ensure an ArticleWorkflow is running for this item and return the tracked
-   * handle. Dedupes: an in-flight run (queued/running) is reused, a
-   * finished/forgotten one starts fresh. Records the run in the registry
-   * (best-effort — a registry miss must never fail the trigger). Shared by the
+   * handle. Dedupes so an item never has two in-flight runs at once:
+   *
+   *  - the whole check-and-create runs inside `blockConcurrencyWhile`, so a
+   *    burst of concurrent triggers to this DO (e.g. a page's fire-and-forget
+   *    POST /trigger racing its own self-healing SSE stream) is serialized —
+   *    the first creates, the rest observe it and reuse;
+   *  - it consults the durable `workflow_runs` registry, not just the
+   *    in-memory map, so a trigger landing on a freshly-evicted DO (empty map)
+   *    still finds an in-flight run instead of starting a duplicate.
+   *
+   * A finished/forgotten run starts fresh. Recording the new run is
+   * best-effort — a registry miss must never fail the trigger. Shared by the
    * `/trigger` endpoint and the self-healing SSE stream.
    */
   private async ensureArticleWorkflow(
     itemId: string,
     itemType: ItemType,
   ): Promise<Active> {
-    const workflow = this.env.ARTICLE_WORKFLOW;
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const workflow = this.env.ARTICLE_WORKFLOW;
+      const db = createDb(this.env.DB);
 
-    const existing = this.activeWorkflows.get(itemId);
-    if (existing) {
-      try {
-        const status = await (await workflow.get(existing.instanceId)).status();
-        if (status.status === 'running' || status.status === 'queued') {
-          return existing;
-        }
-      } catch {
-        // The engine no longer knows the instance — fall through, start fresh.
+      // Fast path: a warm DO remembers the run in memory.
+      const existing = this.activeWorkflows.get(itemId);
+      if (existing && (await this.isInstanceLive(existing.instanceId))) {
+        return existing;
       }
-    }
 
-    const instance = await workflow.create({ params: { itemId, itemType } });
-    const active: Active = { instanceId: instance.id, itemType };
-    this.activeWorkflows.set(itemId, active);
-    try {
-      await recordWorkflowRun(createDb(this.env.DB), {
-        instanceId: instance.id,
-        itemType,
-        itemId,
-      });
-    } catch (error) {
-      console.error('Failed to record workflow run:', error);
-    }
-    return active;
+      // Durable path: the map is empty after an eviction, so fall back to the
+      // registry — reuse any run for this item the engine still says is live.
+      const registered = await getActiveWorkflowRun(db, itemType, itemId);
+      if (registered) {
+        if (await this.isInstanceLive(registered.instanceId)) {
+          const active: Active = {
+            instanceId: registered.instanceId,
+            itemType,
+          };
+          this.activeWorkflows.set(itemId, active);
+          return active;
+        }
+        // The registry says active but the engine forgot it — settle the stale
+        // row so it stops shadowing this fresh run (and leaves the tracker).
+        await updateWorkflowRunStatus(
+          db,
+          registered.instanceId,
+          'unknown',
+          'Instance no longer known to the Workflows engine',
+        );
+      }
+
+      const instance = await workflow.create({ params: { itemId, itemType } });
+      const active: Active = { instanceId: instance.id, itemType };
+      this.activeWorkflows.set(itemId, active);
+      try {
+        await recordWorkflowRun(db, {
+          instanceId: instance.id,
+          itemType,
+          itemId,
+        });
+      } catch (error) {
+        console.error('Failed to record workflow run:', error);
+      }
+      return active;
+    });
   }
 
   /**

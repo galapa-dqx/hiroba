@@ -1913,6 +1913,35 @@ export async function recordWorkflowRun(
     .onConflictDoNothing();
 }
 
+/**
+ * The newest still-active run for an item, or null. This is the dedup source
+ * of truth for the WorkflowManager DO: unlike its in-memory map, it survives
+ * DO eviction, so a trigger arriving at a cold DO can find (and reuse) a run
+ * already in flight instead of starting a duplicate. The partial unique index
+ * on active `(item_type, item_id)` keeps this to at most one row, but we order
+ * and limit defensively.
+ */
+export async function getActiveWorkflowRun(
+  db: Database,
+  itemType: ArticleType,
+  itemId: string,
+): Promise<WorkflowRun | null> {
+  const row = await db
+    .select()
+    .from(workflowRuns)
+    .where(
+      and(
+        eq(workflowRuns.itemType, itemType),
+        eq(workflowRuns.itemId, itemId),
+        inArray(workflowRuns.status, [...ACTIVE_RUN_STATUSES]),
+      ),
+    )
+    .orderBy(desc(workflowRuns.startedAt))
+    .limit(1)
+    .get();
+  return row ?? null;
+}
+
 /** Reconcile a run row with the status the Workflows engine reported. */
 export async function updateWorkflowRunStatus(
   db: Database,

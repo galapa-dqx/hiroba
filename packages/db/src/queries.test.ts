@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   ensureImageRows,
   failPipelineStates,
+  getActiveWorkflowRun,
   getImagesByKeys,
   getImageTranslations,
   getImageTranslationStates,
@@ -1147,6 +1148,77 @@ describe('workflow run registry', () => {
       settledSince: Temporal.Instant.fromEpochMilliseconds(0),
     });
     expect(runs.map((r) => r.instanceId)).toEqual(['wf-active']);
+  });
+});
+
+describe('active-run dedup (getActiveWorkflowRun + partial unique index)', () => {
+  it('returns the in-flight run for an item, and nothing once it settles', async () => {
+    expect(
+      await getActiveWorkflowRun(ctx.db, 'playguide', 'guide01'),
+    ).toBeNull();
+
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-a',
+      itemType: 'playguide',
+      itemId: 'guide01',
+    });
+
+    expect(
+      (await getActiveWorkflowRun(ctx.db, 'playguide', 'guide01'))?.instanceId,
+    ).toBe('wf-a');
+    // A different item (or type) doesn't match.
+    expect(
+      await getActiveWorkflowRun(ctx.db, 'playguide', 'guide02'),
+    ).toBeNull();
+    expect(await getActiveWorkflowRun(ctx.db, 'news', 'guide01')).toBeNull();
+
+    // Once it settles it's no longer "active".
+    await updateWorkflowRunStatus(ctx.db, 'wf-a', 'complete');
+    expect(
+      await getActiveWorkflowRun(ctx.db, 'playguide', 'guide01'),
+    ).toBeNull();
+  });
+
+  it('admits only one active run per item, and a fresh one after it settles', async () => {
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-1',
+      itemType: 'playguide',
+      itemId: 'guide01',
+    });
+    // A second active row for the same item is silently dropped — the partial
+    // unique index conflicts and recordWorkflowRun's onConflictDoNothing
+    // swallows it, so the tracker can never show a duplicate.
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-2',
+      itemType: 'playguide',
+      itemId: 'guide01',
+    });
+    expect(
+      (await listWorkflowRuns(ctx.db))
+        .filter((r) => r.itemId === 'guide01')
+        .map((r) => r.instanceId),
+    ).toEqual(['wf-1']);
+
+    // A concurrently-active *different* item is unaffected.
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-other',
+      itemType: 'playguide',
+      itemId: 'guide02',
+    });
+    expect(
+      (await getActiveWorkflowRun(ctx.db, 'playguide', 'guide02'))?.instanceId,
+    ).toBe('wf-other');
+
+    // After the first settles, a new run for the same item is allowed again.
+    await updateWorkflowRunStatus(ctx.db, 'wf-1', 'complete');
+    await recordWorkflowRun(ctx.db, {
+      instanceId: 'wf-3',
+      itemType: 'playguide',
+      itemId: 'guide01',
+    });
+    expect(
+      (await getActiveWorkflowRun(ctx.db, 'playguide', 'guide01'))?.instanceId,
+    ).toBe('wf-3');
   });
 });
 

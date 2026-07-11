@@ -7,6 +7,11 @@
  * runs enumerable. `status` mirrors instance.status() and is reconciled
  * lazily whenever runs are listed; per-step progress is NOT stored here — it
  * is computed from the pipeline-state columns (the D1 ground truth).
+ *
+ * A partial unique index on active `(item_type, item_id)` (migration 0018)
+ * enforces at most one in-flight run per item — the durable backstop behind
+ * WorkflowManager's dedup, so an evicted DO or a burst of concurrent triggers
+ * can't surface the same item as several parallel runs.
  */
 
 import { sql } from 'drizzle-orm';
