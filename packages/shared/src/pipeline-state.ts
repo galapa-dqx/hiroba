@@ -181,30 +181,77 @@ export type WorkflowRunEntry = {
   images: ImagePipelineDetail[];
 };
 
-const counted = (label: string, p: StepProgress): string =>
-  `${label} (${p.done + p.failed}/${p.total})…`;
+/**
+ * Presentation templates for {@link describeSnapshot}. English by default (see
+ * {@link DEFAULT_STATUS_STRINGS}); the web app injects a localized set so the
+ * processing callout speaks the reader's language. Count tokens (`{count}`,
+ * `{total}`, `{failed}`) are substituted by the formatter.
+ */
+export type StatusStrings = {
+  fetchFailed: string;
+  fetching: string;
+  /** `{count}`/`{total}` — images mirrored so far. */
+  downloadingImages: string;
+  /** `{count}`/`{total}` — images transcribed so far. */
+  readingImageText: string;
+  translationFailed: string;
+  translating: string;
+  /** `{count}`/`{total}` — images localized so far. */
+  translatingImages: string;
+  /** `{failed}` — exactly one image failed to localize. */
+  imagesFailedOne: string;
+  /** `{failed}` — more than one image failed to localize. */
+  imagesFailedOther: string;
+  finishing: string;
+};
+
+/** Canonical English copy, and the fallback when no strings are injected. */
+export const DEFAULT_STATUS_STRINGS: StatusStrings = {
+  fetchFailed: 'Failed to fetch the article.',
+  fetching: 'Fetching content…',
+  downloadingImages: 'Downloading images ({count}/{total})…',
+  readingImageText: 'Reading image text ({count}/{total})…',
+  translationFailed: 'Translation failed.',
+  translating: 'Translating…',
+  translatingImages: 'Translating images ({count}/{total})…',
+  imagesFailedOne: 'Done — {failed} image could not be localized.',
+  imagesFailedOther: 'Done — {failed} images could not be localized.',
+  finishing: 'Finishing up…',
+};
+
+const fillCount = (template: string, p: StepProgress): string =>
+  template
+    .replace('{count}', String(p.done + p.failed))
+    .replace('{total}', String(p.total));
 
 /**
  * Human-readable progress line for a snapshot, in pipeline order. Presentation
  * lives client-side on purpose — the wire protocol stays machine-readable.
+ * Pass a localized {@link StatusStrings} to render in the reader's language;
+ * omit it for the English default.
  */
-export function describeSnapshot(s: StateSnapshot): string {
-  if (s.article === 'failed') return 'Failed to fetch the article.';
-  if (s.article !== 'done') return 'Fetching content…';
+export function describeSnapshot(
+  s: StateSnapshot,
+  strings: StatusStrings = DEFAULT_STATUS_STRINGS,
+): string {
+  if (s.article === 'failed') return strings.fetchFailed;
+  if (s.article !== 'done') return strings.fetching;
   if (s.images) {
     if (!isProgressSettled(s.images.mirror))
-      return counted('Downloading images', s.images.mirror);
+      return fillCount(strings.downloadingImages, s.images.mirror);
     if (!isProgressSettled(s.images.transcribe))
-      return counted('Reading image text', s.images.transcribe);
+      return fillCount(strings.readingImageText, s.images.transcribe);
   }
-  if (s.translation === 'failed') return 'Translation failed.';
-  if (s.translation !== 'done') return 'Translating…';
+  if (s.translation === 'failed') return strings.translationFailed;
+  if (s.translation !== 'done') return strings.translating;
   if (s.images?.localize) {
     const { failed } = s.images.localize;
     if (!isProgressSettled(s.images.localize))
-      return counted('Translating images', s.images.localize);
+      return fillCount(strings.translatingImages, s.images.localize);
     if (failed > 0)
-      return `Done — ${failed} image${failed === 1 ? '' : 's'} could not be localized.`;
+      return (
+        failed === 1 ? strings.imagesFailedOne : strings.imagesFailedOther
+      ).replace('{failed}', String(failed));
   }
-  return 'Finishing up…';
+  return strings.finishing;
 }

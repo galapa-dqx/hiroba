@@ -15,9 +15,10 @@ const JST_TZ = 'Asia/Tokyo';
 /** Anything `new Date()` accepts: an ISO instant string, epoch ms, or a Date. */
 type DateInput = string | number | Date;
 
-/** en-US short calendar date ("Jun 26, 2026") in the viewer's local zone. */
-export function formatShortDate(value: DateInput): string {
-  return new Date(value).toLocaleDateString('en-US', {
+/** Short calendar date ("Jun 26, 2026") in the viewer's local zone. Defaults to
+ *  en-US; pass a BCP-47 `locale` (the active UI language) to localize it. */
+export function formatShortDate(value: DateInput, locale = 'en-US'): string {
+  return new Date(value).toLocaleDateString(locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -29,9 +30,13 @@ export function formatLocal(value: DateInput): string {
   return new Date(value).toLocaleString();
 }
 
-/** en-US short date + time ("Jun 26, 2026, 9:00 PM") in the viewer's local zone. */
-export function formatLocalDateTime(value: DateInput): string {
-  return new Date(value).toLocaleString('en-US', {
+/** Short date + time ("Jun 26, 2026, 9:00 PM") in the viewer's local zone.
+ *  Defaults to en-US; pass a BCP-47 `locale` to localize it. */
+export function formatLocalDateTime(
+  value: DateInput,
+  locale = 'en-US',
+): string {
+  return new Date(value).toLocaleString(locale, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -45,9 +50,10 @@ export function formatLocalDate(value: DateInput): string {
   return new Date(value).toLocaleDateString();
 }
 
-/** Format a UTC instant as a JST (Asia/Tokyo) calendar date. */
-export function formatJstDate(value: DateInput): string {
-  return new Date(value).toLocaleDateString('en-US', {
+/** Format a UTC instant as a JST (Asia/Tokyo) calendar date. Defaults to en-US;
+ *  pass a BCP-47 `locale` to localize the month/format. */
+export function formatJstDate(value: DateInput, locale = 'en-US'): string {
+  return new Date(value).toLocaleDateString(locale, {
     timeZone: JST_TZ,
     year: 'numeric',
     month: 'short',
@@ -55,9 +61,10 @@ export function formatJstDate(value: DateInput): string {
   });
 }
 
-/** Format a UTC instant as JST (Asia/Tokyo) date + time. */
-export function formatJst(value: DateInput): string {
-  return new Date(value).toLocaleString('en-US', {
+/** Format a UTC instant as JST (Asia/Tokyo) date + time. Defaults to en-US;
+ *  pass a BCP-47 `locale` to localize the month/format. */
+export function formatJst(value: DateInput, locale = 'en-US'): string {
+  return new Date(value).toLocaleString(locale, {
     timeZone: JST_TZ,
     year: 'numeric',
     month: 'short',
