@@ -1,0 +1,146 @@
+---
+/**
+ * AgendaBand — the "spanning the whole day" strip above the timeline: ongoing
+ * multi-day events and all-day events, which have no useful position on a 24h
+ * axis. Date-granular by nature, so times stay in JST (shifting a bare calendar
+ * date across zones is meaningless — the same call EventsRail makes).
+ */
+import { formatJstDate } from "@hiroba/ui/format-date";
+import type { BandItem } from "../lib/day-agenda";
+
+interface Props {
+	band: BandItem[];
+	lang: string;
+}
+const { band, lang } = Astro.props;
+
+const TYPE_LABELS: Record<string, string> = {
+	multiDay: "Ongoing",
+	span: "Ongoing",
+	allDay: "All day",
+};
+
+/** Article the event was extracted from, if any. */
+function sourceHref(e: BandItem["event"]): string | null {
+	if (!e.sourceId || !e.sourceType) return null;
+	const seg = e.sourceType === "news" ? "news" : "topics";
+	return `/${lang}/${seg}/${e.sourceId}`;
+}
+
+/** JST date range; a single date for all-day events. */
+function dateRange(e: BandItem["event"]): string {
+	const start = formatJstDate(e.startTime.toInstant().toString());
+	if (!e.endTime) return start;
+	const end = formatJstDate(e.endTime.toInstant().toString());
+	return start === end ? start : `${start} – ${end}`;
+}
+---
+
+{
+	band.length > 0 && (
+		<ol class="agenda-band" aria-label="Ongoing and all-day events">
+			{band.map(({ event }) => {
+				const href = sourceHref(event);
+				const title = event.titleEn ?? event.titleJa;
+				return (
+					<li class="agenda-band__item" data-etype={event.type} data-linked={href ? "" : undefined}>
+						{href && (
+							<a class="agenda-band__link" href={href} aria-label={title} />
+						)}
+						<span class="agenda-band__type">
+							{TYPE_LABELS[event.type] ?? event.type}
+						</span>
+						<p class="agenda-band__name">{title}</p>
+						<span class="agenda-band__when">{dateRange(event)} JST</span>
+					</li>
+				);
+			})}
+		</ol>
+	)
+}
+
+<style>
+	.agenda-band {
+		list-style: none;
+		margin: 0 0 1.1rem;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.agenda-band__item {
+		position: relative;
+		display: grid;
+		grid-template-columns: auto 1fr auto;
+		align-items: baseline;
+		gap: 0.5rem 0.75rem;
+		padding: 0.55rem 0.8rem;
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklch, var(--surface-panel), var(--gold) 4%),
+			color-mix(in oklch, var(--surface-sunken), var(--gold) 8%)
+		);
+		border: 1px solid var(--gold-edge);
+		border-left: 4px solid var(--cat, var(--gold-mid));
+		box-shadow: var(--inset-top), var(--shadow-sm);
+		transition:
+			filter 0.12s ease,
+			box-shadow 0.12s ease;
+	}
+	/* Stretched overlay link makes the whole card clickable. */
+	.agenda-band__link {
+		position: absolute;
+		inset: 0;
+	}
+	.agenda-band__item[data-linked]:hover {
+		filter: brightness(1.02);
+		box-shadow: var(--inset-top), var(--shadow-md);
+	}
+	.agenda-band__item[data-linked]:hover .agenda-band__name {
+		text-decoration: underline;
+	}
+	.agenda-band__item[data-etype="multiDay"],
+	.agenda-band__item[data-etype="span"] {
+		--cat: var(--gold-mid);
+	}
+	.agenda-band__item[data-etype="allDay"] {
+		--cat: var(--green-9);
+	}
+	.agenda-band__type {
+		font-size: 0.64rem;
+		font-weight: 800;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+		white-space: nowrap;
+	}
+	.agenda-band__name {
+		margin: 0;
+		font-size: 0.95rem;
+		font-weight: 650;
+		line-height: 1.3;
+		color: var(--ink);
+	}
+	.agenda-band__name a {
+		color: inherit;
+		text-decoration: none;
+	}
+	.agenda-band__name a:hover {
+		color: var(--gold-edge);
+		text-decoration: underline;
+	}
+	.agenda-band__when {
+		font-size: 0.8rem;
+		color: var(--ink-soft);
+		white-space: nowrap;
+	}
+	@media (max-width: 600px) {
+		.agenda-band__item {
+			grid-template-columns: auto 1fr;
+		}
+		.agenda-band__when {
+			grid-column: 2;
+			white-space: normal;
+		}
+	}
+</style>

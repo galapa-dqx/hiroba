@@ -1223,8 +1223,57 @@ export async function getEventsForSource(
     )
     .orderBy(asc(events.startTime))
     .all();
-  if (rows.length === 0) return [];
+  return mergeEventTitles(db, rows, language);
+}
 
+/**
+ * Fetch every event overlapping a single JST calendar day, ordered by start
+ * time, each merged with its title translation. Powers the day-scoped agenda
+ * timeline page. An event overlaps the day `[dayStart, dayEnd)` when it starts
+ * before the day ends and its effective end (its own end, or its start for the
+ * end-less allDay/mark rows) lands on or after the day starts.
+ *
+ * Bounds are compared as the stored RFC9557 strings: all rows share the
+ * `[Asia/Tokyo]` zone and a fixed format, so lexicographic order matches
+ * chronological order.
+ */
+export async function getEventsForDay(
+  db: Database,
+  jstDate: Temporal.PlainDate,
+  language: string = 'en',
+): Promise<EventWithTitle[]> {
+  const dayStart = jstDate.toZonedDateTime('Asia/Tokyo');
+  const dayEnd = dayStart.add({ days: 1 });
+  const rows = await db
+    .select()
+    .from(events)
+    .where(
+      and(
+        lt(events.startTime, dayEnd),
+        gte(
+          sql`COALESCE(${events.endTime}, ${events.startTime})`,
+          // Serialize with the column's own driver mapping (offset: 'never').
+          dayStart.toString({ offset: 'never' }),
+        ),
+      ),
+    )
+    .orderBy(asc(events.startTime))
+    .all();
+  return mergeEventTitles(db, rows, language);
+}
+
+/**
+ * Merge each event row with its title translation for `language`. Shared by the
+ * per-source and per-day fetches. Stale-while-revalidate: keep a running
+ * re-translation's prior value; skip only value-less rows (mirrors
+ * getArticleTranslations).
+ */
+async function mergeEventTitles(
+  db: Database,
+  rows: Event[],
+  language: string,
+): Promise<EventWithTitle[]> {
+  if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
   const trans = await chunked(ids, (slice) =>
     db
@@ -1240,8 +1289,6 @@ export async function getEventsForSource(
       )
       .all(),
   );
-  // Stale-while-revalidate: keep a running re-translation's prior value; skip
-  // only value-less rows (mirrors getArticleTranslations).
   const byId = new Map(
     trans.filter((t) => t.value !== null).map((t) => [t.itemId, t.value]),
   );

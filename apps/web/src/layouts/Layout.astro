@@ -2,7 +2,7 @@
 import { CATEGORIES, CATEGORY_LABELS, type Category } from "@hiroba/shared";
 import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
-import ThemeToggle from "@hiroba/ui/ThemeToggle.astro";
+import SettingsMenu from "../components/SettingsMenu.astro";
 import "@hiroba/ui/styles/palette.css";
 import "../styles/global.css";
 
@@ -117,31 +117,19 @@ const alternateLinks =
 					>
 						Play Guide
 					</a>
-					{
-						languages.length > 1 && (
-							<details class="nav-menu nav-menu--end">
-								<summary aria-label="Change language">
-									<span aria-hidden="true">🌐</span>
-									{languages.find((l) => l.code === lang)?.nativeLabel ?? lang}
-								</summary>
-								<ul>
-									{languages.map((l) => (
-										<li>
-											<a
-												href={`/${l.code}${pathAfterLang}${Astro.url.search}`}
-												lang={l.code}
-												hreflang={l.code}
-												aria-current={l.code === lang ? "page" : undefined}
-											>
-												{l.nativeLabel}
-											</a>
-										</li>
-									))}
-								</ul>
-							</details>
-						)
-					}
-					<ThemeToggle />
+					<a
+						class="nav__link"
+						href={`${base}/calendar`}
+						aria-current={pathAfterLang.startsWith("/calendar") ? "page" : undefined}
+					>
+						Calendar
+					</a>
+					<SettingsMenu
+						lang={lang}
+						languages={languages}
+						pathAfterLang={pathAfterLang}
+						search={Astro.url.search}
+					/>
 				</nav>
 			</div>
 		</header>

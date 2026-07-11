@@ -155,14 +155,18 @@ function jstText(zdt: EventWithTitle["startTime"], type: string): string {
 
 <script>
 	import { localizeTimeElement } from "../scripts/localize-times";
+	import { localizeTimes } from "../scripts/time-pref";
 
 	// Relocalize timed events to the viewer's zone (date-granular events stay in
-	// JST). Matches the treatment of the inline rt-time annotations.
-	for (const el of document.querySelectorAll<HTMLTimeElement>(
-		".events-rail time[data-etype]",
-	)) {
-		const type = el.dataset.etype;
-		if (type === "multiDay" || type === "allDay") continue;
-		localizeTimeElement(el);
+	// JST). Matches the treatment of the inline rt-time annotations. Skipped when
+	// the viewer has chosen to keep times in JST.
+	if (localizeTimes()) {
+		for (const el of document.querySelectorAll<HTMLTimeElement>(
+			".events-rail time[data-etype]",
+		)) {
+			const type = el.dataset.etype;
+			if (type === "multiDay" || type === "allDay") continue;
+			localizeTimeElement(el);
+		}
 	}
 </script>

@@ -1,0 +1,251 @@
+---
+/**
+ * SettingsMenu — the nav's gear popover, consolidating the three viewer
+ * preferences: colour theme, time zone (Local ↔ JST — see time-pref.ts), and
+ * language. Theme + timezone persist to localStorage and apply client-side;
+ * language is a URL prefix, so those are plain links.
+ */
+interface Props {
+	lang: string;
+	languages: App.SiteLanguage[];
+	/** Language-independent remainder of the path, for the language links. */
+	pathAfterLang: string;
+	/** Current query string, preserved across language switches. */
+	search: string;
+}
+const { lang, languages, pathAfterLang, search } = Astro.props;
+---
+
+<details class="settings-menu">
+	<summary aria-label="Settings">
+		<svg
+			class="settings-menu__gear"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.7"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			aria-hidden="true"
+		>
+			<circle cx="12" cy="12" r="3.1"></circle>
+			<path
+				d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+			></path>
+		</svg>
+	</summary>
+
+	<div class="settings-menu__panel">
+		<fieldset class="settings-menu__group">
+			<legend>Theme</legend>
+			<div class="seg" role="group" aria-label="Colour theme">
+				<button type="button" class="seg__btn" data-theme-set="light">Light</button>
+				<button type="button" class="seg__btn" data-theme-set="dark">Dark</button>
+			</div>
+		</fieldset>
+
+		<fieldset class="settings-menu__group">
+			<legend>Times</legend>
+			<div class="seg" role="group" aria-label="Time zone">
+				<button type="button" class="seg__btn" data-tz-set="local">Local</button>
+				<button type="button" class="seg__btn" data-tz-set="jst">JST</button>
+			</div>
+		</fieldset>
+
+		{
+			languages.length > 1 && (
+				<fieldset class="settings-menu__group">
+					<legend>Language</legend>
+					<ul class="settings-menu__langs">
+						{languages.map((l) => (
+							<li>
+								<a
+									href={`/${l.code}${pathAfterLang}${search}`}
+									lang={l.code}
+									hreflang={l.code}
+									aria-current={l.code === lang ? "page" : undefined}
+								>
+									{l.nativeLabel}
+								</a>
+							</li>
+						))}
+					</ul>
+				</fieldset>
+			)
+		}
+	</div>
+</details>
+
+<style>
+	.settings-menu {
+		position: relative;
+	}
+	.settings-menu summary {
+		list-style: none;
+		cursor: pointer;
+		display: inline-grid;
+		place-items: center;
+		width: 2.1rem;
+		height: 2.1rem;
+		color: var(--gold-ink);
+		background: linear-gradient(180deg, var(--surface-panel), var(--surface-panel-2));
+		border: 1px solid var(--border-strong);
+		box-shadow: var(--inset-top), var(--shadow-sm);
+		transition: color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+	}
+	.settings-menu summary::-webkit-details-marker {
+		display: none;
+	}
+	.settings-menu summary:hover {
+		color: var(--gold-edge);
+		border-color: var(--gold-edge);
+		transform: translateY(-1px);
+	}
+	.settings-menu[open] summary {
+		color: var(--gold-edge);
+		border-color: var(--gold-edge);
+	}
+	.settings-menu__gear {
+		width: 1.2rem;
+		height: 1.2rem;
+	}
+
+	.settings-menu__panel {
+		position: absolute;
+		right: 0;
+		margin-top: 0.3rem;
+		padding: 0.6rem;
+		min-width: 12rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.7rem;
+		background: var(--surface-panel);
+		border: 1px solid var(--rule-strong);
+		box-shadow: var(--shadow-md);
+		z-index: 60;
+	}
+	.settings-menu__group {
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+	.settings-menu__group legend {
+		padding: 0;
+		margin-bottom: 0.35rem;
+		font-size: 0.66rem;
+		font-weight: 800;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ink-faint);
+	}
+
+	/* Segmented control (theme / timezone) */
+	.seg {
+		display: grid;
+		grid-auto-flow: column;
+		grid-auto-columns: 1fr;
+		border: 1px solid var(--border-strong);
+	}
+	.seg__btn {
+		appearance: none;
+		cursor: pointer;
+		padding: 0.35rem 0.5rem;
+		font-family: var(--font-body);
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--ink-soft);
+		background: linear-gradient(180deg, var(--surface-panel), var(--surface-panel-2));
+		border: 0;
+		border-right: 1px solid var(--border);
+	}
+	.seg__btn:last-child {
+		border-right: 0;
+	}
+	.seg__btn:hover {
+		color: var(--ink);
+	}
+	.seg__btn.is-active {
+		color: var(--surface-panel);
+		background: linear-gradient(180deg, var(--gold-mid), var(--gold-edge));
+	}
+
+	.settings-menu__langs {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+	.settings-menu__langs a {
+		display: block;
+		padding: 0.3rem 0.45rem;
+		font-size: 0.9rem;
+		font-weight: 600;
+		color: var(--ink-soft);
+		text-decoration: none;
+	}
+	.settings-menu__langs a:hover,
+	.settings-menu__langs a[aria-current="page"] {
+		color: var(--gold-edge);
+	}
+</style>
+
+<script>
+	import { getTimePref } from "../scripts/time-pref";
+
+	const root = document.documentElement;
+
+	/** Effective theme, honouring the system preference when unset. */
+	const currentTheme = (): "light" | "dark" =>
+		(root.dataset.theme as "light" | "dark") ||
+		(window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+
+	function paintActive(): void {
+		const theme = currentTheme();
+		const tz = getTimePref();
+		for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-theme-set]")) {
+			btn.classList.toggle("is-active", btn.dataset.themeSet === theme);
+		}
+		for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-tz-set]")) {
+			btn.classList.toggle("is-active", btn.dataset.tzSet === tz);
+		}
+	}
+
+	for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-theme-set]")) {
+		btn.addEventListener("click", () => {
+			const next = btn.dataset.themeSet as "light" | "dark";
+			root.dataset.theme = next;
+			try {
+				localStorage.setItem("dqx-theme", next);
+			} catch {
+				/* storage unavailable — theme still applies for this page */
+			}
+			paintActive();
+		});
+	}
+
+	for (const btn of document.querySelectorAll<HTMLButtonElement>("[data-tz-set]")) {
+		btn.addEventListener("click", () => {
+			const next = btn.dataset.tzSet as "local" | "jst";
+			if (next === getTimePref()) return;
+			try {
+				localStorage.setItem("dqx-tz", next);
+			} catch {
+				/* storage unavailable */
+			}
+			// Reload so the SSR-JST baseline re-localizes consistently everywhere.
+			location.reload();
+		});
+	}
+
+	paintActive();
+
+	// Close the popover when clicking outside it.
+	const menu = document.querySelector<HTMLDetailsElement>(".settings-menu");
+	document.addEventListener("click", (e) => {
+		if (menu?.open && e.target instanceof Node && !menu.contains(e.target)) {
+			menu.open = false;
+		}
+	});
+</script>

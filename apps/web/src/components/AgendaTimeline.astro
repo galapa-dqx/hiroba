@@ -1,0 +1,431 @@
+---
+/**
+ * AgendaTimeline — the vertical 24h axis for one day. Rendered in JST (00:00 at
+ * the top, 24:00 at the bottom); the colocated script relabels the hour ticks
+ * and bar/mark times to the viewer's zone and drops a "day turnover" line where
+ * the viewer's local midnight falls across the JST day.
+ *
+ *   - bars       rectangles positioned by fraction of the day, packed into
+ *                lanes when they overlap; open edges flatten + gain an arrow
+ *   - milestones a thin rule + dot at a point in time
+ */
+import { Temporal } from "temporal-polyfill";
+import { AGENDA_ZONE, type BarItem, type MilestoneItem } from "../lib/day-agenda";
+
+interface Props {
+	bars: BarItem[];
+	milestones: MilestoneItem[];
+	day: Temporal.PlainDate;
+	lang: string;
+}
+const { bars, milestones, day, lang } = Astro.props;
+
+const dayStart = day.toZonedDateTime(AGENDA_ZONE);
+const dayStartMs = dayStart.toInstant().epochMilliseconds;
+
+// Hour gridlines / labels every 3h, including the closing 24:00.
+const TICK_STEP = 3;
+const ticks = Array.from({ length: 24 / TICK_STEP + 1 }, (_, i) => {
+	const hour = i * TICK_STEP;
+	const at = dayStart.add({ hours: hour });
+	return {
+		hour,
+		topPct: (hour / 24) * 100,
+		iso: at.toInstant().toString(),
+		label: `${String(hour % 24).padStart(2, "0")}:00`,
+	};
+});
+
+/** Compact JST wall-clock "HH:MM" for a JST-zoned value. */
+const jstTime = (zdt: Temporal.ZonedDateTime): string =>
+	zdt.toPlainTime().toString({ smallestUnit: "minute" });
+
+function sourceHref(e: BarItem["event"]): string | null {
+	if (!e.sourceId || !e.sourceType) return null;
+	const seg = e.sourceType === "news" ? "news" : "topics";
+	return `/${lang}/${seg}/${e.sourceId}`;
+}
+
+const empty = bars.length === 0 && milestones.length === 0;
+---
+
+<div class="agenda-tl">
+	<div class="agenda-tl__gutter" aria-hidden="true">
+		{ticks.map((t) => (
+			<time
+				class="agenda-tl__tick"
+				style={`--top:${t.topPct}%`}
+				datetime={t.iso}
+				data-hour={t.hour}
+			>
+				{t.label}
+			</time>
+		))}
+		{/* Local-midnight date, positioned by the script beside the hour labels. */}
+		<span class="agenda-tl__turnover-label" hidden></span>
+	</div>
+
+	<div class="agenda-tl__track" data-day-start={dayStartMs}>
+		{ticks.map((t) => (
+			<div class="agenda-tl__line" style={`--top:${t.topPct}%`} aria-hidden="true" />
+		))}
+
+		{empty && <p class="agenda-tl__empty">No timed events on this day.</p>}
+
+		<ul class="agenda-tl__bars">
+			{bars.map(({ event, startFrac, endFrac, openStart, openEnd, lane, laneCount }) => {
+				const href = sourceHref(event);
+				const title = event.titleEn ?? event.titleJa;
+				const Inner = href ? "a" : "div";
+				return (
+					<li
+						class="agenda-tl__bar"
+						data-etype={event.type}
+						data-open-start={openStart ? "" : undefined}
+						data-open-end={openEnd ? "" : undefined}
+						style={`--top:${startFrac * 100}%; --h:${(endFrac - startFrac) * 100}%; --lane:${lane}; --lanes:${laneCount}`}
+					>
+						<Inner class="agenda-tl__bar-inner" href={href} data-linked={href ? "" : undefined}>
+							<span class="agenda-tl__bar-name">{title}</span>
+							<span class="agenda-tl__bar-when">
+								{openStart && <span class="agenda-tl__arrow" aria-hidden="true">↑ </span>}
+								<time class="agenda-tl__time" datetime={event.startTime.toInstant().toString()}>
+									{jstTime(event.startTime)}
+								</time>
+								{event.endTime && (
+									<>
+										<span aria-hidden="true"> – </span>
+										<time class="agenda-tl__time" datetime={event.endTime.toInstant().toString()}>
+											{jstTime(event.endTime)}
+										</time>
+									</>
+								)}
+								{openEnd && <span class="agenda-tl__arrow" aria-hidden="true"> ↓</span>}
+							</span>
+						</Inner>
+					</li>
+				);
+			})}
+		</ul>
+
+		<ul class="agenda-tl__marks">
+			{milestones.map(({ event, frac }) => {
+				const href = sourceHref(event);
+				const title = event.titleEn ?? event.titleJa;
+				const Label = href ? "a" : "span";
+				return (
+					<li class="agenda-tl__mark" style={`--top:${frac * 100}%`}>
+						<Label class="agenda-tl__mark-label" href={href} data-linked={href ? "" : undefined}>
+							{title}
+							<time class="agenda-tl__time" datetime={event.startTime.toInstant().toString()}>
+								{jstTime(event.startTime)}
+							</time>
+						</Label>
+					</li>
+				);
+			})}
+		</ul>
+
+		<div class="agenda-tl__turnover" hidden></div>
+
+		{/* Current-time line (positioned + revealed by the script when today). */}
+		<div class="agenda-tl__now" hidden>
+			<span class="agenda-tl__now-dot" aria-hidden="true"></span>
+			<span class="agenda-tl__now-label">Now</span>
+		</div>
+	</div>
+</div>
+
+<style>
+	.agenda-tl {
+		display: grid;
+		grid-template-columns: 3.4rem 1fr;
+		gap: 0;
+	}
+	.agenda-tl__gutter,
+	.agenda-tl__track {
+		position: relative;
+	}
+	.agenda-tl__track {
+		height: clamp(620px, 74vh, 980px);
+		border-left: 1px solid var(--rule-strong);
+	}
+
+	/* Hour ticks + gridlines */
+	.agenda-tl__tick {
+		position: absolute;
+		top: var(--top);
+		right: 0.5rem;
+		transform: translateY(-0.5em);
+		font-size: 0.72rem;
+		font-variant-numeric: tabular-nums;
+		color: var(--ink-faint);
+		white-space: nowrap;
+	}
+	.agenda-tl__line {
+		position: absolute;
+		top: var(--top);
+		left: 0;
+		right: 0;
+		height: 0;
+		border-top: 1px dashed
+			color-mix(in oklch, var(--rule), transparent 35%);
+	}
+
+	.agenda-tl__empty {
+		position: absolute;
+		top: 50%;
+		left: 0;
+		right: 0;
+		transform: translateY(-50%);
+		text-align: center;
+		margin: 0;
+		color: var(--ink-faint);
+		font-style: italic;
+	}
+
+	/* Bars */
+	.agenda-tl__bars,
+	.agenda-tl__marks {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.agenda-tl__bar {
+		position: absolute;
+		top: var(--top);
+		height: var(--h);
+		min-height: 1.5rem;
+		left: calc(var(--lane) / var(--lanes) * 100% + 0.35rem);
+		width: calc(100% / var(--lanes) - 0.7rem);
+		box-sizing: border-box;
+	}
+	.agenda-tl__bar-inner {
+		display: block;
+		height: 100%;
+		overflow: hidden;
+		padding: 0.28rem 0.45rem;
+		box-sizing: border-box;
+		text-decoration: none;
+		color: inherit;
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklch, var(--cat, var(--gold-mid)) 26%, var(--surface-panel)),
+			color-mix(in oklch, var(--cat, var(--gold-mid)) 14%, var(--surface-panel))
+		);
+		border: 1px solid color-mix(in oklch, var(--cat, var(--gold-mid)) 55%, var(--border));
+		border-left: 3px solid var(--cat, var(--gold-mid));
+		border-radius: 3px;
+		box-shadow: var(--inset-top), var(--shadow-sm);
+		transition:
+			filter 0.12s ease,
+			box-shadow 0.12s ease;
+	}
+	/* Linked bars invite a click. */
+	a.agenda-tl__bar-inner:hover {
+		filter: brightness(1.04);
+		box-shadow: var(--inset-top), var(--shadow-md);
+	}
+	a.agenda-tl__bar-inner:hover .agenda-tl__bar-name {
+		text-decoration: underline;
+	}
+	/* Open edges continue past the day — flatten the crossed edge. */
+	.agenda-tl__bar[data-open-start] .agenda-tl__bar-inner {
+		border-top-left-radius: 0;
+		border-top-right-radius: 0;
+		border-top-style: dashed;
+	}
+	.agenda-tl__bar[data-open-end] .agenda-tl__bar-inner {
+		border-bottom-left-radius: 0;
+		border-bottom-right-radius: 0;
+		border-bottom-style: dashed;
+	}
+	.agenda-tl__bar[data-etype="span"] {
+		--cat: var(--blue-9);
+	}
+	.agenda-tl__bar[data-etype="multiDay"] {
+		--cat: var(--orange-9);
+	}
+	.agenda-tl__bar-name {
+		display: block;
+		font-size: 0.82rem;
+		font-weight: 650;
+		line-height: 1.25;
+		color: var(--ink);
+	}
+	.agenda-tl__bar-when {
+		font-size: 0.72rem;
+		color: var(--ink-soft);
+		font-variant-numeric: tabular-nums;
+	}
+	.agenda-tl__arrow {
+		font-weight: 700;
+		color: var(--ink-faint);
+	}
+
+	/* Milestones — a quiet point-in-time mark (kept muted so it doesn't read as
+	   the current-time line, which is the loud red one below). */
+	.agenda-tl__mark {
+		position: absolute;
+		top: var(--top);
+		left: 0;
+		right: 0;
+		/* Inset the label to match the bars; the line (::before) stays full width. */
+		padding-left: 0.35rem;
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		pointer-events: none;
+	}
+	.agenda-tl__mark::before {
+		content: "";
+		position: absolute;
+		left: 0;
+		right: 0;
+		height: 0;
+		border-top: 1.5px dashed
+			color-mix(in oklch, var(--ink-soft), transparent 55%);
+	}
+	.agenda-tl__mark-label {
+		position: relative;
+		pointer-events: auto;
+		background: var(--surface-panel);
+		border: 1px solid var(--border);
+		border-radius: 3px;
+		box-shadow: var(--shadow-sm);
+		padding: 0.1rem 0.4rem;
+		font-size: 0.76rem;
+		font-weight: 600;
+		color: var(--ink);
+		text-decoration: none;
+		display: inline-flex;
+		gap: 0.4rem;
+		align-items: baseline;
+	}
+	a.agenda-tl__mark-label:hover {
+		border-color: var(--gold-edge);
+		text-decoration: underline;
+	}
+	.agenda-tl__mark-label time {
+		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
+	}
+
+	/* Local-midnight turnover: a dotted line across the track; its date label
+	   lives in the gutter beside the hour labels (script-positioned). */
+	.agenda-tl__turnover {
+		position: absolute;
+		left: 0;
+		right: 0;
+		height: 0;
+		border-top: 2px dotted var(--gold-edge);
+		z-index: 3;
+	}
+	.agenda-tl__turnover-label {
+		position: absolute;
+		top: var(--top);
+		right: 0.5rem;
+		transform: translateY(-0.5em);
+		font-size: 0.62rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		color: var(--gold-edge);
+		white-space: nowrap;
+	}
+
+	/* Current-time line — the loud red "now" indicator (only on today). */
+	.agenda-tl__now {
+		position: absolute;
+		left: 0;
+		right: 0;
+		height: 0;
+		border-top: 2px solid var(--red-9);
+		z-index: 4;
+	}
+	.agenda-tl__now-dot {
+		position: absolute;
+		left: 0;
+		top: 0;
+		transform: translate(-50%, -50%);
+		width: 0.6rem;
+		height: 0.6rem;
+		border-radius: 50%;
+		background: var(--red-9);
+		box-shadow: 0 0 0 3px color-mix(in oklch, var(--red-9) 22%, transparent);
+	}
+	.agenda-tl__now-label {
+		position: absolute;
+		right: 0.35rem;
+		top: 0;
+		transform: translateY(-50%);
+		font-size: 0.6rem;
+		font-weight: 800;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--surface-panel);
+		background: var(--red-9);
+		padding: 0.05rem 0.35rem;
+		border-radius: 2px;
+	}
+</style>
+
+<script>
+	import { localizeTimes } from "../scripts/time-pref";
+
+	const DAY_MS = 86_400_000;
+	const track = document.querySelector<HTMLElement>(".agenda-tl__track");
+	const dayStartMs = Number(track?.dataset.dayStart);
+
+	if (localizeTimes()) {
+		const fmtTime = (dt: string) =>
+			new Date(dt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+		// Relabel the hour ticks and every bar/mark time to the viewer's zone.
+		for (const el of document.querySelectorAll<HTMLTimeElement>(
+			".agenda-tl__tick, .agenda-tl__time",
+		)) {
+			const dt = el.getAttribute("datetime");
+			if (!dt) continue;
+			const local = fmtTime(dt);
+			el.textContent = el.classList.contains("agenda-tl__tick")
+				? local.replace(/:00(?=\s|$)/, "") // ticks: drop the :00 minutes
+				: local;
+		}
+
+		// Mark where the viewer's local midnight crosses the JST day (only one can
+		// fall inside a 24h window): a dotted line across the track, dated in the
+		// gutter beside the hour labels.
+		const line = document.querySelector<HTMLElement>(".agenda-tl__turnover");
+		const label = document.querySelector<HTMLElement>(".agenda-tl__turnover-label");
+		if (line && label && Number.isFinite(dayStartMs)) {
+			const midnight = new Date(dayStartMs);
+			midnight.setHours(24, 0, 0, 0); // next local midnight after day start
+			const frac = (midnight.getTime() - dayStartMs) / DAY_MS;
+			if (frac > 0.0001 && frac < 0.9999) {
+				line.style.top = `${frac * 100}%`;
+				label.style.setProperty("--top", `${frac * 100}%`);
+				label.textContent = midnight.toLocaleDateString([], {
+					month: "short",
+					day: "numeric",
+				});
+				line.hidden = false;
+				label.hidden = false;
+			}
+		}
+	}
+
+	// Current-time line — independent of the timezone preference (now is now).
+	// Only lands inside the axis when the day being viewed is today; re-placed
+	// every couple of minutes so it keeps up on a page left open.
+	const now = document.querySelector<HTMLElement>(".agenda-tl__now");
+	if (now && Number.isFinite(dayStartMs)) {
+		const placeNow = () => {
+			const frac = (Date.now() - dayStartMs) / DAY_MS;
+			const onToday = frac > 0 && frac < 1;
+			if (onToday) now.style.top = `${frac * 100}%`;
+			now.hidden = !onToday;
+		};
+		placeNow();
+		setInterval(placeNow, 120_000);
+	}
+</script>

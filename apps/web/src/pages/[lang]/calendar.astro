@@ -1,0 +1,126 @@
+---
+import { Temporal } from "temporal-polyfill";
+import Layout from "../../layouts/Layout.astro";
+import Ornament from "@hiroba/ui/Ornament.astro";
+import { createDb, getEventsForDay } from "@hiroba/db";
+import { AGENDA_ZONE, buildDayAgenda } from "../../lib/day-agenda";
+import AgendaBand from "../../components/AgendaBand.astro";
+import AgendaTimeline from "../../components/AgendaTimeline.astro";
+
+// Validated against the whitelist by the middleware.
+const lang = Astro.params.lang!;
+
+const runtime = Astro.locals.runtime;
+const db = createDb(runtime.env.DB);
+
+// "Today" is the current calendar day on the game server (JST).
+const today = Temporal.Now.zonedDateTimeISO(AGENDA_ZONE).toPlainDate();
+
+// ?date=YYYY-MM-DD selects a day; anything unparseable falls back to today.
+let day = today;
+const dateParam = Astro.url.searchParams.get("date");
+if (dateParam) {
+	try {
+		day = Temporal.PlainDate.from(dateParam);
+	} catch {
+		day = today;
+	}
+}
+
+const events = await getEventsForDay(db, day, lang);
+const { band, bars, milestones } = buildDayAgenda(events, day);
+
+const isToday = day.equals(today);
+const prev = day.subtract({ days: 1 });
+const next = day.add({ days: 1 });
+const dateHref = (d: Temporal.PlainDate) => `/${lang}/calendar?date=${d.toString()}`;
+
+const heading = day.toLocaleString("en-US", {
+	weekday: "long",
+	year: "numeric",
+	month: "long",
+	day: "numeric",
+});
+---
+
+<Layout title={`Events — ${heading}`}>
+	<section class="cal-head">
+		<h1 class="cal-head__title">Today in Astoltia</h1>
+		<p class="cal-head__sub">
+			The day's events on the DQX server. Times shown in <span class="cal-head__tz">your local
+			zone</span> — switch to JST from the settings gear.
+		</p>
+		<Ornament class="cal-head__rule" />
+
+		<nav class="cal-nav" aria-label="Change day">
+			<a class="pill pill--ghost" href={dateHref(prev)} rel="prev">‹ Prev</a>
+			<span class="cal-nav__date" aria-current="date">
+				{heading}
+				{isToday && <span class="cal-nav__today">Today</span>}
+			</span>
+			<a class="pill pill--ghost" href={dateHref(next)} rel="next">Next ›</a>
+		</nav>
+		{
+			!isToday && (
+				<p class="cal-nav__back">
+					<a class="pill" href={`/${lang}/calendar`}>Back to today</a>
+				</p>
+			)
+		}
+	</section>
+
+	<AgendaBand band={band} lang={lang} />
+	<AgendaTimeline bars={bars} milestones={milestones} day={day} lang={lang} />
+</Layout>
+
+<style>
+	.cal-head {
+		text-align: center;
+		margin-bottom: 1.4rem;
+	}
+	.cal-head__title {
+		font-size: clamp(1.8rem, 1.3rem + 2.4vw, 2.6rem);
+	}
+	.cal-head__sub {
+		max-width: 48ch;
+		margin-inline: auto;
+		color: var(--ink-soft);
+	}
+	.cal-head__tz {
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.cal-head__rule {
+		margin: 1.1rem auto;
+	}
+	.cal-nav {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.9rem;
+		flex-wrap: wrap;
+	}
+	.cal-nav__date {
+		font-family: var(--font-display);
+		font-size: 1.05rem;
+		font-weight: 700;
+		color: var(--ink);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.cal-nav__today {
+		font-family: var(--font-body);
+		font-size: 0.64rem;
+		font-weight: 800;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--surface-panel);
+		background: var(--gold-mid);
+		border: 1px solid var(--gold-edge);
+		padding: 0.1rem 0.4rem;
+	}
+	.cal-nav__back {
+		margin: 0.9rem 0 0;
+	}
+</style>
