@@ -317,19 +317,25 @@ export class WorkflowManager extends DurableObject<Env> {
       const workflow = this.env.ARTICLE_WORKFLOW;
       const db = createDb(this.env.DB);
 
-      // Fast path: a warm DO remembers the run in memory.
+      // Fast path: a warm DO confirms its remembered run is still live without
+      // a D1 read. Anything ambiguous falls through to the durable path.
       const existing = this.activeWorkflows.get(itemId);
       if (existing) {
         const engine = await this.getEngineStatus(existing.instanceId);
         if (engine && isRunActive(engine.status)) return existing;
       }
 
-      // Durable path: the map is empty after an eviction, so fall back to the
-      // registry — reuse any run for this item the engine still says is live.
+      // Durable path: the registry survives DO eviction, so a trigger on a cold
+      // DO still finds an in-flight run. We start fresh only when the engine
+      // *positively* reports the tracked run has finished — a failed status
+      // call (transient engine error, or an instance the engine has forgotten)
+      // is treated as "still in flight" and reused, never overwritten, so a
+      // blip can't clear the only active row and spawn a duplicate. A genuinely
+      // dead row is reconciled to a terminal status by handleRuns instead.
       const registered = await getActiveWorkflowRun(db, itemType, itemId);
       if (registered) {
         const engine = await this.getEngineStatus(registered.instanceId);
-        if (engine && isRunActive(engine.status)) {
+        if (!engine || isRunActive(engine.status)) {
           const active: Active = {
             instanceId: registered.instanceId,
             itemType,
@@ -337,17 +343,14 @@ export class WorkflowManager extends DurableObject<Env> {
           this.activeWorkflows.set(itemId, active);
           return active;
         }
-        // Not live any more: reconcile the stale row to what the engine says —
-        // its real terminal status (with the engine's error), or `unknown` when
-        // the engine forgot it — so it stops shadowing this fresh run and the
-        // tracker shows the truth.
+        // The engine confirms this run has settled — record its real terminal
+        // status (with the engine's error) so it stops shadowing the fresh run
+        // started below and the tracker shows the truth.
         await updateWorkflowRunStatus(
           db,
           registered.instanceId,
-          engine?.status ?? 'unknown',
-          engine
-            ? (engine.error ?? undefined)
-            : 'Instance no longer known to the Workflows engine',
+          engine.status,
+          engine.error ?? undefined,
         );
       }
 
