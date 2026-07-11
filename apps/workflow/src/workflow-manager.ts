@@ -273,24 +273,39 @@ export class WorkflowManager extends DurableObject<Env> {
   }
 
   /**
-   * The status (and error) the Workflows engine currently reports for an
-   * instance, or null when the engine no longer knows it (evicted/expired).
-   * Kept in terms of the engine's own status — not a boolean — so this dedup
-   * path agrees with the tracker's reconciler (handleRuns) on what counts as
-   * live: `isRunActive` treats `paused` as in-flight too, and a finished run
-   * settles to its real terminal status rather than a misleading `unknown`.
+   * The status (and error) the Workflows engine reports for an instance, or
+   * null when it can't be resolved. Kept in terms of the engine's own status —
+   * not a boolean — so this dedup path agrees with the tracker's reconciler
+   * (handleRuns) on what counts as live: `isRunActive` treats `paused` as
+   * in-flight too, and a finished run settles to its real terminal status
+   * rather than a misleading `unknown`.
+   *
+   * `get`/`status` throws both for a genuinely-forgotten instance and for a
+   * transient engine error, with nothing to tell them apart. We retry a few
+   * times so a one-off blip doesn't read as "gone": a null result therefore
+   * means the failure *persisted*, which — paired with a `create()` that still
+   * succeeds (see ensureArticleWorkflow) — indicates the instance really is
+   * gone, not merely briefly unreachable.
    */
   private async getEngineStatus(
     instanceId: string,
+    attempts = 3,
   ): Promise<{ status: WorkflowRunStatus; error: string | null } | null> {
-    try {
-      const engine = await (
-        await this.env.ARTICLE_WORKFLOW.get(instanceId)
-      ).status();
-      return { status: engine.status, error: engine.error ?? null };
-    } catch {
-      return null;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const engine = await (
+          await this.env.ARTICLE_WORKFLOW.get(instanceId)
+        ).status();
+        return { status: engine.status, error: engine.error ?? null };
+      } catch {
+        if (attempt < attempts - 1) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 200 * (attempt + 1)),
+          );
+        }
+      }
     }
+    return null;
   }
 
   /**
@@ -317,25 +332,30 @@ export class WorkflowManager extends DurableObject<Env> {
       const workflow = this.env.ARTICLE_WORKFLOW;
       const db = createDb(this.env.DB);
 
-      // Fast path: a warm DO confirms its remembered run is still live without
-      // a D1 read. Anything ambiguous falls through to the durable path.
+      // Fast path: a single optimistic probe lets a warm DO confirm its
+      // remembered run is still live without a D1 read (and covers a run whose
+      // best-effort registry write was lost). Anything ambiguous falls through
+      // to the authoritative durable path.
       const existing = this.activeWorkflows.get(itemId);
       if (existing) {
-        const engine = await this.getEngineStatus(existing.instanceId);
+        const engine = await this.getEngineStatus(existing.instanceId, 1);
         if (engine && isRunActive(engine.status)) return existing;
       }
 
       // Durable path: the registry survives DO eviction, so a trigger on a cold
-      // DO still finds an in-flight run. We start fresh only when the engine
-      // *positively* reports the tracked run has finished — a failed status
-      // call (transient engine error, or an instance the engine has forgotten)
-      // is treated as "still in flight" and reused, never overwritten, so a
-      // blip can't clear the only active row and spawn a duplicate. A genuinely
-      // dead row is reconciled to a terminal status by handleRuns instead.
+      // DO still finds an in-flight run. Reuse it while the engine reports it
+      // live; otherwise it has finished (a confirmed terminal status) or, after
+      // retries, can't be resolved at all — a run that's genuinely gone. Either
+      // way we start a replacement below and retire this row as `stale`.
       const registered = await getActiveWorkflowRun(db, itemType, itemId);
+      let stale: {
+        instanceId: string;
+        status: WorkflowRunStatus;
+        error: string | null;
+      } | null = null;
       if (registered) {
         const engine = await this.getEngineStatus(registered.instanceId);
-        if (!engine || isRunActive(engine.status)) {
+        if (engine && isRunActive(engine.status)) {
           const active: Active = {
             instanceId: registered.instanceId,
             itemType,
@@ -343,21 +363,36 @@ export class WorkflowManager extends DurableObject<Env> {
           this.activeWorkflows.set(itemId, active);
           return active;
         }
-        // The engine confirms this run has settled — record its real terminal
-        // status (with the engine's error) so it stops shadowing the fresh run
-        // started below and the tracker shows the truth.
-        await updateWorkflowRunStatus(
-          db,
-          registered.instanceId,
-          engine.status,
-          engine.error ?? undefined,
-        );
+        stale = {
+          instanceId: registered.instanceId,
+          status: engine?.status ?? 'unknown',
+          error: engine
+            ? engine.error
+            : 'Instance no longer known to the Workflows engine',
+        };
       }
 
+      // Create the replacement FIRST — it doubles as an engine health probe.
+      // If the engine is down this throws before we touch the registry, so a
+      // `stale` row we couldn't resolve stays active and the item is simply
+      // retried (never orphaned, never duplicated by an outage). A create that
+      // succeeds proves the engine is healthy, so an unresolvable `stale` row
+      // really is gone — not merely unreachable — and superseding it is safe.
       const instance = await workflow.create({ params: { itemId, itemType } });
       const active: Active = { instanceId: instance.id, itemType };
       this.activeWorkflows.set(itemId, active);
       try {
+        // Retire the superseded row to its real status BEFORE recording the new
+        // one, so the partial unique index (one active row per item) never sees
+        // two at once.
+        if (stale) {
+          await updateWorkflowRunStatus(
+            db,
+            stale.instanceId,
+            stale.status,
+            stale.error ?? undefined,
+          );
+        }
         await recordWorkflowRun(db, {
           instanceId: instance.id,
           itemType,
