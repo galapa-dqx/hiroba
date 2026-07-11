@@ -273,18 +273,23 @@ export class WorkflowManager extends DurableObject<Env> {
   }
 
   /**
-   * True when the Workflows engine still reports this instance as in-flight
-   * (running or queued). A get/status miss — the engine evicted or expired the
-   * instance — counts as not-live, so callers start a fresh run.
+   * The status (and error) the Workflows engine currently reports for an
+   * instance, or null when the engine no longer knows it (evicted/expired).
+   * Kept in terms of the engine's own status — not a boolean — so this dedup
+   * path agrees with the tracker's reconciler (handleRuns) on what counts as
+   * live: `isRunActive` treats `paused` as in-flight too, and a finished run
+   * settles to its real terminal status rather than a misleading `unknown`.
    */
-  private async isInstanceLive(instanceId: string): Promise<boolean> {
+  private async getEngineStatus(
+    instanceId: string,
+  ): Promise<{ status: WorkflowRunStatus; error: string | null } | null> {
     try {
-      const status = await (
+      const engine = await (
         await this.env.ARTICLE_WORKFLOW.get(instanceId)
       ).status();
-      return status.status === 'running' || status.status === 'queued';
+      return { status: engine.status, error: engine.error ?? null };
     } catch {
-      return false;
+      return null;
     }
   }
 
@@ -314,15 +319,17 @@ export class WorkflowManager extends DurableObject<Env> {
 
       // Fast path: a warm DO remembers the run in memory.
       const existing = this.activeWorkflows.get(itemId);
-      if (existing && (await this.isInstanceLive(existing.instanceId))) {
-        return existing;
+      if (existing) {
+        const engine = await this.getEngineStatus(existing.instanceId);
+        if (engine && isRunActive(engine.status)) return existing;
       }
 
       // Durable path: the map is empty after an eviction, so fall back to the
       // registry — reuse any run for this item the engine still says is live.
       const registered = await getActiveWorkflowRun(db, itemType, itemId);
       if (registered) {
-        if (await this.isInstanceLive(registered.instanceId)) {
+        const engine = await this.getEngineStatus(registered.instanceId);
+        if (engine && isRunActive(engine.status)) {
           const active: Active = {
             instanceId: registered.instanceId,
             itemType,
@@ -330,13 +337,17 @@ export class WorkflowManager extends DurableObject<Env> {
           this.activeWorkflows.set(itemId, active);
           return active;
         }
-        // The registry says active but the engine forgot it — settle the stale
-        // row so it stops shadowing this fresh run (and leaves the tracker).
+        // Not live any more: reconcile the stale row to what the engine says —
+        // its real terminal status (with the engine's error), or `unknown` when
+        // the engine forgot it — so it stops shadowing this fresh run and the
+        // tracker shows the truth.
         await updateWorkflowRunStatus(
           db,
           registered.instanceId,
-          'unknown',
-          'Instance no longer known to the Workflows engine',
+          engine?.status ?? 'unknown',
+          engine
+            ? (engine.error ?? undefined)
+            : 'Instance no longer known to the Workflows engine',
         );
       }
 
