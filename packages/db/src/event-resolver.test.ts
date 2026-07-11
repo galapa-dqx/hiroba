@@ -312,6 +312,112 @@ describe('adjudication of residual candidates', () => {
   });
 });
 
+describe('end-anchored blocking (drifted starts)', () => {
+  it('merges an extension notice whose start drifted but deadline matches', async () => {
+    // The e-STORE sale (Jun 25 – Jul 23) vs the maintenance notice that extends
+    // it: the notice's event starts at its own posting, 12 days later — far past
+    // the start tolerance — but carries the identical deadline.
+    await news(hex(1), 'スタートダッシュセール開催！', 0);
+    await news(hex(2), 'e-STOREにおけるシステムメンテナンスについて', 200);
+    await saveArticleEvents(
+      ctx.db,
+      'news',
+      hex(1),
+      [
+        mev(
+          'スタートダッシュセール（e-STORE Windows版）',
+          '2026-06-25T00:00',
+          '2026-07-23T23:59',
+        ),
+      ],
+      { allocateId: gen },
+    );
+    const merge: Adjudicator = async (r) =>
+      r.map((res) => res.candidates[0].id);
+    const res = await saveArticleEvents(
+      ctx.db,
+      'news',
+      hex(2),
+      [
+        mev(
+          'e-STORE「スタートダッシュセール」',
+          '2026-07-07T15:30',
+          '2026-07-23T23:59',
+        ),
+      ],
+      { allocateId: gen, adjudicate: merge },
+    );
+
+    expect(res).toMatchObject({ created: 0, matched: 1 });
+    expect(await allEvents()).toHaveLength(1);
+    expect(await linksOf('ev1')).toHaveLength(2);
+  });
+
+  it('merges a deadline-anchored handout restated with its real window', async () => {
+    // A deadline-only mention anchors its start at publication (Jul 3); the
+    // テンの日 article states the real window (Jul 10 –). Same deadline, 7 days
+    // of start drift.
+    await topic(hex(1), '毎月10日はDQXで遊ぼう！', 0);
+    await news(hex(2), '7月10日はテンの日！', 100);
+    await saveArticleEvents(
+      ctx.db,
+      'topic',
+      hex(1),
+      [
+        mev(
+          '「福の神メダル 3個」プレゼント',
+          '2026-07-03T00:00',
+          '2026-07-13T05:59',
+        ),
+      ],
+      { allocateId: gen },
+    );
+    const merge: Adjudicator = async (r) =>
+      r.map((res) => res.candidates[0].id);
+    const res = await saveArticleEvents(
+      ctx.db,
+      'news',
+      hex(2),
+      [
+        mev(
+          '「福の神メダル×3」受け取り',
+          '2026-07-10T06:00',
+          '2026-07-13T05:59',
+        ),
+      ],
+      { allocateId: gen, adjudicate: merge },
+    );
+
+    expect(res).toMatchObject({ created: 0, matched: 1 });
+    expect(await allEvents()).toHaveLength(1);
+  });
+
+  it('never consults the judge when neither anchor is close', async () => {
+    await news(hex(1), '記事1', 0);
+    await news(hex(2), '記事2', 5);
+    await saveArticleEvents(
+      ctx.db,
+      'news',
+      hex(1),
+      [mev('イベントA', '2026-06-25T00:00', '2026-07-01T00:00')],
+      { allocateId: gen },
+    );
+    const explode: Adjudicator = async () => {
+      throw new Error('judge must not run without candidates');
+    };
+    const res = await saveArticleEvents(
+      ctx.db,
+      'news',
+      hex(2),
+      [mev('イベントB', '2026-07-05T00:00', '2026-07-10T00:00')],
+      { allocateId: gen, adjudicate: explode },
+    );
+
+    expect(res).toMatchObject({ created: 1, matched: 0 });
+    expect(await allEvents()).toHaveLength(2);
+  });
+});
+
 describe('re-extraction: date refresh on match', () => {
   it('lets the primary owner extend an event, but not a non-primary mention', async () => {
     await news(hex(1), 'ゼルメアフィーバー開催！', 0); // primary (headline names it)
@@ -501,6 +607,55 @@ describe('reconcileEvents (nightly sweep)', () => {
     ]);
     // Primary recomputed across the merged link set: both name it, topic older.
     expect(rows[0].sourceId).toBe(hex(2));
+  });
+
+  it('folds same-title rows whose starts drifted but ends match', async () => {
+    await news(hex(1), '記事1', 0);
+    await topic(hex(2), '記事2', 5);
+    await ctx.db.insert(events).values([
+      {
+        id: 'e-early',
+        type: 'span',
+        titleJa: '福の神メダルプレゼント',
+        startTime: z('2026-07-03T00:00'),
+        endTime: z('2026-07-13T05:59'),
+        sourceType: 'topic',
+        sourceId: hex(2),
+        createdAt: BASE,
+      },
+      {
+        id: 'e-late',
+        type: 'span',
+        titleJa: '福の神メダルプレゼント',
+        startTime: z('2026-07-10T06:00'),
+        endTime: z('2026-07-13T05:59'),
+        sourceType: 'news',
+        sourceId: hex(1),
+        createdAt: BASE.add({ hours: 1 }),
+      },
+    ]);
+    await ctx.db.insert(eventSources).values([
+      {
+        eventId: 'e-early',
+        sourceType: 'topic',
+        sourceId: hex(2),
+        createdAt: BASE,
+      },
+      {
+        eventId: 'e-late',
+        sourceType: 'news',
+        sourceId: hex(1),
+        createdAt: BASE,
+      },
+    ]);
+
+    // Starts are 7 days apart — tier 1 unions on the matching deadline alone.
+    const res = await reconcileEvents(ctx.db);
+
+    expect(res.merged).toBe(1);
+    const rows = await allEvents();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].id).toBe('e-early');
   });
 
   it('leaves genuinely distinct same-day events untouched', async () => {

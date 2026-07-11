@@ -87,5 +87,15 @@ describe('buildAdjudicationInput', () => {
       new: { title: 'セールA', type: 'multiDay' },
       candidates: [{ id: 'c1', title: 'セールB' }],
     });
+    // Creation-time residuals carry no row id — self_id must be absent.
+    expect(parsed[0].new).not.toHaveProperty('self_id');
+  });
+
+  it('surfaces a reconcile residual’s own row id as new.self_id', () => {
+    const input = buildAdjudicationInput([
+      { ...residual('セールA', [candidate('c1', 'セールB')]), selfId: 'me1' },
+    ]);
+    const parsed = JSON.parse(input);
+    expect(parsed[0].new).toMatchObject({ self_id: 'me1', title: 'セールA' });
   });
 });

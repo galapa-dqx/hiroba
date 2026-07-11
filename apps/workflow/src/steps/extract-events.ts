@@ -52,6 +52,10 @@ Planned, ongoing, or scheduled for a **specific date/time** where users can part
 Extract if the **end** date/time (or duration) is explicit in the text.
 - If the start is also explicit, use it.
 - If the text gives **only a deadline/end** (e.g. 「〜まで」「配布期間 … まで」「プレゼント期間 … まで」) and the period is implicitly already underway, set \`"start"\` to the literal string \`"publishedAt"\` — the article's publication moment. **Never invent a start date.**
+- **One event per named campaign.** When one campaign lists multiple numbered
+  benefits or sub-rewards (キャンペーン①／②, 特典1／特典2), each with its own
+  period, extract a **single** event titled with the campaign name, spanning the
+  widest stated period. Never emit per-benefit events.
 
 ---
 
@@ -61,7 +65,7 @@ Extract if the **end** date/time (or duration) is explicit in the text.
 - Announcements with only start date and no clear end
 - Pages mainly explaining how to obtain/apply/enter/redeem/submit
 - Codes/applications/redemptions/exchanges/submissions **without explicit deadline or end date**
-- Descriptions with vague/undefined end (e.g., "about one year", "around a year", "TBD", "until further notice")
+- Descriptions with vague/undefined end (e.g., "about one year", "around a year", "TBD", "until further notice"). This includes ends pinned to an **undated future release**: 「次回大型アップデートまで」「次回アップデートメンテナンス開始まで」 — no real date exists, so it is not an event.
 - **Standing programs**, *even with a stated end date*: membership/enrollment offers, credit-card sign-ups (e.g. 「…VISAカード」新規入会キャンペーン), point/loyalty programs, ongoing monthly perks (毎月利用特典). A far-off end is a renewal boundary, not an event.
 - **Account/data procedures**: data transfer, save-data carry-over, account linking (引継ぎ, データ移行, アカウント連携) — a how-to with a deadline, not something to attend.
 - **Support / troubleshooting notices**: inquiries, known issues, outages and their recovery (お問い合わせ, 不具合, 障害, 復旧) — status announcements, not scheduled activities. (Genuine *scheduled* maintenance with an explicit start/end **is** an event.)

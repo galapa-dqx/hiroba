@@ -127,10 +127,10 @@ export default Sentry.withSentry(
       // Used after a bulk re-extract to merge any parallel-extraction races.
       if (url.pathname === '/reconcile' && request.method === 'POST') {
         const db = createDb(env.DB);
-        const { merged } = await reconcileEvents(db, {
+        const result = await reconcileEvents(db, {
           adjudicate: createEventAdjudicator(env.GEMINI_API_KEY),
         });
-        return Response.json({ merged });
+        return Response.json(result);
       }
 
       return Response.json(
@@ -212,10 +212,12 @@ async function reconcileExtractedEvents(
   log: Logger,
 ): Promise<void> {
   try {
-    const { merged } = await reconcileEvents(db, {
+    const { merged, adjudicated, accepted } = await reconcileEvents(db, {
       adjudicate: createEventAdjudicator(env.GEMINI_API_KEY),
     });
-    log.info(`Reconciled events (${merged} duplicate rows merged)`);
+    log.info(
+      `Reconciled events (${merged} merged; judge matched ${accepted}/${adjudicated} residuals)`,
+    );
   } catch (error) {
     log.error('Failed to reconcile events:', error);
   }

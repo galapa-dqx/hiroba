@@ -8,9 +8,12 @@
  * allocated once and thereafter *matched*. Matching is classic entity
  * resolution:
  *
- *   1. Block by time — candidates are existing events whose start sits within a
- *      tolerance of the incoming one (same campaign ⇒ same start, near enough).
- *      Cheap, and the indexed `start_time` keeps the candidate set tiny.
+ *   1. Block by time — candidates are existing events whose start OR end sits
+ *      within a tolerance of the incoming one. Same campaign ⇒ same start, near
+ *      enough — except when an article restates it from its own vantage (a
+ *      deadline-only mention anchored at publication, an extension notice), in
+ *      which case the *deadline* is what matches. Cheap either way, and the
+ *      indexed `start_time` keeps the candidate set tiny.
  *   2. Deterministic match — a candidate whose title is equal (after light
  *      normalization) *is* the event. Catches the overwhelming majority: DQX
  *      quotes official campaign names verbatim.
@@ -31,7 +34,7 @@
  * with no sources is swept (with its title translations).
  */
 
-import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, lte, or } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import type { Database } from './client';
@@ -49,12 +52,17 @@ import { translations } from './schema/translations';
 const ZONE = 'Asia/Tokyo';
 
 /**
- * How far two starts may drift and still be candidates for "the same event".
- * Wide enough to bridge a date-only vs 06:00 rendering of one campaign, narrow
- * enough to keep candidate lists to a handful. Title/adjudication decide within
- * it; time only narrows.
+ * How far two time anchors may drift and still be candidates for "the same
+ * event". Wide enough to bridge a date-only vs 06:00 rendering of one campaign,
+ * narrow enough to keep candidate lists to a handful. Title/adjudication decide
+ * within it; time only narrows.
+ *
+ * Blocking matches on *either* anchor — starts close, or ends close. The same
+ * campaign often arrives with a drifted start (a deadline-only mention anchors
+ * at its article's publication; an extension notice is dated from its own
+ * posting) while the deadline matches to the minute.
  */
-const START_TOLERANCE_MS = 2 * 86_400_000; // 2 days
+const TIME_TOLERANCE_MS = 2 * 86_400_000; // 2 days
 
 /** The article source types that flow through resolution (schedule never does). */
 type ArticleSource = 'news' | 'topic';
@@ -73,6 +81,13 @@ export type Residual = {
   index: number;
   event: ResolvableEvent;
   candidates: Event[];
+  /**
+   * The event's own row id — set only by the reconcile sweep, where the "new"
+   * side is itself a stored row that also appears in sibling residuals'
+   * candidate lists. Surfacing it lets the judge recognize "that candidate is
+   * me" and answer null instead of leaking the id into `same_as`.
+   */
+  selfId?: string;
 };
 
 /**
@@ -119,8 +134,30 @@ function headlineNames(eventTitle: string, sourceTitle: string): boolean {
   return e.length > 0 && s.length > 0 && (s.includes(e) || e.includes(s));
 }
 
-function startsClose(aMs: number, bMs: number): boolean {
-  return Math.abs(aMs - bMs) <= START_TOLERANCE_MS;
+function anchorsClose(aMs: number, bMs: number): boolean {
+  return Math.abs(aMs - bMs) <= TIME_TOLERANCE_MS;
+}
+
+/** The blocking predicate: starts within tolerance, or both ends and close. */
+function timesClose(
+  a: {
+    startTime: Temporal.ZonedDateTime;
+    endTime: Temporal.ZonedDateTime | null;
+  },
+  b: {
+    startTime: Temporal.ZonedDateTime;
+    endTime: Temporal.ZonedDateTime | null;
+  },
+): boolean {
+  if (
+    anchorsClose(a.startTime.epochMilliseconds, b.startTime.epochMilliseconds)
+  )
+    return true;
+  return (
+    a.endTime !== null &&
+    b.endTime !== null &&
+    anchorsClose(a.endTime.epochMilliseconds, b.endTime.epochMilliseconds)
+  );
 }
 
 /** 64-bit random hex — internal id, never user-facing, collision-negligible. */
@@ -191,10 +228,7 @@ export async function saveArticleEvents(
     for (let j = 0; j < i; j++) {
       if (
         titlesEqual(extracted[j].titleJa, extracted[i].titleJa) &&
-        startsClose(
-          extracted[j].startTime.epochMilliseconds,
-          extracted[i].startTime.epochMilliseconds,
-        )
+        timesClose(extracted[j], extracted[i])
       ) {
         rep = repOf[j];
         break;
@@ -203,31 +237,46 @@ export async function saveArticleEvents(
     repOf.push(rep);
   }
 
-  // Candidate pool: existing article events near the batch's time span. Kept
-  // mutable so a freshly-minted event becomes a candidate for later duplicates.
+  // Candidate pool: existing article events whose start OR end lands near the
+  // batch's respective anchor spans. Kept mutable so a freshly-minted event
+  // becomes a candidate for later duplicates.
+  const zdt = (ms: number) =>
+    Temporal.Instant.fromEpochMilliseconds(ms).toZonedDateTimeISO(ZONE);
   const startsMs = extracted.map((e) => e.startTime.epochMilliseconds);
-  const lo = Temporal.Instant.fromEpochMilliseconds(
-    Math.min(...startsMs) - START_TOLERANCE_MS,
-  ).toZonedDateTimeISO(ZONE);
-  const hi = Temporal.Instant.fromEpochMilliseconds(
-    Math.max(...startsMs) + START_TOLERANCE_MS,
-  ).toZonedDateTimeISO(ZONE);
+  const endsMs = extracted.flatMap((e) =>
+    e.endTime ? [e.endTime.epochMilliseconds] : [],
+  );
+  const nearStart = and(
+    gte(events.startTime, zdt(Math.min(...startsMs) - TIME_TOLERANCE_MS)),
+    lte(events.startTime, zdt(Math.max(...startsMs) + TIME_TOLERANCE_MS)),
+  );
   const pool: Event[] = await db
     .select()
     .from(events)
     .where(
       and(
         inArray(events.sourceType, ['news', 'topic']),
-        gte(events.startTime, lo),
-        lte(events.startTime, hi),
+        endsMs.length > 0
+          ? or(
+              nearStart,
+              and(
+                gte(
+                  events.endTime,
+                  zdt(Math.min(...endsMs) - TIME_TOLERANCE_MS),
+                ),
+                lte(
+                  events.endTime,
+                  zdt(Math.max(...endsMs) + TIME_TOLERANCE_MS),
+                ),
+              ),
+            )
+          : nearStart,
       ),
     )
     .all();
 
-  const candidatesFor = (ev: ResolvableEvent): Event[] => {
-    const t = ev.startTime.epochMilliseconds;
-    return pool.filter((c) => startsClose(c.startTime.epochMilliseconds, t));
-  };
+  const candidatesFor = (ev: ResolvableEvent): Event[] =>
+    pool.filter((c) => timesClose(c, ev));
 
   // resolution[i] = canonical event id for extracted[i] (null until resolved).
   const resolution: (string | null)[] = extracted.map(() => null);
@@ -533,16 +582,19 @@ async function mergeEventInto(
 export async function reconcileEvents(
   db: Database,
   opts: { adjudicate?: Adjudicator } = {},
-): Promise<{ merged: number }> {
+): Promise<{ merged: number; adjudicated: number; accepted: number }> {
+  // adjudicated/accepted are judge telemetry: how many residual pairs were put
+  // to the judge and how many verdicts named a candidate. merged:0 with a large
+  // `adjudicated` reads very differently from merged:0 with none.
+  let adjudicated = 0;
+  let accepted = 0;
   const rows = await db
     .select()
     .from(events)
     .where(inArray(events.sourceType, ['news', 'topic']))
     .orderBy(asc(events.startTime))
     .all();
-  if (rows.length < 2) return { merged: 0 };
-
-  const startMs = rows.map((r) => r.startTime.epochMilliseconds);
+  if (rows.length < 2) return { merged: 0, adjudicated, accepted };
 
   // Union-find; roots bias to the lowest index (earliest start).
   const parent = rows.map((_, i) => i);
@@ -563,7 +615,7 @@ export async function reconcileEvents(
   for (let i = 0; i < rows.length; i++) {
     for (let j = 0; j < i; j++) {
       if (
-        startsClose(startMs[i], startMs[j]) &&
+        timesClose(rows[i], rows[j]) &&
         titlesEqual(rows[i].titleJa, rows[j].titleJa)
       ) {
         union(i, j);
@@ -584,25 +636,28 @@ export async function reconcileEvents(
     const residualRep: number[] = [];
     for (const i of reps) {
       const candidates = reps
-        .filter(
-          (j) => find(j) !== find(i) && startsClose(startMs[i], startMs[j]),
-        )
+        .filter((j) => find(j) !== find(i) && timesClose(rows[i], rows[j]))
         .map((j) => rows[j]);
       if (candidates.length > 0) {
         residuals.push({
           index: residuals.length,
           event: toResolvableEvent(rows[i]),
           candidates,
+          selfId: rows[i].id,
         });
         residualRep.push(i);
       }
     }
     if (residuals.length > 0) {
+      adjudicated = residuals.length;
       const verdicts = await opts.adjudicate(residuals);
       verdicts.forEach((matchedId, k) => {
         if (!matchedId) return;
         const j = rows.findIndex((r) => r.id === matchedId);
-        if (j >= 0) union(residualRep[k], j);
+        if (j >= 0) {
+          accepted++;
+          union(residualRep[k], j);
+        }
       });
     }
   }
@@ -634,5 +689,5 @@ export async function reconcileEvents(
     }
   }
   await recomputePrimaries(db, survivors);
-  return { merged };
+  return { merged, adjudicated, accepted };
 }
