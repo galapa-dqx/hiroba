@@ -6,18 +6,21 @@ import { and, eq, sql } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import {
+  deleteGlossaryOverride,
   deleteTranslation,
   getRecheckQueue,
   getStats,
   glossary,
   invalidateBody,
   invalidateTopicBody,
+  listEffectiveGlossary,
   listNewsAdmin,
   listTopicsAdmin,
+  upsertGlossaryOverride,
   upsertListItems,
   upsertTopicListItems,
   type Database,
-  type GlossaryEntry,
+  type EffectiveGlossaryEntry,
 } from '@hiroba/db';
 import {
   fetchTopicsListPage,
@@ -35,6 +38,8 @@ export {
   listNewsAdmin,
   listTopicsAdmin,
   deleteTranslation,
+  upsertGlossaryOverride,
+  deleteGlossaryOverride,
   upsertListItems,
 };
 
@@ -139,17 +144,15 @@ export async function triggerScrape(
 }
 
 /**
- * Get all glossary entries.
+ * Get all glossary entries the pipeline actually sees — the effective view, so
+ * admin overrides show layered on top of the upstream mirror, each flagged with
+ * `isOverride` for the UI.
  */
 export async function getGlossaryEntries(
   db: Database,
   lang?: string,
-): Promise<GlossaryEntry[]> {
-  const query = db.select().from(glossary).$dynamic();
-
-  return lang
-    ? await query.where(eq(glossary.targetLanguage, lang)).all()
-    : await query.all();
+): Promise<EffectiveGlossaryEntry[]> {
+  return listEffectiveGlossary(db, lang);
 }
 
 /**

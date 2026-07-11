@@ -358,6 +358,8 @@ export type GlossaryEntry = {
   targetLanguage: string;
   translatedText: string;
   updatedAt: string; // ISO-8601 UTC instant
+  /** True for an admin override, false for an upstream (nightly-imported) row. */
+  isOverride: boolean;
 };
 
 export async function getGlossary(
@@ -365,6 +367,32 @@ export async function getGlossary(
 ): Promise<{ entries: GlossaryEntry[] }> {
   const params = lang ? `?lang=${lang}` : '';
   return adminFetch(`/api/glossary${params}`);
+}
+
+/**
+ * Create or edit an admin override — a term that survives the nightly upstream
+ * refresh and wins over the imported translation for its key.
+ */
+export async function upsertGlossaryOverride(entry: {
+  sourceText: string;
+  targetLanguage: string;
+  translatedText: string;
+}): Promise<{ success: boolean }> {
+  return adminFetch('/api/glossary/overrides', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  });
+}
+
+export async function deleteGlossaryOverride(
+  sourceText: string,
+  lang: string,
+): Promise<{ success: boolean }> {
+  return adminFetch(
+    `/api/glossary/overrides/${encodeURIComponent(sourceText)}/${lang}`,
+    { method: 'DELETE' },
+  );
 }
 
 export async function importGlossary(
