@@ -15,14 +15,22 @@ import { scheduleInfo, TSUYOSA_URL } from "../lib/schedule";
 
 interface Props {
 	bars: BarItem[];
+	/** Dense always-on rotations pulled into their own side columns, by key. */
+	swimlanes: Record<string, BarItem[]>;
 	milestones: MilestoneItem[];
 	day: Temporal.PlainDate;
 	lang: string;
 }
-const { bars, milestones, day, lang } = Astro.props;
+const { bars, swimlanes, milestones, day, lang } = Astro.props;
 
-// Any hidden-by-default game-schedule bars on this day? (drives the toggle)
-const hasDense = bars.some((b) => scheduleInfo(b.event)?.dense);
+// Fixed order + headers for the reserved side columns (防衛軍・メタルーキー).
+const SWIMLANE_META = [
+	{ key: "defense", label: "防衛軍" },
+	{ key: "metal", label: "メタルーキー" },
+];
+const lanes = SWIMLANE_META.map((m) => ({ ...m, bars: swimlanes[m.key] ?? [] })).filter(
+	(l) => l.bars.length > 0,
+);
 
 const dayStart = day.toZonedDateTime(AGENDA_ZONE);
 const dayStartMs = dayStart.toInstant().epochMilliseconds;
@@ -52,19 +60,18 @@ function eventLink(e: BarItem["event"]): { href: string | null; external: boolea
 	return { href: `/${lang}/${seg}/${e.sourceId}`, external: false };
 }
 
-const empty = bars.length === 0 && milestones.length === 0;
+const empty =
+	bars.length === 0 && milestones.length === 0 && lanes.length === 0;
 ---
 
-{
-	hasDense && (
-		<label class="agenda-tl__toggle">
-			<input type="checkbox" class="agenda-tl__toggle-input" />
-			Show hourly game schedules (防衛軍・メタルーキー)
-		</label>
-	)
-}
+<div class="agenda-tl" style={`--swim-count:${lanes.length}`}>
+	{/* Header row: spacers over the gutter + main track, a label per side column. */}
+	<div class="agenda-tl__corner" aria-hidden="true" />
+	<div class="agenda-tl__corner" aria-hidden="true" />
+	{lanes.map((l) => (
+		<div class="agenda-tl__swim-head">{l.label}</div>
+	))}
 
-<div class="agenda-tl" data-hide-dense>
 	<div class="agenda-tl__gutter" aria-hidden="true">
 		{ticks.map((t) => (
 			<time
@@ -98,7 +105,6 @@ const empty = bars.length === 0 && milestones.length === 0;
 						class="agenda-tl__bar"
 						data-etype={event.type}
 						data-source={sched ? "schedule" : undefined}
-						data-dense={sched?.dense ? "" : undefined}
 						data-open-start={openStart ? "" : undefined}
 						data-open-end={openEnd ? "" : undefined}
 						style={`--top:${startFrac * 100}%; --h:${(endFrac - startFrac) * 100}%; --lane:${lane}; --lanes:${laneCount}`}
@@ -169,12 +175,42 @@ const empty = bars.length === 0 && milestones.length === 0;
 			<span class="agenda-tl__now-label">Now</span>
 		</div>
 	</div>
+
+	{lanes.map((l) => (
+		<ul class="agenda-tl__swim" data-lane={l.key}>
+			{l.bars.map(({ event, startFrac, endFrac }) => {
+				const title = event.titleEn ?? event.titleJa;
+				const icon = scheduleInfo(event)?.iconUrl;
+				return (
+					<li
+						class="agenda-tl__swim-bar"
+						style={`--top:${startFrac * 100}%; --h:${(endFrac - startFrac) * 100}%`}
+					>
+						<a
+							class="agenda-tl__swim-inner"
+							href={TSUYOSA_URL}
+							target="_blank"
+							rel="noopener"
+							title={`${title}（${jstTime(event.startTime)}）`}
+						>
+							{icon ? (
+								<img class="agenda-tl__swim-icon" src={icon} alt={title} />
+							) : (
+								<span class="agenda-tl__swim-time">{jstTime(event.startTime)}</span>
+							)}
+						</a>
+					</li>
+				);
+			})}
+		</ul>
+	))}
 </div>
 
 <style>
 	.agenda-tl {
 		display: grid;
-		grid-template-columns: 3.4rem 1fr;
+		grid-template-columns: 3.4rem 1fr repeat(var(--swim-count, 0), var(--swim-w, 4.6rem));
+		grid-template-rows: auto 1fr;
 		gap: 0;
 	}
 	.agenda-tl__gutter,
@@ -185,20 +221,56 @@ const empty = bars.length === 0 && milestones.length === 0;
 		height: clamp(620px, 74vh, 980px);
 		border-left: 1px solid var(--rule-strong);
 	}
+	.agenda-tl__corner {
+		min-height: 0;
+	}
 
-	/* Dense game-schedule bars (防衛軍・メタルーキー) hidden until toggled on. */
-	.agenda-tl[data-hide-dense] .agenda-tl__bar[data-dense] {
-		display: none;
+	/* Reserved side columns for the always-on dense rotations (防衛軍・メタルーキー),
+	   so a busy hourly schedule never reflows the main events. */
+	.agenda-tl__swim-head {
+		font-size: 0.62rem;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		text-align: center;
+		color: var(--ink-faint);
+		padding-bottom: 0.25rem;
+		align-self: end;
 	}
-	.agenda-tl__toggle {
-		display: inline-flex;
+	.agenda-tl__swim {
+		position: relative;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		border-left: 1px solid var(--rule);
+		background: color-mix(in oklch, var(--purple-9) 5%, transparent);
+	}
+	.agenda-tl__swim-bar {
+		position: absolute;
+		top: var(--top);
+		height: var(--h);
+		left: 1px;
+		right: 1px;
+		min-height: 0.5rem;
+	}
+	.agenda-tl__swim-inner {
+		display: flex;
 		align-items: center;
-		gap: 0.4rem;
-		margin: 0 0 0.8rem;
-		font-size: 0.82rem;
-		color: var(--ink-soft);
-		cursor: pointer;
+		justify-content: center;
+		height: 100%;
+		overflow: hidden;
 	}
+	.agenda-tl__swim-icon {
+		max-width: 100%;
+		max-height: 100%;
+		width: auto;
+		height: auto;
+	}
+	.agenda-tl__swim-time {
+		font-size: 0.6rem;
+		color: var(--ink-faint);
+		font-variant-numeric: tabular-nums;
+	}
+
 	/* Brigade/boss icon shown in icon-only schedule events (no readable name). */
 	.agenda-tl__icon {
 		height: 1.05em;
@@ -436,33 +508,6 @@ const empty = bars.length === 0 && milestones.length === 0;
 	const DAY_MS = 86_400_000;
 	const track = document.querySelector<HTMLElement>(".agenda-tl__track");
 	const dayStartMs = Number(track?.dataset.dayStart);
-
-	// Dense game-schedule bars (防衛軍・メタルーキー) are hidden by default; the
-	// toggle persists the viewer's choice across days.
-	const grid = document.querySelector<HTMLElement>(".agenda-tl");
-	const toggle = document.querySelector<HTMLInputElement>(".agenda-tl__toggle-input");
-	if (grid && toggle) {
-		let show = false;
-		try {
-			show = localStorage.getItem("dqx-schedules") === "on";
-		} catch {
-			/* storage unavailable */
-		}
-		const apply = () => {
-			toggle.checked = show;
-			grid.toggleAttribute("data-hide-dense", !show);
-		};
-		apply();
-		toggle.addEventListener("change", () => {
-			show = toggle.checked;
-			try {
-				localStorage.setItem("dqx-schedules", show ? "on" : "off");
-			} catch {
-				/* storage unavailable */
-			}
-			apply();
-		});
-	}
 
 	if (localizeTimes()) {
 		const fmtTime = (dt: string) =>

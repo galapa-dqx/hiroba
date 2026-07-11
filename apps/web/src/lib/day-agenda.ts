@@ -15,18 +15,18 @@
  * is rendered in JST server-side; the client relabels it to the viewer's zone.
  */
 
-import { Temporal } from 'temporal-polyfill';
+import { type Temporal } from 'temporal-polyfill';
 
 import type { EventWithTitle } from '@hiroba/db';
 
 /** Game-server zone — the canonical schedule every event is stored in. */
 export const AGENDA_ZONE = 'Asia/Tokyo';
 
-export interface BandItem {
+export type BandItem = {
   event: EventWithTitle;
-}
+};
 
-export interface BarItem {
+export type BarItem = {
   event: EventWithTitle;
   /** Top edge as a fraction of the day (0..1). */
   startFrac: number;
@@ -40,19 +40,28 @@ export interface BarItem {
   lane: number;
   /** Number of columns in this bar's overlap cluster (for width). */
   laneCount: number;
-}
+};
 
-export interface MilestoneItem {
+export type MilestoneItem = {
   event: EventWithTitle;
   /** Position down the axis as a fraction of the day (0..1). */
   frac: number;
-}
+};
 
-export interface DayAgenda {
+export type DayAgenda = {
   band: BandItem[];
+  /** Main-column bars (lane-packed among themselves). */
   bars: BarItem[];
+  /** Bars pulled into dedicated side columns, keyed by swimlane id; each group
+   *  is lane-packed independently so it never shifts the main column. */
+  swimlanes: Record<string, BarItem[]>;
   milestones: MilestoneItem[];
-}
+};
+
+/** Group key for a bar's event, or null to keep it in the main column. */
+export type SwimlaneKey = (event: EventWithTitle) => string | null;
+
+const MAIN = '__main__';
 
 const DAY_MS = 86_400_000; // Asia/Tokyo has no DST, so every day is exactly 24h.
 
@@ -110,6 +119,7 @@ function assignLanes(bars: BarItem[]): void {
 export function buildDayAgenda(
   events: EventWithTitle[],
   day: Temporal.PlainDate,
+  swimlaneKey?: SwimlaneKey,
 ): DayAgenda {
   const dayStartMs = day
     .toZonedDateTime(AGENDA_ZONE)
@@ -117,8 +127,10 @@ export function buildDayAgenda(
   const dayEndMs = dayStartMs + DAY_MS;
 
   const band: BandItem[] = [];
-  const bars: BarItem[] = [];
   const milestones: MilestoneItem[] = [];
+  // Bars grouped by swimlane key (MAIN for the main column). Each group is
+  // lane-packed on its own so a busy side column never reflows the main one.
+  const groups = new Map<string, BarItem[]>();
 
   for (const event of events) {
     if (event.type === 'mark') {
@@ -136,7 +148,8 @@ export function buildDayAgenda(
       continue;
     }
 
-    bars.push({
+    const key = swimlaneKey?.(event) ?? MAIN;
+    const bar: BarItem = {
       event,
       startFrac: clamp01((startMs - dayStartMs) / DAY_MS),
       endFrac: clamp01((endMs - dayStartMs) / DAY_MS),
@@ -144,12 +157,21 @@ export function buildDayAgenda(
       openEnd: endMs > dayEndMs,
       lane: 0,
       laneCount: 1,
-    });
+    };
+    const group = groups.get(key);
+    if (group) group.push(bar);
+    else groups.set(key, [bar]);
   }
 
-  bars.sort((a, b) => a.startFrac - b.startFrac || a.endFrac - b.endFrac);
-  assignLanes(bars);
+  const swimlanes: Record<string, BarItem[]> = {};
+  for (const [key, groupBars] of groups) {
+    groupBars.sort(
+      (a, b) => a.startFrac - b.startFrac || a.endFrac - b.endFrac,
+    );
+    assignLanes(groupBars);
+    if (key !== MAIN) swimlanes[key] = groupBars;
+  }
   milestones.sort((a, b) => a.frac - b.frac);
 
-  return { band, bars, milestones };
+  return { band, bars: groups.get(MAIN) ?? [], swimlanes, milestones };
 }

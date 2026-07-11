@@ -5,6 +5,7 @@ import Ornament from "@hiroba/ui/Ornament.astro";
 import { createDb, getEventsForDay } from "@hiroba/db";
 import { AGENDA_ZONE, buildDayAgenda } from "../../lib/day-agenda";
 import { labelScheduleIcons } from "../../lib/schedule-labels";
+import { scheduleInfo } from "../../lib/schedule";
 import AgendaBand from "../../components/AgendaBand.astro";
 import AgendaTimeline from "../../components/AgendaTimeline.astro";
 
@@ -31,7 +32,12 @@ if (dateParam) {
 const events = await getEventsForDay(db, day, lang);
 // Fold transcribed/translated icon names into the icon-only schedule events.
 await labelScheduleIcons(db, events, lang);
-const { band, bars, milestones } = buildDayAgenda(events, day);
+// The always-on dense rotations (防衛軍・メタルーキー) get their own side columns
+// so they never reflow the main events.
+const { band, bars, swimlanes, milestones } = buildDayAgenda(events, day, (e) => {
+	const info = scheduleInfo(e);
+	return info?.dense ? info.content : null;
+});
 
 const isToday = day.equals(today);
 const prev = day.subtract({ days: 1 });
@@ -73,7 +79,13 @@ const heading = day.toLocaleString("en-US", {
 	</section>
 
 	<AgendaBand band={band} lang={lang} />
-	<AgendaTimeline bars={bars} milestones={milestones} day={day} lang={lang} />
+	<AgendaTimeline
+		bars={bars}
+		swimlanes={swimlanes}
+		milestones={milestones}
+		day={day}
+		lang={lang}
+	/>
 </Layout>
 
 <style>
