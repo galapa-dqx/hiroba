@@ -36,6 +36,7 @@ import { createLogger, runStep } from './logger';
 import { localizeImages } from './steps/localize-images';
 import { mirrorImages } from './steps/mirror-images';
 import { transcribeImages } from './steps/transcribe-images';
+import { translateImageTexts } from './steps/translate-image-texts';
 import type { BannerWorkflowOutput, BannerWorkflowParams, Env } from './types';
 
 export class BannerWorkflow extends WorkflowEntrypoint<
@@ -97,6 +98,13 @@ export class BannerWorkflow extends WorkflowEntrypoint<
         this.env.GEMINI_API_KEY,
         this.env.IMAGES_BUCKET,
       ),
+    );
+
+    // 3.5. Translate the transcribed text into each language (the article
+    // pipeline gets this from its translate step; banners have no body, so we
+    // translate the spans directly). Localize needs these rows.
+    await runStep(step, log, 'translate-banner-texts', () =>
+      translateImageTexts(db, this.env.GEMINI_API_KEY, blocks, languages),
     );
 
     // 4. Bake each enabled language's translation back into the image.
