@@ -37,6 +37,7 @@ export { ArticleWorkflow } from './article-workflow';
 export { TitleWorkflow } from './title-workflow';
 export { TitleBackfillWorkflow } from './title-backfill-workflow';
 export { NewsBackfillWorkflow } from './news-backfill-workflow';
+export { BannerWorkflow } from './banner-workflow';
 
 export default Sentry.withSentry(
   (env: Env) => ({
@@ -144,11 +145,27 @@ export default Sentry.withSentry(
       } else {
         await refreshNews(db, env, log);
         await refreshTopics(db, env, log);
+        await refreshBanners(env, log);
         await processRechecks(db, env, log);
       }
     },
   },
 );
+
+/**
+ * Kick off the BannerWorkflow to re-scrape and (re-)localize the home-page
+ * rotation banners. Idempotent — already-localized banners are skipped — so an
+ * hourly run only does real work when the rotation changes. Best-effort: a
+ * failure to enqueue is logged, never fails the refresh.
+ */
+async function refreshBanners(env: Env, log: Logger): Promise<void> {
+  try {
+    const instance = await env.BANNER_WORKFLOW.create({ params: {} });
+    log.info(`Enqueued banner refresh (${instance.id})`);
+  } catch (error) {
+    log.error('Failed to enqueue banner refresh:', error);
+  }
+}
 
 /**
  * Refresh glossary from GitHub CSV.

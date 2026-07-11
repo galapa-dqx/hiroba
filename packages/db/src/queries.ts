@@ -29,6 +29,7 @@ import {
 } from '@hiroba/shared';
 
 import type { Database } from './client';
+import { banners, type Banner } from './schema/banners';
 import { events, type Event } from './schema/events';
 import { images, type Image } from './schema/images';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
@@ -1697,4 +1698,67 @@ export async function upsertImageTranslation(
         updatedAt: now,
       },
     });
+}
+
+/* ------------------------------------------------------------------ *
+ * Rotation banners — the home-page carousel (see schema/banners.ts).
+ * ------------------------------------------------------------------ */
+
+/** A banner as scraped from the source rotation page. */
+export type BannerListItem = {
+  imageKey: string;
+  linkUrl: string | null;
+  linkTopicId: string | null;
+  altJa: string;
+  sortOrder: number;
+  publishedAt: Temporal.Instant | null;
+};
+
+/**
+ * Upsert the current rotation banners (keyed by imageKey), marking each active,
+ * then deactivate any banner no longer in the set — so the carousel reflects the
+ * live rotation while keeping stale rows (and their localized images) around.
+ */
+export async function syncBanners(
+  db: Database,
+  items: BannerListItem[],
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  for (const item of items) {
+    await db
+      .insert(banners)
+      .values({ ...item, active: true, updatedAt: now })
+      .onConflictDoUpdate({
+        target: banners.imageKey,
+        set: {
+          linkUrl: item.linkUrl,
+          linkTopicId: item.linkTopicId,
+          altJa: item.altJa,
+          sortOrder: item.sortOrder,
+          publishedAt: item.publishedAt,
+          active: true,
+          updatedAt: now,
+        },
+      });
+  }
+
+  const keep = items.map((i) => i.imageKey);
+  await db
+    .update(banners)
+    .set({ active: false, updatedAt: now })
+    .where(
+      keep.length > 0
+        ? and(eq(banners.active, true), notInArray(banners.imageKey, keep))
+        : eq(banners.active, true),
+    );
+}
+
+/** The active banners in rotation order. */
+export async function getActiveBanners(db: Database): Promise<Banner[]> {
+  return db
+    .select()
+    .from(banners)
+    .where(eq(banners.active, true))
+    .orderBy(asc(banners.sortOrder))
+    .all();
 }

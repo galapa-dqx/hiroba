@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 
-import { getStats, type ArticleTypeStats, type Stats } from '../lib/api';
+import {
+  getStats,
+  refreshBanners,
+  type ArticleTypeStats,
+  type Stats,
+} from '../lib/api';
 
 function TypeStatsGrid({ stats }: { stats: ArticleTypeStats }) {
   const cards: Array<[string, number]> = [
@@ -27,6 +32,25 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [bannerBusy, setBannerBusy] = useState(false);
+  const [bannerMsg, setBannerMsg] = useState<string | null>(null);
+
+  async function handleRefreshBanners() {
+    setBannerBusy(true);
+    setBannerMsg(null);
+    try {
+      const res = await refreshBanners();
+      setBannerMsg(
+        res.status === 'already_running'
+          ? 'Already running.'
+          : 'Refresh started — banners re-localize in the background.',
+      );
+    } catch (err) {
+      setBannerMsg('Failed to start refresh. Check console.');
+      console.error(err);
+    }
+    setBannerBusy(false);
+  }
 
   useEffect(() => {
     loadStats();
@@ -75,6 +99,14 @@ export default function Dashboard() {
           Topics <a href="/topics">Manage →</a>
         </h3>
         <TypeStatsGrid stats={stats.topics} />
+      </div>
+
+      <div className="actions">
+        <h3>Rotation banners</h3>
+        <button onClick={handleRefreshBanners} disabled={bannerBusy}>
+          {bannerBusy ? 'Working…' : 'Refresh banners'}
+        </button>
+        {bannerMsg && <span className="workflow-status">{bannerMsg}</span>}
       </div>
 
       <div className="category-breakdown">

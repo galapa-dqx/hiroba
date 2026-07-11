@@ -32,6 +32,14 @@ export {
   type TopicBody,
 } from './topics-body-scraper';
 
+// Rotation banner scraper (home-page carousel → banner metadata)
+export {
+  fetchRotationBanners,
+  parseRotationBanners,
+  ROTATION_BANNER_URL,
+  type RotationBannerItem,
+} from './banners-scraper';
+
 // Topics list scraper (backnumber enumeration → Phase 1 metadata)
 export {
   scrapeTopicsList,

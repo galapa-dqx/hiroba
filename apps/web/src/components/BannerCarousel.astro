@@ -1,0 +1,228 @@
+---
+/**
+ * Home-page rotation banner carousel. Renders the localized banner images
+ * (translated text baked in) as an auto-advancing slideshow with prev/next
+ * controls and dots. Auto-advance pauses on hover/focus and is disabled under
+ * prefers-reduced-motion. Server-rendered markup; the small script only wires
+ * interactivity, so the first banner is visible without JS.
+ */
+import type { CarouselBanner } from "../lib/banners";
+
+interface Props {
+  banners: CarouselBanner[];
+}
+
+const { banners } = Astro.props;
+const multiple = banners.length > 1;
+---
+
+{
+  banners.length > 0 && (
+    <section
+      class="banners"
+      aria-roledescription="carousel"
+      aria-label="Featured announcements"
+    >
+      <div class="banners__viewport">
+        <ul class="banners__track" role="list">
+          {banners.map((b, i) => (
+            <li
+              class="banners__slide"
+              role="group"
+              aria-roledescription="slide"
+              aria-label={`${i + 1} of ${banners.length}`}
+            >
+              <a
+                class="banners__link"
+                href={b.href}
+                {...(b.external
+                  ? { target: "_blank", rel: "noopener noreferrer" }
+                  : {})}
+              >
+                <img
+                  src={b.imageUrl}
+                  alt={b.alt}
+                  width="632"
+                  height="157"
+                  loading={i === 0 ? "eager" : "lazy"}
+                  decoding="async"
+                />
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {multiple && (
+        <>
+          <button
+            class="banners__nav banners__nav--prev"
+            type="button"
+            aria-label="Previous banner"
+          >
+            ‹
+          </button>
+          <button
+            class="banners__nav banners__nav--next"
+            type="button"
+            aria-label="Next banner"
+          >
+            ›
+          </button>
+          <div class="banners__dots" role="tablist" aria-label="Choose banner">
+            {banners.map((_, i) => (
+              <button
+                class="banners__dot"
+                type="button"
+                role="tab"
+                aria-label={`Banner ${i + 1}`}
+                aria-selected={i === 0 ? "true" : "false"}
+                data-dot={i}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+<style>
+  .banners {
+    position: relative;
+    max-width: var(--page-max, 860px);
+    margin: 0 auto 1.8rem;
+  }
+  .banners__viewport {
+    overflow: hidden;
+    border: 1px solid var(--border-strong, var(--border));
+    border-radius: var(--radius, 0);
+    box-shadow: var(--shadow-md);
+    background: var(--surface-panel-2, var(--surface-panel));
+  }
+  .banners__track {
+    display: flex;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    transition: transform 0.5s ease;
+  }
+  .banners__slide {
+    flex: 0 0 100%;
+    min-width: 0;
+  }
+  .banners__link {
+    display: block;
+  }
+  .banners__link img {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 632 / 157;
+    object-fit: cover;
+  }
+
+  .banners__nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2.2rem;
+    height: 2.2rem;
+    display: grid;
+    place-items: center;
+    font-size: 1.4rem;
+    line-height: 1;
+    color: var(--gold-ink, var(--ink));
+    background: color-mix(in oklab, var(--surface-panel) 82%, transparent);
+    border: 1px solid var(--gold-edge, var(--border-strong));
+    border-radius: 999px;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .banners__nav:hover {
+    background: var(--gold, var(--surface-panel));
+    color: var(--band-ink, #fff);
+  }
+  .banners__nav--prev {
+    left: 0.5rem;
+  }
+  .banners__nav--next {
+    right: 0.5rem;
+  }
+
+  .banners__dots {
+    display: flex;
+    justify-content: center;
+    gap: 0.4rem;
+    margin-top: 0.7rem;
+  }
+  .banners__dot {
+    width: 0.55rem;
+    height: 0.55rem;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--gold-edge, var(--border-strong));
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  .banners__dot[aria-selected="true"] {
+    background: var(--gold, var(--ink));
+  }
+
+  @media (max-width: 600px) {
+    .banners__nav {
+      width: 1.9rem;
+      height: 1.9rem;
+      font-size: 1.2rem;
+    }
+  }
+</style>
+
+<script>
+  const root = document.querySelector<HTMLElement>(".banners");
+  const track = root?.querySelector<HTMLElement>(".banners__track");
+  if (root && track) {
+    const slides = root.querySelectorAll(".banners__slide");
+    const dots = root.querySelectorAll<HTMLElement>(".banners__dot");
+    const count = slides.length;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    let index = 0;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const go = (i: number) => {
+      index = (i + count) % count;
+      track.style.transform = `translateX(-${index * 100}%)`;
+      dots.forEach((d, di) =>
+        d.setAttribute("aria-selected", di === index ? "true" : "false"),
+      );
+    };
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = undefined;
+    };
+    const start = () => {
+      stop();
+      if (!reduce && count > 1) timer = setInterval(() => go(index + 1), 6000);
+    };
+
+    root
+      .querySelector(".banners__nav--next")
+      ?.addEventListener("click", () => (go(index + 1), start()));
+    root
+      .querySelector(".banners__nav--prev")
+      ?.addEventListener("click", () => (go(index - 1), start()));
+    dots.forEach((d, di) =>
+      d.addEventListener("click", () => (go(di), start())),
+    );
+    root.addEventListener("mouseenter", stop);
+    root.addEventListener("mouseleave", start);
+    root.addEventListener("focusin", stop);
+    root.addEventListener("focusout", start);
+
+    start();
+  }
+</script>

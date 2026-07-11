@@ -88,6 +88,14 @@ name = "news-backfill-workflow"
 binding = "NEWS_BACKFILL_WORKFLOW"
 class_name = "NewsBackfillWorkflow"
 
+# Cloudflare Workflow for the home-page rotation banners: scrape the banner
+# carousel, then mirror → transcribe → localize each banner image (reusing the
+# article image pipeline). Fired hourly by cron and on demand from the admin.
+[[workflows]]
+name = "banner-workflow"
+binding = "BANNER_WORKFLOW"
+class_name = "BannerWorkflow"
+
 # Scheduled triggers:
 # - Hourly news refresh (first page of each category)
 # - Daily glossary refresh (midnight JST = 15:00 UTC)

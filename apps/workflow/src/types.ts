@@ -60,6 +60,8 @@ export type Env = {
   /** Whole-archive news list scrape — pages the archive one durable step at a
    *  time so it isn't bound by a single request's subrequest limit (DQX-14). */
   NEWS_BACKFILL_WORKFLOW: WorkflowBinding<NewsBackfillWorkflowParams>;
+  /** Home-page rotation banners: scrape → mirror → transcribe → localize. */
+  BANNER_WORKFLOW: WorkflowBinding<BannerWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
@@ -75,6 +77,17 @@ export type ItemType = 'news' | 'topic';
 export type ArticleWorkflowParams = {
   itemId: string;
   itemType: ItemType;
+};
+
+/** The BannerWorkflow scrapes + localizes the whole rotation; no params. */
+export type BannerWorkflowParams = Record<string, never>;
+
+/** Result of the BannerWorkflow — counts across the rotation. */
+export type BannerWorkflowOutput = {
+  banners: number;
+  mirrored: number;
+  transcribed: number;
+  localized: number;
 };
 
 /**

@@ -1,17 +1,26 @@
 ---
 import Layout from "../../layouts/Layout.astro";
 import ArticleList from "../../components/ArticleList.astro";
+import BannerCarousel from "../../components/BannerCarousel.astro";
 import PanelSection from "../../components/PanelSection.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import { createDb, getNewsItems } from "@hiroba/db";
 import { CATEGORIES, CATEGORY_LABELS } from "@hiroba/shared";
 import { maybeTriggerTitleBackfill } from "../../lib/workflow";
+import { resolveBanners } from "../../lib/banners";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
 
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);
+
+// Localized rotation banners for the top-of-page carousel. Best-effort — a
+// failure here never takes down the home page.
+const banners = await resolveBanners(db, {
+	language: lang,
+	imageBase: runtime.env.IMAGE_BASE,
+}).catch(() => []);
 
 const newsByCategory = await Promise.all(
 	CATEGORIES.map(async (category) => {
@@ -35,6 +44,8 @@ maybeTriggerTitleBackfill(
 ---
 
 <Layout title="Latest News">
+	<BannerCarousel banners={banners} />
+
 	<section class="home-hero">
 		<h1>Galapa&nbsp;News</h1>
 		<p class="subtitle">Dispatches from Astoltia — Dragon Quest&nbsp;X news, translated from the official Hiroba.</p>

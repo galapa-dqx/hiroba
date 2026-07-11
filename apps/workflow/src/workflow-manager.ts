@@ -76,6 +76,12 @@ export class WorkflowManager extends DurableObject<Env> {
     instanceId: string;
     progress: { label: string; done?: number; total?: number };
   } | null = null;
+  /**
+   * The in-flight rotation-banner refresh (DQX banners). Callers address a
+   * dedicated `banners` instance so this field is the single dedup point —
+   * mirrors `scrape`.
+   */
+  private bannerRefresh: string | null = null;
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -109,6 +115,9 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     if (url.pathname === '/scrape-sse') {
       return this.handleScrapeSSE();
+    }
+    if (url.pathname === '/refresh-banners' && request.method === 'POST') {
+      return this.handleRefreshBanners();
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
@@ -508,6 +517,31 @@ export class WorkflowManager extends DurableObject<Env> {
         Connection: 'keep-alive',
       },
     });
+  }
+
+  /**
+   * Fire the BannerWorkflow to re-scrape and re-localize the home-page rotation
+   * banners, deduping a run that's already queued/running. Fire-and-forget from
+   * the admin; the workflow is idempotent so over-triggering is harmless.
+   */
+  private async handleRefreshBanners(): Promise<Response> {
+    const workflow = this.env.BANNER_WORKFLOW;
+    if (this.bannerRefresh) {
+      try {
+        const status = await (await workflow.get(this.bannerRefresh)).status();
+        if (status.status === 'running' || status.status === 'queued') {
+          return Response.json({
+            status: 'already_running',
+            instanceId: this.bannerRefresh,
+          });
+        }
+      } catch {
+        // The engine no longer knows the instance — fall through, start fresh.
+      }
+    }
+    const instance = await workflow.create({ params: {} });
+    this.bannerRefresh = instance.id;
+    return Response.json({ status: 'started', instanceId: instance.id });
   }
 
   /** Handle status request. */

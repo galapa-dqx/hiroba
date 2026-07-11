@@ -132,6 +132,14 @@ export async function triggerWorkflow(
   return adminFetch(`/api/news/${id}/workflow`, { method: 'POST' });
 }
 
+/** Kick off the rotation-banner refresh (scrape + localize). */
+export async function refreshBanners(): Promise<{
+  status: string;
+  instanceId?: string;
+}> {
+  return adminFetch('/api/banners/refresh', { method: 'POST' });
+}
+
 /** Result of a "translate the most recent N" fan-out. */
 export type TriggerRecentResult = {
   success: boolean;
