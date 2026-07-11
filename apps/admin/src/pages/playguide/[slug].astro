@@ -1,0 +1,10 @@
+---
+import ArticleEdit from "../../components/ArticleEdit";
+import Layout from "../../layouts/Layout.astro";
+
+const { slug } = Astro.params;
+---
+
+<Layout title="Edit Play Guide">
+	<ArticleEdit kind="playguide" id={slug!} client:only="react" />
+</Layout>

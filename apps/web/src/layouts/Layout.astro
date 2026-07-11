@@ -102,6 +102,13 @@ const alternateLinks =
 					>
 						Topics
 					</a>
+					<a
+						class="nav__link"
+						href={`${base}/playguide`}
+						aria-current={pathAfterLang.startsWith("/playguide") ? "page" : undefined}
+					>
+						Play Guide
+					</a>
 					{
 						languages.length > 1 && (
 							<details class="lang-menu">

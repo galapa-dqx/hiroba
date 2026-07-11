@@ -6,6 +6,7 @@
 
 export * from './news-items';
 export * from './topics';
+export * from './playguides';
 export * from './translations';
 export * from './glossary';
 export * from './languages';

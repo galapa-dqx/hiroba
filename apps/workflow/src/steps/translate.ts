@@ -73,11 +73,11 @@ function glossarySection(
     .join('\n')}`;
 }
 
-/** Upsert a single article/event translation row (item_type='news'|'topic'|'event'). */
+/** Upsert a single article/event translation row (item_type='news'|'topic'|'playguide'|'event'). */
 async function upsertTranslation(
   db: Database,
   params: {
-    itemType: 'news' | 'topic' | 'event';
+    itemType: 'news' | 'topic' | 'playguide' | 'event';
     itemId: string;
     language: string;
     field: 'title' | 'content';

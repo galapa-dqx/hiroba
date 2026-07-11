@@ -11,24 +11,31 @@ import { eq } from 'drizzle-orm';
 
 import {
   getNewsItem,
+  getPlayguide,
   getTopic,
   newsItems,
+  updatePlayguideBlocks,
   updateTopicBlocks,
   type Database,
   type NewsItem,
+  type Playguide,
   type Topic,
 } from '@hiroba/db';
 import type { Block } from '@hiroba/richtext';
 
 import type { ItemType } from './types';
 
-/** The common article row (news item or topic) selected by item type. */
+/** The common article row (news item, topic, or playguide) selected by item type. */
 export async function getArticle(
   db: Database,
   itemType: ItemType,
   id: string,
-): Promise<NewsItem | Topic | null> {
-  return itemType === 'topic' ? getTopic(db, id) : getNewsItem(db, id);
+): Promise<NewsItem | Topic | Playguide | null> {
+  return itemType === 'topic'
+    ? getTopic(db, id)
+    : itemType === 'playguide'
+      ? getPlayguide(db, id)
+      : getNewsItem(db, id);
 }
 
 /**
@@ -56,6 +63,8 @@ export async function saveArticleBlocks(
 ): Promise<void> {
   if (itemType === 'topic') {
     await updateTopicBlocks(db, id, blocks);
+  } else if (itemType === 'playguide') {
+    await updatePlayguideBlocks(db, id, blocks);
   } else {
     await db
       .update(newsItems)

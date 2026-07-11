@@ -462,8 +462,12 @@ export async function extractAndSaveEvents(
   await db.delete(events).where(eq(events.sourceId, itemId));
 
   // Extract events using the LLM, anchored to the item's publication date so it
-  // can resolve bare/relative dates and we can bounds-check the result.
-  const pub = item.publishedAt.toZonedDateTimeISO('Asia/Tokyo');
+  // can resolve bare/relative dates and we can bounds-check the result. (Only
+  // dated types reach here — playguides skip event extraction — so publishedAt
+  // is present; fall back to now for the type-checker.)
+  const pub = (item.publishedAt ?? Temporal.Now.instant()).toZonedDateTimeISO(
+    'Asia/Tokyo',
+  );
   const extractedEvents = await extractEventsFromContent(content, apiKey, pub);
 
   if (extractedEvents.length === 0) {

@@ -32,6 +32,22 @@ export {
   type TopicBody,
 } from './topics-body-scraper';
 
+// Playguide body scraper (fetch + parse a playguide page → block tree)
+export {
+  fetchPlayguideBody,
+  parsePlayguidePage,
+  type PlayguideBody,
+} from './playguide-body-scraper';
+
+// Playguide crawl scraper (BFS the guide tree → Phase 1 metadata)
+export {
+  crawlPlayguides,
+  parsePlayguideLinks,
+  playguideUrl,
+  PLAYGUIDE_SEED_SLUG,
+  type PlayguideCrawlItem,
+} from './playguide-crawl-scraper';
+
 // Rotation banner scraper (home-page carousel → banner metadata)
 export {
   fetchRotationBanners,

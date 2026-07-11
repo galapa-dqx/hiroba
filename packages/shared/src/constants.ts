@@ -37,4 +37,8 @@ export const SCRAPE_CONFIG = {
   newsListPath: '/sc/news/',
   newsDetailPath: '/sc/news/detail/',
   topicsDetailPath: '/sc/topics/detail/',
+  // Playguide pages are static reference guides under a single path prefix,
+  // identified by a slug (guide01, guide_4_2, wintrial_1, …) rather than a
+  // 32-char hex id. The set is discovered by crawling from `guide01`.
+  playguideBasePath: '/sc/public/playguide/',
 } as const;

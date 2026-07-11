@@ -28,6 +28,7 @@ import {
   createDb,
   getEnabledLanguages,
   getNewsItem,
+  getPlayguide,
   getTitleTranslations,
   getTopic,
   listWorkflowRuns,
@@ -54,6 +55,19 @@ const SETTLED_VISIBLE_HOURS = 24;
 const SETTLED_RETAINED_HOURS = 24 * 7;
 
 type Active = { instanceId: string; itemType: ItemType };
+
+/** The body-bearing item types that flow through the ArticleWorkflow. */
+const ARTICLE_ITEM_TYPES = ['news', 'topic', 'playguide'] as const;
+
+/** Parse a wire `itemType` string to an ArticleWorkflow item type (news default). */
+function parseItemType(value: string | null | undefined): ItemType {
+  return (ARTICLE_ITEM_TYPES as readonly string[]).includes(value ?? '')
+    ? (value as ItemType)
+    : 'news';
+}
+
+/** Topics and playguides carry text-bearing images; news does not. */
+const hasImages = (itemType: ItemType): boolean => itemType !== 'news';
 
 export class WorkflowManager extends DurableObject<Env> {
   /** Track active workflow instances by item ID. */
@@ -146,8 +160,7 @@ export class WorkflowManager extends DurableObject<Env> {
         // caller (the proxy routes know which pipeline they front).
         let active = this.activeWorkflows.get(itemId);
         const itemType: ItemType =
-          active?.itemType ??
-          (url.searchParams.get('itemType') === 'topic' ? 'topic' : 'news');
+          active?.itemType ?? parseItemType(url.searchParams.get('itemType'));
 
         const db = createDb(this.env.DB);
 
@@ -310,7 +323,7 @@ export class WorkflowManager extends DurableObject<Env> {
       itemType?: ItemType;
       itemIds?: unknown;
     };
-    const itemType: ItemType = body.itemType === 'topic' ? 'topic' : 'news';
+    const itemType: ItemType = parseItemType(body.itemType);
     const itemIds = Array.isArray(body.itemIds)
       ? body.itemIds.filter((id): id is string => typeof id === 'string')
       : [];
@@ -588,7 +601,7 @@ export class WorkflowManager extends DurableObject<Env> {
 
     // Batch the translated titles per item type (cheap title-row-only reads).
     const titleEn = new Map<string, string>();
-    for (const itemType of ['news', 'topic'] as const) {
+    for (const itemType of ARTICLE_ITEM_TYPES) {
       const ids = runs
         .filter((r) => r.itemType === itemType)
         .map((r) => r.itemId);
@@ -629,7 +642,9 @@ export class WorkflowManager extends DurableObject<Env> {
       const item =
         run.itemType === 'topic'
           ? await getTopic(db, run.itemId)
-          : await getNewsItem(db, run.itemId);
+          : run.itemType === 'playguide'
+            ? await getPlayguide(db, run.itemId)
+            : await getNewsItem(db, run.itemId);
       const snapshot = await computeSnapshot(
         db,
         run.itemType,
@@ -637,7 +652,7 @@ export class WorkflowManager extends DurableObject<Env> {
         'en',
       );
       const images =
-        run.itemType === 'topic' && item
+        hasImages(run.itemType) && item
           ? await computeImageDetail(db, item.blocksJa, 'en')
           : [];
 

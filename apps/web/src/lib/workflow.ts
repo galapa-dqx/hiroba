@@ -1,18 +1,18 @@
 /**
  * Web-side interface to the WorkflowManager Durable Object — the one place
  * that knows the DO naming convention: a news item's DO is named by its bare
- * id; a topic's is namespaced `topic:<id>` so it can't collide with a news
- * item of the same id.
+ * id; topics and playguides are namespaced `<type>:<id>` so they can't collide
+ * with a news item (or each other) of the same id.
  */
 
 import type { ItemType } from '@hiroba/db';
 
-type ArticleType = Extract<ItemType, 'news' | 'topic'>;
+type ArticleType = Extract<ItemType, 'news' | 'topic' | 'playguide'>;
 
 type Runtime = App.Locals['runtime'];
 
 function workflowStub(runtime: Runtime, itemType: ArticleType, id: string) {
-  const name = itemType === 'topic' ? `topic:${id}` : id;
+  const name = itemType === 'news' ? id : `${itemType}:${id}`;
   const doId = runtime.env.WORKFLOW_MANAGER.idFromName(name);
   return runtime.env.WORKFLOW_MANAGER.get(doId);
 }

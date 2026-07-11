@@ -67,8 +67,13 @@ export type Env = {
   LOG_LEVEL?: string;
 };
 
-/** Which pipeline an item flows through — also its event source_type. */
-export type ItemType = 'news' | 'topic';
+/**
+ * Which pipeline an item flows through — also its event source_type. All three
+ * share the ArticleWorkflow; playguides are static reference pages (no dated
+ * events, so the event steps are skipped) that otherwise run the full
+ * scrape→translate→localize-images pipeline like topics.
+ */
+export type ItemType = 'news' | 'topic' | 'playguide';
 
 /**
  * Parameters passed to the ArticleWorkflow. `itemType` selects which table the

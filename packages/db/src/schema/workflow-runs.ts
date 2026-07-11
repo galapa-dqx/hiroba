@@ -22,7 +22,9 @@ export const workflowRuns = sqliteTable(
     // The Cloudflare Workflows instance id.
     instanceId: text('instance_id').primaryKey(),
 
-    itemType: text('item_type').$type<'news' | 'topic'>().notNull(),
+    itemType: text('item_type')
+      .$type<'news' | 'topic' | 'playguide'>()
+      .notNull(),
     itemId: text('item_id').notNull(),
 
     // Last-seen engine status; error carries instance.status().error when set.
@@ -38,7 +40,7 @@ export const workflowRuns = sqliteTable(
   (table) => [
     check(
       'workflow_runs_item_type_valid',
-      sql`${table.itemType} IN ('news', 'topic')`,
+      sql`${table.itemType} IN ('news', 'topic', 'playguide')`,
     ),
     check(
       'workflow_runs_status_valid',

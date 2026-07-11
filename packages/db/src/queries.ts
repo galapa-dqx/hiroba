@@ -33,6 +33,11 @@ import { banners, type Banner } from './schema/banners';
 import { events, type Event } from './schema/events';
 import { images, type Image } from './schema/images';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
+import {
+  playguides,
+  type NewPlayguide,
+  type Playguide,
+} from './schema/playguides';
 import { topics, type NewTopic, type Topic } from './schema/topics';
 import {
   translations,
@@ -59,6 +64,23 @@ async function chunked<T, R>(
     out.push(...(await fn(items.slice(i, i + IN_CHUNK))));
   }
   return out;
+}
+
+/** The three body-bearing article types, sharing the pipeline (news/topic/playguide). */
+export type ArticleType = 'news' | 'topic' | 'playguide';
+
+/**
+ * The source table for a body-bearing item type. All three share the columns the
+ * pipeline touches (id, titleJa, blocksJa, fetchState, body* tracking); callers
+ * that reach for a type-specific column (news `category`, dated `publishedAt`)
+ * branch explicitly instead of going through here.
+ */
+function articleTable(itemType: ArticleType) {
+  return itemType === 'news'
+    ? newsItems
+    : itemType === 'topic'
+      ? topics
+      : playguides;
 }
 
 /**
@@ -191,11 +213,11 @@ export async function getNewsItem(
  */
 export async function getItemTitles(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   ids: string[],
 ): Promise<Array<{ id: string; titleJa: string }>> {
   if (ids.length === 0) return [];
-  const table = itemType === 'news' ? newsItems : topics;
+  const table = articleTable(itemType);
   return chunked(ids, (slice) =>
     db
       .select({ id: table.id, titleJa: table.titleJa })
@@ -221,11 +243,17 @@ export async function getItemTitles(
  */
 export async function getUntranslatedTitles(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   language: string,
   limit = 100,
 ): Promise<Array<{ id: string; titleJa: string }>> {
-  const table = itemType === 'news' ? newsItems : topics;
+  const table = articleTable(itemType);
+  // Playguides have no publish date; order by their crawl order instead so the
+  // backfill still walks them in a stable sequence.
+  const order =
+    itemType === 'playguide'
+      ? [asc(playguides.sortOrder), asc(playguides.id)]
+      : [desc(table.publishedAt), desc(table.id)];
 
   return db
     .select({ id: table.id, titleJa: table.titleJa })
@@ -240,7 +268,7 @@ export async function getUntranslatedTitles(
       ),
     )
     .where(isNull(translations.value))
-    .orderBy(desc(table.publishedAt), desc(table.id))
+    .orderBy(...order)
     .limit(Math.min(limit, 500))
     .all();
 }
@@ -251,7 +279,7 @@ export async function getUntranslatedTitles(
 
 /** One article in the recheck domain (its body has been fetched at least once). */
 export type RecheckEntry = {
-  itemType: 'news' | 'topic';
+  itemType: ArticleType;
   id: string;
   titleJa: string;
   category: string | null;
@@ -269,7 +297,7 @@ async function collectRecheckEntries(
   db: Database,
   now: Temporal.Instant,
 ): Promise<RecheckEntry[]> {
-  const [news, topicRows] = await Promise.all([
+  const [news, topicRows, playguideRows] = await Promise.all([
     db
       .select({
         id: newsItems.id,
@@ -296,22 +324,43 @@ async function collectRecheckEntries(
       .from(topics)
       .where(isNotNull(topics.bodyFetchedAt))
       .all(),
+    db
+      .select({
+        id: playguides.id,
+        titleJa: playguides.titleJa,
+        publishedAt: playguides.publishedAt,
+        bodyFetchedAt: playguides.bodyFetchedAt,
+        bodyCheckedAt: playguides.bodyCheckedAt,
+        bodyChangedAt: playguides.bodyChangedAt,
+      })
+      .from(playguides)
+      .where(isNotNull(playguides.bodyFetchedAt))
+      .all(),
   ]);
 
   const toEntry = (
-    itemType: 'news' | 'topic',
-    row: Omit<(typeof news)[number], 'category'> & {
-      category: string | null;
+    itemType: ArticleType,
+    row: {
+      id: string;
+      titleJa: string;
+      category?: string | null;
+      // Playguides have no publish date; the change anchor falls back to the
+      // fetch time (which is non-null for anything in the recheck domain).
+      publishedAt: Temporal.Instant | null;
+      bodyFetchedAt: Temporal.Instant | null;
+      bodyCheckedAt: Temporal.Instant | null;
+      bodyChangedAt: Temporal.Instant | null;
     },
   ): RecheckEntry => {
-    const lastChangedAt = row.bodyChangedAt ?? row.publishedAt;
+    const anchor = row.publishedAt ?? row.bodyFetchedAt!;
+    const lastChangedAt = row.bodyChangedAt ?? anchor;
     const bodyCheckedAt = row.bodyCheckedAt ?? row.bodyFetchedAt!;
     return {
       itemType,
       id: row.id,
       titleJa: row.titleJa,
-      category: row.category,
-      publishedAt: row.publishedAt,
+      category: row.category ?? null,
+      publishedAt: anchor,
       lastChangedAt,
       bodyCheckedAt,
       nextCheckAt: getNextCheckTime(lastChangedAt, bodyCheckedAt, now),
@@ -321,6 +370,7 @@ async function collectRecheckEntries(
   return [
     ...news.map((row) => toEntry('news', row)),
     ...topicRows.map((row) => toEntry('topic', row)),
+    ...playguideRows.map((row) => toEntry('playguide', row)),
   ];
 }
 
@@ -384,7 +434,7 @@ export async function getDueRechecks(
 
   const out: Array<RecheckEntry & { blocksJa: Block[] | null }> = [];
   for (const entry of due) {
-    const table = entry.itemType === 'news' ? newsItems : topics;
+    const table = articleTable(entry.itemType);
     const row = await db
       .select({ blocksJa: table.blocksJa })
       .from(table)
@@ -398,11 +448,11 @@ export async function getDueRechecks(
 /** Record that a recheck poll found no change. */
 export async function setBodyChecked(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   id: string,
   at: Temporal.Instant = Temporal.Now.instant(),
 ): Promise<void> {
-  const table = itemType === 'news' ? newsItems : topics;
+  const table = articleTable(itemType);
   await db.update(table).set({ bodyCheckedAt: at }).where(eq(table.id, id));
 }
 
@@ -413,12 +463,12 @@ export async function setBodyChecked(
  */
 export async function saveChangedBody(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   id: string,
   params: { blocks: Block[]; titleJa?: string },
   at: Temporal.Instant = Temporal.Now.instant(),
 ): Promise<void> {
-  const table = itemType === 'news' ? newsItems : topics;
+  const table = articleTable(itemType);
   const set: {
     blocksJa: Block[];
     bodyFetchedAt: Temporal.Instant;
@@ -515,7 +565,10 @@ export async function getStats(db: Database): Promise<AdminStats> {
     topic: { recheckDue: 0, recheckUpcoming: 0, recheckRetired: 0 },
   };
   for (const entry of entries) {
-    const bucket = recheck[entry.itemType];
+    // The dashboard tracks news + topics; playguide rechecks flow through the
+    // queue but aren't broken out here (no playguide tile).
+    const bucket = recheck[entry.itemType as 'news' | 'topic'];
+    if (!bucket) continue;
     if (entry.nextCheckAt === null) bucket.recheckRetired++;
     else if (Temporal.Instant.compare(entry.nextCheckAt, now) <= 0)
       bucket.recheckDue++;
@@ -660,11 +713,11 @@ export async function updateTopicBlocks(
  */
 export async function updateArticleSource(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   id: string,
   patch: { titleJa?: string; blocksJa?: Block[] },
 ): Promise<boolean> {
-  const table = itemType === 'news' ? newsItems : topics;
+  const table = articleTable(itemType);
   const set: { titleJa?: string; blocksJa?: Block[] } = {};
   if (patch.titleJa !== undefined) set.titleJa = patch.titleJa;
   if (patch.blocksJa !== undefined) set.blocksJa = patch.blocksJa;
@@ -909,6 +962,193 @@ export async function listTopicsAdmin(
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * Playguides — static reference pages under /sc/public/playguide/. Mirrors the
+ * topics helpers; ordered by crawl `sortOrder` (guides have no publish date).
+ * ------------------------------------------------------------------ */
+
+/**
+ * Upsert Phase-1 (crawl) metadata for playguides. Sets title + sortOrder on
+ * conflict so a re-crawl corrects ordering/labels without clobbering an
+ * already-fetched block tree. Returns the newly-inserted items (for eager
+ * title translation).
+ */
+export async function upsertPlayguideListItems(
+  db: Database,
+  items: Array<{ id: string; titleJa: string; sortOrder: number }>,
+): Promise<Array<{ id: string; titleJa: string; sortOrder: number }>> {
+  const newlyInserted: typeof items = [];
+
+  for (const item of items) {
+    const existing = await db
+      .select({ id: playguides.id })
+      .from(playguides)
+      .where(eq(playguides.id, item.id))
+      .get();
+
+    await db
+      .insert(playguides)
+      .values({
+        id: item.id,
+        titleJa: item.titleJa,
+        sortOrder: item.sortOrder,
+      })
+      .onConflictDoUpdate({
+        target: playguides.id,
+        set: { titleJa: item.titleJa, sortOrder: item.sortOrder },
+      });
+
+    if (!existing) newlyInserted.push(item);
+  }
+
+  return newlyInserted;
+}
+
+/**
+ * Upsert a playguide. On conflict, updates only the columns present on `pg`
+ * (title/sortOrder always; blocksJa/bodyFetchedAt/state when provided) so a
+ * metadata re-upsert never clobbers an already-fetched block tree.
+ */
+export async function upsertPlayguide(
+  db: Database,
+  pg: NewPlayguide,
+): Promise<void> {
+  const set: Partial<NewPlayguide> = { titleJa: pg.titleJa };
+  if (pg.sortOrder !== undefined) set.sortOrder = pg.sortOrder;
+  if (pg.blocksJa !== undefined) set.blocksJa = pg.blocksJa;
+  if (pg.bodyFetchedAt !== undefined) set.bodyFetchedAt = pg.bodyFetchedAt;
+  if (pg.fetchState !== undefined) set.fetchState = pg.fetchState;
+  if (pg.bodyCheckedAt !== undefined) set.bodyCheckedAt = pg.bodyCheckedAt;
+  if (pg.bodyChangedAt !== undefined) set.bodyChangedAt = pg.bodyChangedAt;
+
+  await db
+    .insert(playguides)
+    .values(pg)
+    .onConflictDoUpdate({ target: playguides.id, set });
+}
+
+/** Get a single playguide by slug. */
+export async function getPlayguide(
+  db: Database,
+  id: string,
+): Promise<Playguide | null> {
+  const result = await db
+    .select()
+    .from(playguides)
+    .where(eq(playguides.id, id))
+    .get();
+  return result ?? null;
+}
+
+/** Replace a playguide's block tree (used by the transcribe/tag steps). */
+export async function updatePlayguideBlocks(
+  db: Database,
+  id: string,
+  blocks: Block[],
+): Promise<void> {
+  await db
+    .update(playguides)
+    .set({ blocksJa: blocks })
+    .where(eq(playguides.id, id));
+}
+
+/** A playguide plus its resolved current-language title (null ⇒ show titleJa). */
+export type LocalizedPlayguide = Playguide & { titleEn: string | null };
+
+/**
+ * Playguide list in crawl order, each carrying its current-language title
+ * (mirrors getTopics; ordered by sortOrder since guides have no date). Not
+ * cursor-paginated — the guide set is small and bounded.
+ */
+export async function getPlayguides(
+  db: Database,
+  options: { language?: string; limit?: number } = {},
+): Promise<LocalizedPlayguide[]> {
+  const language = options.language ?? 'en';
+  const query = db
+    .select({
+      ...getTableColumns(playguides),
+      titleEn: translations.value,
+    })
+    .from(playguides)
+    .leftJoin(
+      translations,
+      and(
+        eq(translations.itemType, 'playguide'),
+        eq(translations.itemId, playguides.id),
+        eq(translations.language, language),
+        eq(translations.field, 'title'),
+      ),
+    )
+    .orderBy(asc(playguides.sortOrder), asc(playguides.id));
+
+  return options.limit ? query.limit(options.limit).all() : query.all();
+}
+
+/**
+ * Lightweight playguide list for the admin UI (mirrors listTopicsAdmin): a
+ * `hasBody` flag plus per-item translation status, no block trees on the wire.
+ */
+export async function listPlayguidesAdmin(db: Database): Promise<
+  Array<{
+    id: string;
+    titleJa: string;
+    sortOrder: number;
+    hasBody: boolean;
+    translated: boolean;
+  }>
+> {
+  const rows = await db
+    .select({
+      id: playguides.id,
+      titleJa: playguides.titleJa,
+      sortOrder: playguides.sortOrder,
+      hasBody: sql<number>`(${playguides.blocksJa} IS NOT NULL)`,
+    })
+    .from(playguides)
+    .orderBy(asc(playguides.sortOrder), asc(playguides.id))
+    .all();
+
+  const ids = rows.map((r) => r.id);
+  const translatedRows = await chunked(ids, (slice) =>
+    db
+      .select({ itemId: translations.itemId })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'playguide'),
+          eq(translations.language, 'en'),
+          eq(translations.field, 'content'),
+          eq(translations.state, 'done'),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
+  const translated = new Set(translatedRows.map((r) => r.itemId));
+
+  return rows.map((r) => ({
+    id: r.id,
+    titleJa: r.titleJa,
+    sortOrder: r.sortOrder,
+    hasBody: !!r.hasBody,
+    translated: translated.has(r.id),
+  }));
+}
+
+/** Invalidate a playguide's cached block tree (re-fetched on next view / re-run). */
+export async function invalidatePlayguideBody(
+  db: Database,
+  id: string,
+): Promise<boolean> {
+  const result = await db
+    .update(playguides)
+    .set({ blocksJa: null, bodyFetchedAt: null })
+    .where(eq(playguides.id, id))
+    .returning({ id: playguides.id });
+  return result.length > 0;
+}
+
 /**
  * Get the localized title + block tree for an article (news item or topic), if
  * translated. The `content` translation stores the block tree as a JSON blob.
@@ -916,7 +1156,7 @@ export async function listTopicsAdmin(
  */
 export async function getArticleTranslations(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   id: string,
   language: string = 'en',
 ): Promise<{
@@ -1110,11 +1350,11 @@ export async function upsertTopicTranslation(
 /** Set the article fetch state on a news item or topic. */
 export async function setItemFetchState(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   id: string,
   state: PhaseState,
 ): Promise<void> {
-  const table = itemType === 'news' ? newsItems : topics;
+  const table = articleTable(itemType);
   await db.update(table).set({ fetchState: state }).where(eq(table.id, id));
 }
 
@@ -1198,7 +1438,7 @@ export async function getTranslationStates(
  */
 export async function resetRunningTitles(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   itemIds: string[],
   language: string,
 ): Promise<void> {
@@ -1237,7 +1477,7 @@ export async function resetRunningTitlesForLanguage(
     .set({ state: 'pending', updatedAt: Temporal.Now.instant() })
     .where(
       and(
-        inArray(translations.itemType, ['news', 'topic']),
+        inArray(translations.itemType, ['news', 'topic', 'playguide']),
         eq(translations.language, language),
         eq(translations.field, 'title'),
         eq(translations.state, 'running'),
@@ -1254,13 +1494,13 @@ export async function resetRunningTitlesForLanguage(
  */
 export async function failPipelineStates(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   itemId: string,
   language: string,
   error: string,
 ): Promise<void> {
   const now = Temporal.Now.instant();
-  const table = itemType === 'news' ? newsItems : topics;
+  const table = articleTable(itemType);
   await db
     .update(table)
     .set({ fetchState: 'failed' })
@@ -1560,7 +1800,7 @@ export async function listImagesForAdmin(
  */
 export async function recordWorkflowRun(
   db: Database,
-  params: { instanceId: string; itemType: 'news' | 'topic'; itemId: string },
+  params: { instanceId: string; itemType: ArticleType; itemId: string },
 ): Promise<void> {
   const now = Temporal.Now.instant();
   await db
@@ -1634,7 +1874,7 @@ export async function pruneWorkflowRuns(
  */
 export async function getTitleTranslations(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   ids: string[],
   language: string,
 ): Promise<Map<string, string>> {

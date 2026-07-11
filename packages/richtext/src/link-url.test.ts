@@ -28,6 +28,28 @@ describe('rewriteArticleHref', () => {
     ).toBe(`/topics/${ID}`);
   });
 
+  it('rewrites playguide links to our /playguide route', () => {
+    expect(
+      rewriteArticleHref('https://hiroba.dqx.jp/sc/public/playguide/guide01'),
+    ).toBe('/playguide/guide01');
+    expect(
+      rewriteArticleHref(
+        'https://hiroba.dqx.jp/sc/public/playguide/guide_4_2/',
+      ),
+    ).toBe('/playguide/guide_4_2');
+    expect(
+      rewriteArticleHref(
+        'https://hiroba.dqx.jp/sc/public/playguide/wintrial_1_kantan',
+      ),
+    ).toBe('/playguide/wintrial_1_kantan');
+    // mixed case host/path is normalized; a #fragment survives, a query drops.
+    expect(
+      rewriteArticleHref(
+        'http://hiroba.dqx.jp/sc/public/playguide/Accessinfo/?ref=top#map',
+      ),
+    ).toBe('/playguide/accessinfo#map');
+  });
+
   it('keeps a #fragment and drops a query string', () => {
     expect(
       rewriteArticleHref(`https://hiroba.dqx.jp/sc/topics/detail/${ID}/#dra`),

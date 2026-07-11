@@ -59,7 +59,7 @@ import type {
  */
 export const TITLE_BACKFILL_BATCH_SIZE = 100;
 
-const ITEM_TYPES: readonly ItemType[] = ['news', 'topic'];
+const ITEM_TYPES: readonly ItemType[] = ['news', 'topic', 'playguide'];
 
 export class TitleBackfillWorkflow extends WorkflowEntrypoint<
   Env,

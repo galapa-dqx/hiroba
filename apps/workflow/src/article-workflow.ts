@@ -127,23 +127,29 @@ export class ArticleWorkflow extends WorkflowEntrypoint<
       };
     }
 
-    // Step 2: extract calendar events from the RTML serialization → events
-    const extractEvents = await runStep(step, log, 'extract-events', () =>
-      extractAndSaveEvents(db, this.env.GEMINI_API_KEY, itemType, itemId),
-    );
+    // Steps 2 + 2.5: calendar-event extraction and inline <time>/<event>
+    // tagging. Playguides are static reference pages with no dated events, so
+    // both are skipped (empty results) — saving a Gemini call per page across
+    // the whole guide tree, the same way the image steps no-op for news.
+    const extractEvents =
+      itemType === 'playguide'
+        ? { count: 0, eventIds: [] }
+        : await runStep(step, log, 'extract-events', () =>
+            extractAndSaveEvents(db, this.env.GEMINI_API_KEY, itemType, itemId),
+          );
 
-    // Step 2.5: annotate blocks_ja with inline <time>/<event> tags linking the
-    // prose to the extracted events (best-effort; runs before translate so
-    // blocks_en inherits the tags).
-    const tagEvents = await runStep(step, log, 'tag-events', () =>
-      tagArticleEvents(
-        db,
-        this.env.GEMINI_API_KEY,
-        itemType,
-        itemId,
-        extractEvents.eventIds,
-      ),
-    );
+    const tagEvents =
+      itemType === 'playguide'
+        ? { tagged: false, timeTags: 0, eventTags: 0, retried: false }
+        : await runStep(step, log, 'tag-events', () =>
+            tagArticleEvents(
+              db,
+              this.env.GEMINI_API_KEY,
+              itemType,
+              itemId,
+              extractEvents.eventIds,
+            ),
+          );
 
     // Step 3: mirror every referenced image into R2 (no-op when the doc has none)
     const mirror = await runStep(step, log, 'mirror-images', async () =>

@@ -233,12 +233,47 @@ export async function deleteTopicTranslation(
   return adminFetch(`/api/topics/${id}/${lang}`, { method: 'DELETE' });
 }
 
-// Article editing API (shared by news items and topics)
+// Playguide API
 
-export type ArticleKind = 'news' | 'topic';
+export type PlayguideItem = {
+  id: string;
+  titleJa: string;
+  sortOrder: number;
+  hasBody: boolean;
+  translated: boolean;
+};
+
+export async function getPlayguideList(): Promise<{ items: PlayguideItem[] }> {
+  return adminFetch('/api/playguide');
+}
+
+export type PlayguideCrawlResult = {
+  success: boolean;
+  crawled: number;
+  newItems: number;
+  titlesEnqueued: number;
+};
+
+export async function crawlPlayguides(): Promise<PlayguideCrawlResult> {
+  return adminFetch('/api/playguide/crawl', { method: 'POST' });
+}
+
+export async function triggerPlayguideWorkflow(
+  slug: string,
+): Promise<{ success: boolean }> {
+  return adminFetch(`/api/playguide/${slug}/workflow`, { method: 'POST' });
+}
+
+// Article editing API (shared by news items, topics, and playguides)
+
+export type ArticleKind = 'news' | 'topic' | 'playguide';
 
 function articleApiBase(kind: ArticleKind): string {
-  return kind === 'topic' ? '/api/topics' : '/api/news';
+  return kind === 'topic'
+    ? '/api/topics'
+    : kind === 'playguide'
+      ? '/api/playguide'
+      : '/api/news';
 }
 
 export type ArticleTranslation = {
@@ -260,7 +295,8 @@ export type ArticleDetail = {
   id: string;
   titleJa: string;
   category: string | null;
-  publishedAt: string; // ISO-8601 UTC instant
+  /** ISO-8601 UTC instant, or null for undated items (playguides). */
+  publishedAt: string | null;
   blocksJa: unknown[] | null;
   /** Enabled languages, in code order — one editor tab each. */
   languages: ArticleLanguage[];

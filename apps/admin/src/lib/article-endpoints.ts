@@ -1,7 +1,8 @@
 /**
  * Shared GET/PUT handlers for the single-article admin endpoints
- * (/api/news/[id] and /api/topics/[id]) — the two differ only in which table
- * they read and the itemType they write.
+ * (/api/news/[id], /api/topics/[id], /api/playguide/[slug]) — they differ only
+ * in which table they read and the itemType they write. Playguides carry no
+ * category and no publish date, so those fields come back null for them.
  */
 
 import type { APIRoute } from 'astro';
@@ -13,9 +14,11 @@ import {
   getImagesByKeys,
   getImageTranslations,
   getNewsItem,
+  getPlayguide,
   getTopic,
   updateArticleSource,
   upsertItemTranslation,
+  type ArticleType,
 } from '@hiroba/db';
 import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 
@@ -42,13 +45,18 @@ function getDb(locals: App.Locals) {
  * localized (translated) raster exists for that language, so the editor can
  * swap `/img/<key>` → `/img/l10n/<lang>/<key>` on the translated tabs.
  */
-export function createArticleGet(itemType: 'news' | 'topic'): APIRoute {
+export function createArticleGet(itemType: ArticleType): APIRoute {
   return async ({ locals, params }) => {
     const db = getDb(locals);
-    const id = params.id!;
+    // News/topics route on [id]; playguides on [slug].
+    const id = (params.id ?? params.slug)!;
 
     const item =
-      itemType === 'news' ? await getNewsItem(db, id) : await getTopic(db, id);
+      itemType === 'news'
+        ? await getNewsItem(db, id)
+        : itemType === 'playguide'
+          ? await getPlayguide(db, id)
+          : await getTopic(db, id);
     if (!item) return json({ error: 'Not found' }, 404);
 
     const languages = await getEnabledLanguages(db);
@@ -94,8 +102,9 @@ export function createArticleGet(itemType: 'news' | 'topic'): APIRoute {
     return json({
       id: item.id,
       titleJa: item.titleJa,
-      category: item.category,
-      publishedAt: item.publishedAt.toString(),
+      // Playguides have neither a category nor a publish date.
+      category: 'category' in item ? item.category : null,
+      publishedAt: item.publishedAt?.toString() ?? null,
       blocksJa: item.blocksJa,
       languages,
       translations,
@@ -103,11 +112,11 @@ export function createArticleGet(itemType: 'news' | 'topic'): APIRoute {
   };
 }
 
-/** PUT /api/{news,topics}/[id] — update titleJa and/or blocksJa. */
-export function createArticlePut(itemType: 'news' | 'topic'): APIRoute {
+/** PUT /api/{news,topics,playguide}/[id] — update titleJa and/or blocksJa. */
+export function createArticlePut(itemType: ArticleType): APIRoute {
   return async ({ locals, params, request }) => {
     const db = getDb(locals);
-    const id = params.id!;
+    const id = (params.id ?? params.slug)!;
 
     const body = (await request.json()) as {
       titleJa?: string;
@@ -137,11 +146,11 @@ export function createArticlePut(itemType: 'news' | 'topic'): APIRoute {
   };
 }
 
-/** PUT /api/{news,topics}/[id]/[lang] — update the translated title/blocks. */
-export function createTranslationPut(itemType: 'news' | 'topic'): APIRoute {
+/** PUT /api/{news,topics,playguide}/[id]/[lang] — update the translated title/blocks. */
+export function createTranslationPut(itemType: ArticleType): APIRoute {
   return async ({ locals, params, request }) => {
     const db = getDb(locals);
-    const id = params.id!;
+    const id = (params.id ?? params.slug)!;
     const lang = params.lang!;
 
     const body = (await request.json()) as {

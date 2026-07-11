@@ -8,7 +8,7 @@ const isNeutralPath = (pathname: string): boolean =>
 
 /** Pre-language content paths, redirected into the default language tree. */
 const isLegacyContentPath = (pathname: string): boolean =>
-  /^\/(news|topics|category)(\/|$)/.test(pathname);
+  /^\/(news|topics|playguide|category)(\/|$)/.test(pathname);
 
 /** Shaped like a language code — a stale prefix worth rescuing via redirect. */
 const looksLikeLanguage = (segment: string): boolean =>

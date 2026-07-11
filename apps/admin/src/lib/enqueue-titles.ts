@@ -7,7 +7,7 @@
  */
 export async function enqueueTitleTranslation(
   namespace: DurableObjectNamespace,
-  itemType: 'news' | 'topic',
+  itemType: 'news' | 'topic' | 'playguide',
   itemIds: string[],
 ): Promise<boolean> {
   if (itemIds.length === 0) return true;

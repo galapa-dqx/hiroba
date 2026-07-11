@@ -1,0 +1,41 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import ArticleList from "../../../components/ArticleList.astro";
+import BackLink from "../../../components/BackLink.astro";
+import PanelSection from "../../../components/PanelSection.astro";
+import { createDb, getPlayguides, type LocalizedPlayguide } from "@hiroba/db";
+import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
+
+// Validated against the whitelist by the middleware.
+const lang = Astro.params.lang!;
+
+const runtime = Astro.locals.runtime;
+const db = createDb(runtime.env.DB);
+
+let items: LocalizedPlayguide[] = [];
+
+try {
+	// The guide set is small and bounded (~100–150 pages), so it isn't paginated.
+	items = await getPlayguides(db, { language: lang });
+	// If this language is meaningfully behind on titles, backfill the archive.
+	maybeTriggerTitleBackfill(runtime, lang, items);
+} catch {
+	// Show empty list on error
+}
+---
+
+<Layout title="Play Guide">
+	{/* Reuse the gilt topic identity for the guide index. */}
+	<div data-cat="topic">
+		<PanelSection title="Play Guide">
+			<ArticleList items={items} hrefBase={`/${lang}/playguide`}>
+				<p class="empty" slot="empty">
+					No guide pages yet. They are discovered by crawling <code>guide01</code> on the
+					daily refresh — or seed them from the admin.
+				</p>
+			</ArticleList>
+		</PanelSection>
+
+		<BackLink href={`/${lang}`} label="Back to home" />
+	</div>
+</Layout>

@@ -1,0 +1,65 @@
+---
+import ArticlePage from "../../../components/ArticlePage.astro";
+import { computeSnapshot, createDb, getArticleTranslations, getPlayguide } from "@hiroba/db";
+import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
+import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
+import { hydrateArticleImages } from "../../../lib/article-images";
+import { triggerWorkflow } from "../../../lib/workflow";
+
+// Validated against the whitelist by the middleware.
+const lang = Astro.params.lang!;
+const { slug } = Astro.params;
+if (!slug) {
+	return Astro.redirect(`/${lang}/playguide`);
+}
+
+const runtime = Astro.locals.runtime;
+const db = createDb(runtime.env.DB);
+
+// fetch-body creates the row, so a never-seen (but crawlable) slug is valid — no 404.
+const playguide = await getPlayguide(db, slug);
+
+const { title: localizedTitle, blocks: localizedBlocks, translatedAt } = await getArticleTranslations(db, "playguide", slug, lang);
+const isTranslated = !!localizedBlocks;
+
+// The guide displays only once its pipeline has settled — fetched, translated,
+// and every text-bearing image localized (or given up on). Until then the page
+// shows the processing notice and the SSE stream drives progress + reload.
+const snapshot = await computeSnapshot(db, "playguide", slug, lang);
+const ready = isSnapshotSettled(snapshot);
+
+// Fire the pipeline unless everything already finished cleanly — a
+// degraded-but-settled guide displays now and retries its failures in the
+// background.
+if (!isSnapshotComplete(snapshot)) {
+	triggerWorkflow(runtime, "playguide", slug);
+}
+
+const title = localizedTitle ?? playguide?.titleJa ?? "Loading guide…";
+const blocks: Block[] = localizedBlocks ?? (playguide?.blocksJa as Block[] | null) ?? [];
+
+const imageSrc = await hydrateArticleImages(db, blocks, {
+	isTranslated,
+	language: lang,
+	imageBase: runtime.env.IMAGE_BASE,
+});
+const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHref });
+---
+
+<ArticlePage
+	title={title}
+	itemType="playguide"
+	itemId={slug}
+	ready={ready}
+	statusText={describeSnapshot(snapshot)}
+	contentHtml={contentHtml}
+	events={[]}
+	originalUrl={`https://hiroba.dqx.jp/sc/public/playguide/${slug}`}
+	translatedAtMs={translatedAt?.epochMilliseconds}
+	backHref={`/${lang}/playguide`}
+	backLabel="Back to play guide"
+>
+	<Fragment slot="meta">
+		<span class="chip">Play Guide</span>
+	</Fragment>
+</ArticlePage>

@@ -168,7 +168,7 @@ export type ImagePipelineDetail = {
 /** One tracked run, as served by the workflow worker's /runs endpoint. */
 export type WorkflowRunEntry = {
   instanceId: string;
-  itemType: 'news' | 'topic';
+  itemType: 'news' | 'topic' | 'playguide';
   itemId: string;
   titleJa: string | null;
   titleEn: string | null;

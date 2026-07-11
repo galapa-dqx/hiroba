@@ -30,7 +30,9 @@ type Props = {
 function hirobaUrl(kind: ArticleKind, id: string): string {
   return kind === 'topic'
     ? `https://hiroba.dqx.jp/sc/topics/detail/${id}/`
-    : `https://hiroba.dqx.jp/sc/news/detail/${id}`;
+    : kind === 'playguide'
+      ? `https://hiroba.dqx.jp/sc/public/playguide/${id}`
+      : `https://hiroba.dqx.jp/sc/news/detail/${id}`;
 }
 
 export default function ArticleEdit({ kind, id }: Props) {
@@ -269,7 +271,12 @@ export default function ArticleEdit({ kind, id }: Props) {
     return <p className="loading">Loading…</p>;
   }
 
-  const listHref = kind === 'topic' ? '/topics' : '/news';
+  const listHref =
+    kind === 'topic'
+      ? '/topics'
+      : kind === 'playguide'
+        ? '/playguide'
+        : '/news';
   const activeTranslatedAt =
     tab !== SOURCE_TAB ? article.translations[tab]?.translatedAt : null;
 
@@ -304,7 +311,9 @@ export default function ArticleEdit({ kind, id }: Props) {
             {article.category}
           </span>
         )}
-        <span>{formatLocalDate(article.publishedAt)}</span>
+        {article.publishedAt && (
+          <span>{formatLocalDate(article.publishedAt)}</span>
+        )}
         <a href={hirobaUrl(kind, id)} target="_blank" rel="noopener noreferrer">
           View original on Hiroba ↗
         </a>

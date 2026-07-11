@@ -11,13 +11,19 @@ import { eq } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import {
+  getPlayguide,
   getTopic,
   newsItems,
   setItemFetchState,
+  upsertPlayguide,
   upsertTopic,
   type Database,
 } from '@hiroba/db';
-import { fetchNewsBody, fetchTopicBody } from '@hiroba/scraper';
+import {
+  fetchNewsBody,
+  fetchPlayguideBody,
+  fetchTopicBody,
+} from '@hiroba/scraper';
 
 import type { FetchBodyResult, ItemType } from '../types';
 
@@ -29,7 +35,9 @@ export function fetchAndSaveArticleBody(
 ): Promise<FetchBodyResult> {
   return itemType === 'topic'
     ? fetchAndSaveTopicBody(db, itemId)
-    : fetchAndSaveNewsBody(db, itemId);
+    : itemType === 'playguide'
+      ? fetchAndSavePlayguideBody(db, itemId)
+      : fetchAndSaveNewsBody(db, itemId);
 }
 
 /**
@@ -106,6 +114,33 @@ export async function fetchAndSaveTopicBody(
     id: itemId,
     titleJa,
     publishedAt: existing?.publishedAt ?? now,
+    blocksJa: blocks,
+    bodyFetchedAt: now,
+    // The fetch counts as the first recheck poll.
+    bodyCheckedAt: now,
+    fetchState: blocks.length > 0 ? 'done' : 'failed',
+  });
+  return { success: blocks.length > 0, blockCount: blocks.length };
+}
+
+/**
+ * Fetch and save body content for a playguide. Like topics, the row may already
+ * exist (crawl discovery seeds it) or not (direct view of an uncrawled slug), so
+ * this upserts. Title resolution is a hybrid: the page's specific `h2.iconTitle`
+ * wins when present, else the crawl-seeded anchor label is kept, else the
+ * scraper's self-contained fallback (tit_icon / #cttTitle / slug).
+ */
+export async function fetchAndSavePlayguideBody(
+  db: Database,
+  itemId: string,
+): Promise<FetchBodyResult> {
+  await setItemFetchState(db, 'playguide', itemId, 'running');
+  const { titleJa, specificTitle, blocks } = await fetchPlayguideBody(itemId);
+  const existing = await getPlayguide(db, itemId);
+  const now = Temporal.Now.instant();
+  await upsertPlayguide(db, {
+    id: itemId,
+    titleJa: specificTitle ?? existing?.titleJa ?? titleJa,
     blocksJa: blocks,
     bodyFetchedAt: now,
     // The fetch counts as the first recheck poll.

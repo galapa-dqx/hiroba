@@ -24,7 +24,7 @@ interface Props {
 	/** News category — themes the shell and highlights the nav tab. Topics omit
 	 *  it and fall back to the gilt `topic` identity. */
 	category?: Category;
-	itemType: "news" | "topic";
+	itemType: "news" | "topic" | "playguide";
 	itemId: string;
 	/** Whether the pipeline has settled enough to show the body. */
 	ready: boolean;
@@ -61,14 +61,16 @@ const languages = Astro.locals.languages ?? [
 	{ code: "en", label: "English", nativeLabel: "English" },
 ];
 
-const sseUrl = `/api/${itemType === "topic" ? "topics" : "news"}/${itemId}/sse?language=${encodeURIComponent(lang)}`;
-const originalNoun = itemType === "topic" ? "topic" : "article";
+// Detail route + SSE proxy segment per item type (news uses plural "news",
+// topics "topics", playguides "playguide").
+const detailPath = itemType === "topic" ? "topics" : itemType === "playguide" ? "playguide" : "news";
+const sseUrl = `/api/${detailPath}/${itemId}/sse?language=${encodeURIComponent(lang)}`;
+const originalNoun = itemType === "topic" ? "topic" : itemType === "playguide" ? "guide" : "article";
 
 // This is a translated republish of the Hiroba original, so we canonicalize to
 // the source (cross-domain) rather than compete with it in search. hreflang
 // declares the language set: the Japanese source, our rendering in every
 // enabled language, and the source as the x-default for unmatched locales.
-const detailPath = itemType === "topic" ? "topics" : "news";
 const alternates = [
 	{ hreflang: "ja", href: originalUrl },
 	...languages.map((l) => ({

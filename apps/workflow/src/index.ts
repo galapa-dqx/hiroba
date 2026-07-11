@@ -16,11 +16,13 @@ import {
   getEnabledLanguages,
   glossary,
   upsertListItems,
+  upsertPlayguideListItems,
   upsertTopicListItems,
   type Database,
   type ListItem,
 } from '@hiroba/db';
 import {
+  crawlPlayguides,
   fetchGlossary,
   scrapeNewsList,
   scrapeTopicsList,
@@ -29,7 +31,7 @@ import { CATEGORIES } from '@hiroba/shared';
 
 import { createLogger, type Logger } from './logger';
 import { processRechecks } from './recheck';
-import type { Env } from './types';
+import type { Env, ItemType } from './types';
 
 // Export the Durable Object and Workflow classes
 export { WorkflowManager } from './workflow-manager';
@@ -80,11 +82,11 @@ export default Sentry.withSentry(
         return stub.fetch(doUrl.toString(), request);
       }
 
-      // Trigger workflow for a specific item (news by default, or topics)
+      // Trigger workflow for a specific item (news by default, or topics/playguides)
       if (url.pathname === '/trigger' && request.method === 'POST') {
         const body = (await request.json()) as {
           itemId: string;
-          itemType?: 'news' | 'topic';
+          itemType?: ItemType;
         };
         const { itemId } = body;
         const itemType = body.itemType ?? 'news';
@@ -97,9 +99,9 @@ export default Sentry.withSentry(
           `trigger received: ${itemType} ${itemId}`,
         );
 
-        // Route to the DO for this item, namespaced by type so news/topic ids
-        // (both 32-char hex) don't collide.
-        const doName = itemType === 'topic' ? `topic:${itemId}` : itemId;
+        // Route to the DO for this item, namespaced by type so ids don't collide
+        // (news = bare id; topic/playguide = `<type>:<id>`).
+        const doName = itemType === 'news' ? itemId : `${itemType}:${itemId}`;
         const doId = env.WORKFLOW_MANAGER.idFromName(doName);
         const stub = env.WORKFLOW_MANAGER.get(doId);
 
@@ -142,6 +144,7 @@ export default Sentry.withSentry(
 
       if (isGlossaryRefresh) {
         await refreshGlossary(db, log);
+        await refreshPlayguides(db, env, log);
       } else {
         await refreshNews(db, env, log);
         await refreshTopics(db, env, log);
@@ -222,7 +225,7 @@ async function enqueueTitleTranslation(
   db: Database,
   env: Env,
   log: Logger,
-  itemType: 'news' | 'topic',
+  itemType: ItemType,
   items: ReadonlyArray<{ id: string }>,
 ): Promise<void> {
   if (items.length === 0) return;
@@ -313,4 +316,38 @@ async function refreshTopics(
   await enqueueTitleTranslation(db, env, log, 'topic', newItems);
 
   log.info(`Topics refresh complete: ${totalNew} new topics`);
+}
+
+/**
+ * Refresh playguides by crawling the guide tree from `guide01` (discovery is
+ * titles-only, mirroring refreshNews/refreshTopics): newly-discovered pages are
+ * upserted and their titles translated via the TitleWorkflow; the full
+ * ArticleWorkflow runs lazily on first view. Runs on the daily cron — guides are
+ * static reference pages that change rarely, so an hourly crawl would be wasteful.
+ *
+ * A re-crawl also corrects the sort order / provisional titles of existing rows
+ * without clobbering fetched bodies (upsertPlayguideListItems sets metadata only).
+ */
+async function refreshPlayguides(
+  db: Database,
+  env: Env,
+  log: Logger,
+): Promise<void> {
+  try {
+    const crawled = await crawlPlayguides();
+    const inserted = await upsertPlayguideListItems(
+      db,
+      crawled.map((c) => ({
+        id: c.slug,
+        titleJa: c.titleJa,
+        sortOrder: c.sortOrder,
+      })),
+    );
+    await enqueueTitleTranslation(db, env, log, 'playguide', inserted);
+    log.info(
+      `Playguides refresh complete: ${crawled.length} crawled, ${inserted.length} new`,
+    );
+  } catch (error) {
+    log.error('Failed to refresh playguides:', error);
+  }
 }

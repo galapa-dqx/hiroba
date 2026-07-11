@@ -24,8 +24,10 @@ import {
   getImagesByKeys,
   getImageTranslationStates,
   getNewsItem,
+  getPlayguide,
   getTopic,
   getTranslationStates,
+  type ArticleType,
 } from './queries';
 
 /** The translated fields every article needs (news and topics alike). */
@@ -155,14 +157,16 @@ export async function computeImageDetail(
  */
 export async function computeSnapshot(
   db: Database,
-  itemType: 'news' | 'topic',
+  itemType: ArticleType,
   itemId: string,
   language: string,
 ): Promise<StateSnapshot> {
   const item =
     itemType === 'topic'
       ? await getTopic(db, itemId)
-      : await getNewsItem(db, itemId);
+      : itemType === 'playguide'
+        ? await getPlayguide(db, itemId)
+        : await getNewsItem(db, itemId);
 
   const article: PhaseState = item?.fetchState ?? 'pending';
 
@@ -175,15 +179,16 @@ export async function computeSnapshot(
   );
   const translation = aggregateStates([...fieldStates.values()]);
 
-  // Only the topics pipeline has image steps.
+  // Topics and playguides carry text-bearing images (the image steps run);
+  // news is image-free, so its snapshot has no image phase.
   const images =
-    itemType === 'topic'
-      ? await imagesSnapshot(
+    itemType === 'news'
+      ? null
+      : await imagesSnapshot(
           db,
           (item?.blocksJa ?? null) as Block[] | null,
           language,
-        )
-      : null;
+        );
 
   return { article, translation, images };
 }

@@ -29,10 +29,14 @@ import {
   stripTimeEventTags,
   type Block,
 } from '@hiroba/richtext';
-import { fetchNewsBody, fetchTopicBody } from '@hiroba/scraper';
+import {
+  fetchNewsBody,
+  fetchPlayguideBody,
+  fetchTopicBody,
+} from '@hiroba/scraper';
 
 import type { Logger } from './logger';
-import type { Env } from './types';
+import type { Env, ItemType } from './types';
 
 /** Source-page polls per hourly run. */
 const MAX_CHECKS_PER_RUN = 20;
@@ -52,10 +56,10 @@ const comparable = (blocks: Block[]): string =>
  * path the public /trigger endpoint takes). */
 async function triggerArticleWorkflow(
   env: Env,
-  itemType: 'news' | 'topic',
+  itemType: ItemType,
   itemId: string,
 ): Promise<void> {
-  const doName = itemType === 'topic' ? `topic:${itemId}` : itemId;
+  const doName = itemType === 'news' ? itemId : `${itemType}:${itemId}`;
   const stub = env.WORKFLOW_MANAGER.get(
     env.WORKFLOW_MANAGER.idFromName(doName),
   );
@@ -84,10 +88,20 @@ export async function processRechecks(
 
   for (const item of due) {
     try {
-      const fresh =
-        item.itemType === 'news'
-          ? { titleJa: undefined, blocks: await fetchNewsBody(item.id) }
-          : await fetchTopicBody(item.id);
+      let fresh: { titleJa: string | undefined; blocks: Block[] };
+      if (item.itemType === 'news') {
+        fresh = { titleJa: undefined, blocks: await fetchNewsBody(item.id) };
+      } else if (item.itemType === 'playguide') {
+        // Only a specific in-page heading re-titles a guide on change; a generic
+        // section header must not clobber the crawl/hybrid title (see fetch-body).
+        const body = await fetchPlayguideBody(item.id);
+        fresh = {
+          titleJa: body.specificTitle ?? undefined,
+          blocks: body.blocks,
+        };
+      } else {
+        fresh = await fetchTopicBody(item.id);
+      }
 
       const stored = item.blocksJa ?? [];
       if (comparable(fresh.blocks) === comparable(stored)) {

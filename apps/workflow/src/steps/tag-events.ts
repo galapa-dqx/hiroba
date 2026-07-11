@@ -21,7 +21,7 @@
  */
 
 import { inArray } from 'drizzle-orm';
-import { type Temporal } from 'temporal-polyfill';
+import { Temporal } from 'temporal-polyfill';
 
 import { events, type Database } from '@hiroba/db';
 import {
@@ -206,7 +206,11 @@ export async function tagArticleEvents(
     .map((id) => byId.get(id))
     .filter((r): r is TaggableEvent => r !== undefined);
 
-  const pub = item.publishedAt.toZonedDateTimeISO('Asia/Tokyo');
+  // Only dated types reach here (playguides skip tagging), so publishedAt is
+  // present; fall back to now to satisfy the nullable-union type-checker.
+  const pub = (item.publishedAt ?? Temporal.Now.instant()).toZonedDateTimeISO(
+    'Asia/Tokyo',
+  );
   const eventList = ordered
     .map((row, i) => formatEventLine(i + 1, row))
     .join('\n');
