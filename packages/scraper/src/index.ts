@@ -57,6 +57,8 @@ export {
   type TsuyosaForecast,
   type BossRotation,
   type BossSlot,
+  type IconGridSlot,
+  type AbyssSlot,
 } from './tsuyosa-scraper';
 
 // Rotation banner scraper (home-page carousel → banner metadata)

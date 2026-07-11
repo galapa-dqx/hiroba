@@ -26,10 +26,46 @@ const forecast: TsuyosaForecast = {
       { date: d('2026-07-11'), bossJa: 'じげんりゅう', iconKey: 'x.png' },
     ],
   },
+  defense: [
+    {
+      date: d('2026-07-11'),
+      startMinute: 360,
+      durationMinutes: 60,
+      iconUrl: 'i/12',
+    },
+    {
+      date: d('2026-07-11'),
+      startMinute: 420,
+      durationMinutes: 60,
+      iconUrl: 'i/12',
+    },
+    {
+      date: d('2026-07-11'),
+      startMinute: 480,
+      durationMinutes: 60,
+      iconUrl: 'i/19',
+    },
+  ],
+  metal: [
+    {
+      date: d('2026-07-11'),
+      startMinute: 360,
+      durationMinutes: 30,
+      iconUrl: 'm/1',
+    },
+  ],
+  abyss: [
+    { date: d('2026-07-11'), iconUrl: 't/a' },
+    { date: d('2026-07-11'), iconUrl: 't/b' },
+  ],
 };
 
-describe('buildScheduleEvents', () => {
-  const rows = buildScheduleEvents(forecast, NOW);
+const bossRows = buildScheduleEvents(forecast, NOW).filter(
+  (r) => !r.sourceId?.includes('#'),
+);
+
+describe('buildScheduleEvents boss rotations', () => {
+  const rows = bossRows;
 
   it('emits a span per boss slot, tagged as schedule', () => {
     expect(rows).toHaveLength(3);
@@ -64,7 +100,40 @@ describe('buildScheduleEvents', () => {
   it('produces stable, prefixed ids', () => {
     expect(rows[0].id).toMatch(/^sched-[0-9a-f]{8}$/);
     expect(buildScheduleEvents(forecast, NOW).map((r) => r.id)).toEqual(
-      rows.map((r) => r.id),
+      buildScheduleEvents(forecast, NOW).map((r) => r.id),
     );
+  });
+});
+
+describe('buildScheduleEvents icon sections', () => {
+  const rows = buildScheduleEvents(forecast, NOW);
+  const bySource = (prefix: string) =>
+    rows.filter((r) => r.sourceId?.startsWith(prefix));
+
+  it('merges contiguous same-icon 防衛軍 hours, splits on icon change', () => {
+    const defense = bySource('defense#');
+    expect(defense).toHaveLength(2); // 12 (06–08 merged) + 19 (08–09)
+    const merged = defense.find((r) => r.sourceId === 'defense#i/12')!;
+    expect(merged.startTime.toString()).toContain('2026-07-11T06:00:00');
+    expect(merged.endTime!.toString()).toContain('2026-07-11T08:00:00');
+    expect(merged.titleJa).toBe('アストルティア防衛軍');
+  });
+
+  it('encodes the icon url in sourceId', () => {
+    expect(bySource('metal#')[0].sourceId).toBe('metal#m/1');
+    expect(bySource('metal#')[0].endTime!.toString()).toContain(
+      '2026-07-11T06:30:00',
+    );
+  });
+
+  it('emits one allDay event per 深淵 boss icon', () => {
+    const abyss = bySource('abyss#');
+    expect(abyss.map((r) => r.sourceId).sort()).toEqual([
+      'abyss#t/a',
+      'abyss#t/b',
+    ]);
+    expect(abyss[0].type).toBe('allDay');
+    expect(abyss[0].startTime.toString()).toContain('2026-07-11T00:00:00');
+    expect(abyss[0].endTime).toBeNull();
   });
 });

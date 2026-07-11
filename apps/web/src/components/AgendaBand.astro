@@ -7,6 +7,7 @@
  */
 import { formatJstDate } from "@hiroba/ui/format-date";
 import type { BandItem } from "../lib/day-agenda";
+import { scheduleInfo, TSUYOSA_URL } from "../lib/schedule";
 
 interface Props {
 	band: BandItem[];
@@ -19,8 +20,6 @@ const TYPE_LABELS: Record<string, string> = {
 	span: "Ongoing",
 	allDay: "All day",
 };
-
-const TSUYOSA_URL = "https://hiroba.dqx.jp/sc/tokoyami/";
 
 /** Link + whether it leaves the site. Schedule events point at the つよさ予報 page. */
 function eventLink(e: BandItem["event"]): { href: string | null; external: boolean } {
@@ -45,12 +44,12 @@ function dateRange(e: BandItem["event"]): string {
 			{band.map(({ event }) => {
 				const { href, external } = eventLink(event);
 				const title = event.titleEn ?? event.titleJa;
-				const schedule = event.sourceType === "schedule";
+				const sched = scheduleInfo(event);
 				return (
 					<li
 						class="agenda-band__item"
 						data-etype={event.type}
-						data-source={schedule ? "schedule" : undefined}
+						data-source={sched ? "schedule" : undefined}
 						data-linked={href ? "" : undefined}
 					>
 						{href && (
@@ -63,9 +62,14 @@ function dateRange(e: BandItem["event"]): string {
 							/>
 						)}
 						<span class="agenda-band__type">
-							{schedule ? "Rotation" : (TYPE_LABELS[event.type] ?? event.type)}
+							{sched ? "Rotation" : (TYPE_LABELS[event.type] ?? event.type)}
 						</span>
-						<p class="agenda-band__name">{title}</p>
+						<p class="agenda-band__name">
+							{sched?.iconUrl && (
+								<img class="agenda-band__icon" src={sched.iconUrl} alt="" />
+							)}
+							{title}
+						</p>
 						<span class="agenda-band__when">{dateRange(event)} JST</span>
 					</li>
 				);
@@ -139,6 +143,14 @@ function dateRange(e: BandItem["event"]): string {
 		font-weight: 650;
 		line-height: 1.3;
 		color: var(--ink);
+	}
+	/* Boss/brigade icon for icon-only schedule sections (no readable name). */
+	.agenda-band__icon {
+		height: 1.1em;
+		width: auto;
+		max-width: 3.4em;
+		vertical-align: -0.18em;
+		margin-right: 0.35rem;
 	}
 	.agenda-band__name a {
 		color: inherit;

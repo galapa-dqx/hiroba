@@ -11,6 +11,7 @@
  */
 import { Temporal } from "temporal-polyfill";
 import { AGENDA_ZONE, type BarItem, type MilestoneItem } from "../lib/day-agenda";
+import { scheduleInfo, TSUYOSA_URL } from "../lib/schedule";
 
 interface Props {
 	bars: BarItem[];
@@ -19,6 +20,9 @@ interface Props {
 	lang: string;
 }
 const { bars, milestones, day, lang } = Astro.props;
+
+// Any hidden-by-default game-schedule bars on this day? (drives the toggle)
+const hasDense = bars.some((b) => scheduleInfo(b.event)?.dense);
 
 const dayStart = day.toZonedDateTime(AGENDA_ZONE);
 const dayStartMs = dayStart.toInstant().epochMilliseconds;
@@ -40,8 +44,6 @@ const ticks = Array.from({ length: 24 / TICK_STEP + 1 }, (_, i) => {
 const jstTime = (zdt: Temporal.ZonedDateTime): string =>
 	zdt.toPlainTime().toString({ smallestUnit: "minute" });
 
-const TSUYOSA_URL = "https://hiroba.dqx.jp/sc/tokoyami/";
-
 /** Link + whether it leaves the site. Schedule events point at the つよさ予報 page. */
 function eventLink(e: BarItem["event"]): { href: string | null; external: boolean } {
 	if (e.sourceType === "schedule") return { href: TSUYOSA_URL, external: true };
@@ -53,7 +55,16 @@ function eventLink(e: BarItem["event"]): { href: string | null; external: boolea
 const empty = bars.length === 0 && milestones.length === 0;
 ---
 
-<div class="agenda-tl">
+{
+	hasDense && (
+		<label class="agenda-tl__toggle">
+			<input type="checkbox" class="agenda-tl__toggle-input" />
+			Show hourly game schedules (防衛軍・メタルーキー)
+		</label>
+	)
+}
+
+<div class="agenda-tl" data-hide-dense>
 	<div class="agenda-tl__gutter" aria-hidden="true">
 		{ticks.map((t) => (
 			<time
@@ -80,13 +91,14 @@ const empty = bars.length === 0 && milestones.length === 0;
 			{bars.map(({ event, startFrac, endFrac, openStart, openEnd, lane, laneCount }) => {
 				const { href, external } = eventLink(event);
 				const title = event.titleEn ?? event.titleJa;
-				const schedule = event.sourceType === "schedule";
+				const sched = scheduleInfo(event);
 				const Inner = href ? "a" : "div";
 				return (
 					<li
 						class="agenda-tl__bar"
 						data-etype={event.type}
-						data-source={schedule ? "schedule" : undefined}
+						data-source={sched ? "schedule" : undefined}
+						data-dense={sched?.dense ? "" : undefined}
 						data-open-start={openStart ? "" : undefined}
 						data-open-end={openEnd ? "" : undefined}
 						style={`--top:${startFrac * 100}%; --h:${(endFrac - startFrac) * 100}%; --lane:${lane}; --lanes:${laneCount}`}
@@ -98,7 +110,12 @@ const empty = bars.length === 0 && milestones.length === 0;
 							target={external ? "_blank" : undefined}
 							rel={external ? "noopener" : undefined}
 						>
-							<span class="agenda-tl__bar-name">{title}</span>
+							<span class="agenda-tl__bar-name">
+								{sched?.iconUrl && (
+									<img class="agenda-tl__icon" src={sched.iconUrl} alt="" />
+								)}
+								{title}
+							</span>
 							<span class="agenda-tl__bar-when">
 								{openStart && <span class="agenda-tl__arrow" aria-hidden="true">↑ </span>}
 								<time class="agenda-tl__time" datetime={event.startTime.toInstant().toString()}>
@@ -167,6 +184,28 @@ const empty = bars.length === 0 && milestones.length === 0;
 	.agenda-tl__track {
 		height: clamp(620px, 74vh, 980px);
 		border-left: 1px solid var(--rule-strong);
+	}
+
+	/* Dense game-schedule bars (防衛軍・メタルーキー) hidden until toggled on. */
+	.agenda-tl[data-hide-dense] .agenda-tl__bar[data-dense] {
+		display: none;
+	}
+	.agenda-tl__toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin: 0 0 0.8rem;
+		font-size: 0.82rem;
+		color: var(--ink-soft);
+		cursor: pointer;
+	}
+	/* Brigade/boss icon shown in icon-only schedule events (no readable name). */
+	.agenda-tl__icon {
+		height: 1.05em;
+		width: auto;
+		max-width: 3.2em;
+		vertical-align: -0.15em;
+		margin-right: 0.3rem;
 	}
 
 	/* Hour ticks + gridlines */
@@ -397,6 +436,33 @@ const empty = bars.length === 0 && milestones.length === 0;
 	const DAY_MS = 86_400_000;
 	const track = document.querySelector<HTMLElement>(".agenda-tl__track");
 	const dayStartMs = Number(track?.dataset.dayStart);
+
+	// Dense game-schedule bars (防衛軍・メタルーキー) are hidden by default; the
+	// toggle persists the viewer's choice across days.
+	const grid = document.querySelector<HTMLElement>(".agenda-tl");
+	const toggle = document.querySelector<HTMLInputElement>(".agenda-tl__toggle-input");
+	if (grid && toggle) {
+		let show = false;
+		try {
+			show = localStorage.getItem("dqx-schedules") === "on";
+		} catch {
+			/* storage unavailable */
+		}
+		const apply = () => {
+			toggle.checked = show;
+			grid.toggleAttribute("data-hide-dense", !show);
+		};
+		apply();
+		toggle.addEventListener("change", () => {
+			show = toggle.checked;
+			try {
+				localStorage.setItem("dqx-schedules", show ? "on" : "off");
+			} catch {
+				/* storage unavailable */
+			}
+			apply();
+		});
+	}
 
 	if (localizeTimes()) {
 		const fmtTime = (dt: string) =>
