@@ -12,6 +12,7 @@
 import { Temporal } from "temporal-polyfill";
 import { AGENDA_ZONE, type BarItem, type MilestoneItem } from "../lib/day-agenda";
 import { scheduleInfo, TSUYOSA_URL } from "../lib/schedule";
+import { useTranslations } from "../i18n";
 
 interface Props {
 	bars: BarItem[];
@@ -22,11 +23,12 @@ interface Props {
 	lang: string;
 }
 const { bars, swimlanes, milestones, day, lang } = Astro.props;
+const t = useTranslations(lang);
 
 // Fixed order + headers for the reserved side columns (防衛軍・メタルーキー).
 const SWIMLANE_META = [
-	{ key: "defense", label: "防衛軍" },
-	{ key: "metal", label: "メタルーキー" },
+	{ key: "defense", label: t("timeline.swim.defense") },
+	{ key: "metal", label: t("timeline.swim.metal") },
 ];
 const lanes = SWIMLANE_META.map((m) => ({ ...m, bars: swimlanes[m.key] ?? [] })).filter(
 	(l) => l.bars.length > 0,
@@ -35,7 +37,7 @@ const lanes = SWIMLANE_META.map((m) => ({ ...m, bars: swimlanes[m.key] ?? [] }))
 const dayStart = day.toZonedDateTime(AGENDA_ZONE);
 const dayStartMs = dayStart.toInstant().epochMilliseconds;
 
-// Hour gridlines / labels every 3h, including the closing 24:00.
+// Hour labels every 3h, including the closing 24:00.
 const TICK_STEP = 3;
 const ticks = Array.from({ length: 24 / TICK_STEP + 1 }, (_, i) => {
 	const hour = i * TICK_STEP;
@@ -47,16 +49,27 @@ const ticks = Array.from({ length: 24 / TICK_STEP + 1 }, (_, i) => {
 		label: `${String(hour % 24).padStart(2, "0")}:00`,
 	};
 });
+// A subtle gridline at every hour; the ones on a label boundary read stronger.
+const hourLines = Array.from({ length: 23 }, (_, i) => {
+	const hour = i + 1;
+	return { topPct: (hour / 24) * 100, major: hour % TICK_STEP === 0 };
+});
 
 /** Compact JST wall-clock "HH:MM" for a JST-zoned value. */
 const jstTime = (zdt: Temporal.ZonedDateTime): string =>
 	zdt.toPlainTime().toString({ smallestUnit: "minute" });
 
+/** Path segment for each article source type ("topic" → the /topics/ route). */
+const SOURCE_SEG: Record<string, string> = {
+	news: "news",
+	topic: "topics",
+	playguide: "playguide",
+};
 /** Link + whether it leaves the site. Schedule events point at the つよさ予報 page. */
 function eventLink(e: BarItem["event"]): { href: string | null; external: boolean } {
 	if (e.sourceType === "schedule") return { href: TSUYOSA_URL, external: true };
-	if (!e.sourceId || !e.sourceType) return { href: null, external: false };
-	const seg = e.sourceType === "news" ? "news" : "topics";
+	const seg = e.sourceType ? SOURCE_SEG[e.sourceType] : undefined;
+	if (!seg || !e.sourceId) return { href: null, external: false };
 	return { href: `/${lang}/${seg}/${e.sourceId}`, external: false };
 }
 
@@ -85,15 +98,19 @@ const empty =
 		<span class="agenda-tl__turnover-label" hidden></span>
 	</div>
 
-	{/* Hour gridlines, spanning the main track + every side column. */}
+	{/* Hourly gridlines, spanning the main track + every side column. */}
 	<div class="agenda-tl__rules" aria-hidden="true">
-		{ticks.map((t) => (
-			<div class="agenda-tl__line" style={`--top:${t.topPct}%`} />
+		{hourLines.map((l) => (
+			<div
+				class="agenda-tl__line"
+				data-major={l.major ? "" : undefined}
+				style={`--top:${l.topPct}%`}
+			/>
 		))}
 	</div>
 
 	<div class="agenda-tl__track" data-day-start={dayStartMs}>
-		{empty && <p class="agenda-tl__empty">No timed events on this day.</p>}
+		{empty && <p class="agenda-tl__empty">{t("timeline.empty")}</p>}
 
 		<ul class="agenda-tl__bars">
 			{bars.map(({ event, startFrac, endFrac, openStart, openEnd, lane, laneCount }) => {
@@ -189,7 +206,16 @@ const empty =
 							rel="noopener"
 							title={`${title}（${jstTime(event.startTime)}）`}
 						>
-							{icon ? (
+							{l.key === "metal" ? (
+								<svg
+									class="agenda-tl__slime"
+									viewBox="0 0 321 325"
+									fill="currentColor"
+									aria-hidden="true"
+								>
+									<path d="m160.4 0c-23 0-21.5 18.5-27.5 42-6 23.5-34.5 51-77 74.5-42.5 23.5-61.5 60.5-54.5 104 7 43.5 46 105 159.5 105 113.5 0 152-61.5 159-105s-12-80.5-54.5-104-71-51-77-74.5-5-42-28-42zm-82.6 228.7c3.8-3.7 9.8-3.55 13.4336.221 27.15 28 59.6528 28.106 69.6728 28.106 9.979 0 42.011-.039 69.173-28.106 3.648-3.771 9.663-3.869 13.433-.221 3.771 3.648 3.87 9.663.221 13.433-32.837 33.933-71.806 33.894-82.827 33.894-10.981 0-50.475.054-83.3271-33.894-3.6483-3.77-3.5494-9.785.2207-13.433zm126.6064-83.673c18.502 0 33.5 14.998 33.5 33.5s-14.998 33.5-33.5 33.5c-18.501 0-33.5-14.999-33.5-33.5s14.999-33.5 33.5-33.5zm-87.5 0c18.502 0 33.5 14.998 33.5 33.5s-14.998 33.5-33.5 33.5c-18.5014 0-33.5-14.999-33.5-33.5s14.9986-33.5 33.5-33.5zm87.5 19c-8.008 0-14.5 6.492-14.5 14.5s6.492 14.5 14.5 14.5 14.5-6.492 14.5-14.5-6.492-14.5-14.5-14.5zm-87.5 0c-8.008 0-14.5 6.492-14.5 14.5s6.492 14.5 14.5 14.5 14.5-6.492 14.5-14.5-6.492-14.5-14.5-14.5z" />
+								</svg>
+							) : icon ? (
 								<img class="agenda-tl__swim-icon" src={icon} alt={title} />
 							) : (
 								<span class="agenda-tl__swim-time">{jstTime(event.startTime)}</span>
@@ -207,7 +233,7 @@ const empty =
 		{/* Current-time line (positioned + revealed by the script when today). */}
 		<div class="agenda-tl__now" hidden>
 			<span class="agenda-tl__now-dot"></span>
-			<span class="agenda-tl__now-label">Now</span>
+			<span class="agenda-tl__now-label">{t("timeline.now")}</span>
 		</div>
 	</div>
 </div>
@@ -273,29 +299,89 @@ const empty =
 	.agenda-tl__swim-bar.is-now .agenda-tl__swim-inner {
 		outline: 2px solid var(--red-9);
 		outline-offset: -1px;
-		border-radius: 3px;
-		background: color-mix(in oklch, var(--red-9) 12%, transparent);
 	}
 	.agenda-tl__swim-bar {
 		position: absolute;
 		top: var(--top);
 		height: var(--h);
-		left: 1px;
-		right: 1px;
-		min-height: 0.5rem;
+		left: 2px;
+		right: 2px;
+		min-height: 1.1rem;
 	}
+	/* A filled rectangle spanning the rotation's window, with its icon inside —
+	   tinted like the main schedule bars so the two read as the same family. */
 	.agenda-tl__swim-inner {
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		height: 100%;
+		padding: 1px;
 		overflow: hidden;
+		box-sizing: border-box;
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklch, var(--purple-9) 22%, var(--surface-panel)),
+			color-mix(in oklch, var(--purple-9) 12%, var(--surface-panel))
+		);
+		border: 1px solid color-mix(in oklch, var(--purple-9) 45%, var(--border));
+		box-shadow: var(--inset-top), var(--shadow-sm);
+		transition:
+			filter 0.12s ease,
+			box-shadow 0.12s ease;
+	}
+	/* Metal-slime rotations get a brushed-silver box with the slime crest inside. */
+	.agenda-tl__swim[data-lane="metal"] .agenda-tl__swim-inner {
+		background: linear-gradient(
+			160deg,
+			#fafbfc 0%,
+			#d5d9de 40%,
+			#aeb4bd 52%,
+			#cbcfd5 68%,
+			#eef0f3 100%
+		);
+		border-color: #9aa0a8;
+	}
+	/* Dark mode: a gunmetal silver so the ink-colored crest (now light) still reads. */
+	:global(.dark) .agenda-tl__swim[data-lane="metal"] .agenda-tl__swim-inner,
+	:global([data-theme="dark"]) .agenda-tl__swim[data-lane="metal"] .agenda-tl__swim-inner {
+		background: linear-gradient(
+			160deg,
+			#828892 0%,
+			#4a505a 40%,
+			#31353d 52%,
+			#4d535d 68%,
+			#8b919b 100%
+		);
+		border-color: #5b616a;
+	}
+	@media (prefers-color-scheme: dark) {
+		:global(:root:not(.light)) .agenda-tl__swim[data-lane="metal"] .agenda-tl__swim-inner {
+			background: linear-gradient(
+				160deg,
+				#828892 0%,
+				#4a505a 40%,
+				#31353d 52%,
+				#4d535d 68%,
+				#8b919b 100%
+			);
+			border-color: #5b616a;
+		}
+	}
+	a.agenda-tl__swim-inner:hover {
+		filter: brightness(1.05);
+		box-shadow: var(--inset-top), var(--shadow-md);
 	}
 	.agenda-tl__swim-icon {
 		max-width: 100%;
 		max-height: 100%;
 		width: auto;
 		height: auto;
+	}
+	/* Slime crest, rendered in the ink/text color against the silver box. */
+	.agenda-tl__slime {
+		height: 100%;
+		width: 100%;
+		color: var(--ink);
 	}
 	.agenda-tl__swim-time {
 		font-size: 0.6rem;
@@ -329,8 +415,13 @@ const empty =
 		left: 0;
 		right: 0;
 		height: 0;
-		border-top: 1px dashed
-			color-mix(in oklch, var(--rule), transparent 35%);
+		/* Every-hour lines stay faint; the 3h label boundaries read a touch stronger. */
+		border-top: 1px solid
+			color-mix(in oklch, var(--rule), transparent 78%);
+	}
+	.agenda-tl__line[data-major] {
+		border-top-style: dashed;
+		border-top-color: color-mix(in oklch, var(--rule), transparent 35%);
 	}
 
 	.agenda-tl__empty {
@@ -376,7 +467,6 @@ const empty =
 		);
 		border: 1px solid color-mix(in oklch, var(--cat, var(--gold-mid)) 55%, var(--border));
 		border-left: 3px solid var(--cat, var(--gold-mid));
-		border-radius: 3px;
 		box-shadow: var(--inset-top), var(--shadow-sm);
 		transition:
 			filter 0.12s ease,
@@ -456,7 +546,6 @@ const empty =
 		pointer-events: auto;
 		background: var(--surface-panel);
 		border: 1px solid var(--border);
-		border-radius: 3px;
 		box-shadow: var(--shadow-sm);
 		padding: 0.1rem 0.4rem;
 		font-size: 0.76rem;
@@ -541,9 +630,13 @@ const empty =
 	const track = document.querySelector<HTMLElement>(".agenda-tl__track");
 	const dayStartMs = Number(track?.dataset.dayStart);
 
+	// The UI language (from <html lang>) sets the number/format locale; the zone
+	// is always the viewer's own.
+	const uiLocale = document.documentElement.lang || undefined;
+
 	if (localizeTimes()) {
 		const fmtTime = (dt: string) =>
-			new Date(dt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+			new Date(dt).toLocaleTimeString(uiLocale, { hour: "numeric", minute: "2-digit" });
 
 		// Relabel the hour ticks and every bar/mark time to the viewer's zone.
 		for (const el of document.querySelectorAll<HTMLTimeElement>(
@@ -569,7 +662,7 @@ const empty =
 			if (frac > 0.0001 && frac < 0.9999) {
 				line.style.top = `${frac * 100}%`;
 				label.style.setProperty("--top", `${frac * 100}%`);
-				label.textContent = midnight.toLocaleDateString([], {
+				label.textContent = midnight.toLocaleDateString(uiLocale, {
 					month: "short",
 					day: "numeric",
 				});

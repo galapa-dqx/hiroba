@@ -8,39 +8,48 @@
 import { formatJstDate } from "@hiroba/ui/format-date";
 import type { BandItem } from "../lib/day-agenda";
 import { scheduleInfo, TSUYOSA_URL } from "../lib/schedule";
+import { dateLocale, useTranslations } from "../i18n";
 
 interface Props {
 	band: BandItem[];
 	lang: string;
 }
 const { band, lang } = Astro.props;
+const t = useTranslations(lang);
+const locale = dateLocale(lang);
 
 const TYPE_LABELS: Record<string, string> = {
-	multiDay: "Ongoing",
-	span: "Ongoing",
-	allDay: "All day",
+	multiDay: t("band.ongoing"),
+	span: t("band.ongoing"),
+	allDay: t("band.allDay"),
 };
 
+/** Path segment for each article source type ("topic" → the /topics/ route). */
+const SOURCE_SEG: Record<string, string> = {
+	news: "news",
+	topic: "topics",
+	playguide: "playguide",
+};
 /** Link + whether it leaves the site. Schedule events point at the つよさ予報 page. */
 function eventLink(e: BandItem["event"]): { href: string | null; external: boolean } {
 	if (e.sourceType === "schedule") return { href: TSUYOSA_URL, external: true };
-	if (!e.sourceId || !e.sourceType) return { href: null, external: false };
-	const seg = e.sourceType === "news" ? "news" : "topics";
+	const seg = e.sourceType ? SOURCE_SEG[e.sourceType] : undefined;
+	if (!seg || !e.sourceId) return { href: null, external: false };
 	return { href: `/${lang}/${seg}/${e.sourceId}`, external: false };
 }
 
 /** JST date range; a single date for all-day events. */
 function dateRange(e: BandItem["event"]): string {
-	const start = formatJstDate(e.startTime.toInstant().toString());
+	const start = formatJstDate(e.startTime.toInstant().toString(), locale);
 	if (!e.endTime) return start;
-	const end = formatJstDate(e.endTime.toInstant().toString());
+	const end = formatJstDate(e.endTime.toInstant().toString(), locale);
 	return start === end ? start : `${start} – ${end}`;
 }
 ---
 
 {
 	band.length > 0 && (
-		<ol class="agenda-band" aria-label="Ongoing and all-day events">
+		<ol class="agenda-band" aria-label={t("band.aria")}>
 			{band.map(({ event }) => {
 				const { href, external } = eventLink(event);
 				const title = event.titleEn ?? event.titleJa;
@@ -62,7 +71,7 @@ function dateRange(e: BandItem["event"]): string {
 							/>
 						)}
 						<span class="agenda-band__type">
-							{sched ? "Rotation" : (TYPE_LABELS[event.type] ?? event.type)}
+							{sched ? t("band.rotation") : (TYPE_LABELS[event.type] ?? event.type)}
 						</span>
 						<p class="agenda-band__name">
 							{sched?.iconUrl && (
