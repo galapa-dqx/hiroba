@@ -48,6 +48,17 @@ export {
   type PlayguideCrawlItem,
 } from './playguide-crawl-scraper';
 
+// つよさ予報 scraper (recurring battle-content rotation schedules → events)
+export {
+  fetchTsuyosaForecast,
+  parseTsuyosaForecast,
+  parseMonthDay,
+  TSUYOSA_URL,
+  type TsuyosaForecast,
+  type BossRotation,
+  type BossSlot,
+} from './tsuyosa-scraper';
+
 // Rotation banner scraper (home-page carousel → banner metadata)
 export {
   fetchRotationBanners,

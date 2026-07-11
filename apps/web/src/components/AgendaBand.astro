@@ -20,11 +20,14 @@ const TYPE_LABELS: Record<string, string> = {
 	allDay: "All day",
 };
 
-/** Article the event was extracted from, if any. */
-function sourceHref(e: BandItem["event"]): string | null {
-	if (!e.sourceId || !e.sourceType) return null;
+const TSUYOSA_URL = "https://hiroba.dqx.jp/sc/tokoyami/";
+
+/** Link + whether it leaves the site. Schedule events point at the つよさ予報 page. */
+function eventLink(e: BandItem["event"]): { href: string | null; external: boolean } {
+	if (e.sourceType === "schedule") return { href: TSUYOSA_URL, external: true };
+	if (!e.sourceId || !e.sourceType) return { href: null, external: false };
 	const seg = e.sourceType === "news" ? "news" : "topics";
-	return `/${lang}/${seg}/${e.sourceId}`;
+	return { href: `/${lang}/${seg}/${e.sourceId}`, external: false };
 }
 
 /** JST date range; a single date for all-day events. */
@@ -40,15 +43,27 @@ function dateRange(e: BandItem["event"]): string {
 	band.length > 0 && (
 		<ol class="agenda-band" aria-label="Ongoing and all-day events">
 			{band.map(({ event }) => {
-				const href = sourceHref(event);
+				const { href, external } = eventLink(event);
 				const title = event.titleEn ?? event.titleJa;
+				const schedule = event.sourceType === "schedule";
 				return (
-					<li class="agenda-band__item" data-etype={event.type} data-linked={href ? "" : undefined}>
+					<li
+						class="agenda-band__item"
+						data-etype={event.type}
+						data-source={schedule ? "schedule" : undefined}
+						data-linked={href ? "" : undefined}
+					>
 						{href && (
-							<a class="agenda-band__link" href={href} aria-label={title} />
+							<a
+								class="agenda-band__link"
+								href={href}
+								aria-label={title}
+								target={external ? "_blank" : undefined}
+								rel={external ? "noopener" : undefined}
+							/>
 						)}
 						<span class="agenda-band__type">
-							{TYPE_LABELS[event.type] ?? event.type}
+							{schedule ? "Rotation" : (TYPE_LABELS[event.type] ?? event.type)}
 						</span>
 						<p class="agenda-band__name">{title}</p>
 						<span class="agenda-band__when">{dateRange(event)} JST</span>
@@ -105,6 +120,10 @@ function dateRange(e: BandItem["event"]): string {
 	}
 	.agenda-band__item[data-etype="allDay"] {
 		--cat: var(--green-9);
+	}
+	/* Scraped game-schedule rotations read apart from article events. */
+	.agenda-band__item[data-source="schedule"] {
+		--cat: var(--purple-9);
 	}
 	.agenda-band__type {
 		font-size: 0.64rem;

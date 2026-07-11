@@ -30,7 +30,7 @@ import {
 
 import type { Database } from './client';
 import { banners, type Banner } from './schema/banners';
-import { events, type Event } from './schema/events';
+import { events, type Event, type NewEvent } from './schema/events';
 import { images, type Image } from './schema/images';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
 import {
@@ -1293,6 +1293,26 @@ async function mergeEventTitles(
     trans.filter((t) => t.value !== null).map((t) => [t.itemId, t.value]),
   );
   return rows.map((r) => ({ ...r, titleEn: byId.get(r.id) ?? null }));
+}
+
+/**
+ * Replace the whole set of scraped schedule events (sourceType='schedule') with
+ * a freshly-materialized window — the つよさ予報 rotation cron re-runs daily and
+ * only ever holds the near-future window the page shows. Delete-then-insert
+ * (batched to stay under D1's bound-parameter cap); ids are deterministic so a
+ * partial failure self-heals on the next run.
+ */
+export async function replaceScheduleEvents(
+  db: Database,
+  rows: NewEvent[],
+): Promise<void> {
+  await db.delete(events).where(eq(events.sourceType, 'schedule'));
+  const ROWS_PER_INSERT = 20;
+  for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
+    const batch = rows.slice(i, i + ROWS_PER_INSERT);
+    if (batch.length === 0) continue;
+    await db.insert(events).values(batch).onConflictDoNothing();
+  }
 }
 
 /**

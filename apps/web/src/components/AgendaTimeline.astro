@@ -40,10 +40,14 @@ const ticks = Array.from({ length: 24 / TICK_STEP + 1 }, (_, i) => {
 const jstTime = (zdt: Temporal.ZonedDateTime): string =>
 	zdt.toPlainTime().toString({ smallestUnit: "minute" });
 
-function sourceHref(e: BarItem["event"]): string | null {
-	if (!e.sourceId || !e.sourceType) return null;
+const TSUYOSA_URL = "https://hiroba.dqx.jp/sc/tokoyami/";
+
+/** Link + whether it leaves the site. Schedule events point at the つよさ予報 page. */
+function eventLink(e: BarItem["event"]): { href: string | null; external: boolean } {
+	if (e.sourceType === "schedule") return { href: TSUYOSA_URL, external: true };
+	if (!e.sourceId || !e.sourceType) return { href: null, external: false };
 	const seg = e.sourceType === "news" ? "news" : "topics";
-	return `/${lang}/${seg}/${e.sourceId}`;
+	return { href: `/${lang}/${seg}/${e.sourceId}`, external: false };
 }
 
 const empty = bars.length === 0 && milestones.length === 0;
@@ -74,18 +78,26 @@ const empty = bars.length === 0 && milestones.length === 0;
 
 		<ul class="agenda-tl__bars">
 			{bars.map(({ event, startFrac, endFrac, openStart, openEnd, lane, laneCount }) => {
-				const href = sourceHref(event);
+				const { href, external } = eventLink(event);
 				const title = event.titleEn ?? event.titleJa;
+				const schedule = event.sourceType === "schedule";
 				const Inner = href ? "a" : "div";
 				return (
 					<li
 						class="agenda-tl__bar"
 						data-etype={event.type}
+						data-source={schedule ? "schedule" : undefined}
 						data-open-start={openStart ? "" : undefined}
 						data-open-end={openEnd ? "" : undefined}
 						style={`--top:${startFrac * 100}%; --h:${(endFrac - startFrac) * 100}%; --lane:${lane}; --lanes:${laneCount}`}
 					>
-						<Inner class="agenda-tl__bar-inner" href={href} data-linked={href ? "" : undefined}>
+						<Inner
+							class="agenda-tl__bar-inner"
+							href={href}
+							data-linked={href ? "" : undefined}
+							target={external ? "_blank" : undefined}
+							rel={external ? "noopener" : undefined}
+						>
 							<span class="agenda-tl__bar-name">{title}</span>
 							<span class="agenda-tl__bar-when">
 								{openStart && <span class="agenda-tl__arrow" aria-hidden="true">↑ </span>}
@@ -110,12 +122,18 @@ const empty = bars.length === 0 && milestones.length === 0;
 
 		<ul class="agenda-tl__marks">
 			{milestones.map(({ event, frac }) => {
-				const href = sourceHref(event);
+				const { href, external } = eventLink(event);
 				const title = event.titleEn ?? event.titleJa;
 				const Label = href ? "a" : "span";
 				return (
 					<li class="agenda-tl__mark" style={`--top:${frac * 100}%`}>
-						<Label class="agenda-tl__mark-label" href={href} data-linked={href ? "" : undefined}>
+						<Label
+							class="agenda-tl__mark-label"
+							href={href}
+							data-linked={href ? "" : undefined}
+							target={external ? "_blank" : undefined}
+							rel={external ? "noopener" : undefined}
+						>
 							{title}
 							<time class="agenda-tl__time" datetime={event.startTime.toInstant().toString()}>
 								{jstTime(event.startTime)}
@@ -245,6 +263,10 @@ const empty = bars.length === 0 && milestones.length === 0;
 	}
 	.agenda-tl__bar[data-etype="multiDay"] {
 		--cat: var(--orange-9);
+	}
+	/* Scraped game-schedule rotations read apart from article events. */
+	.agenda-tl__bar[data-source="schedule"] {
+		--cat: var(--purple-9);
 	}
 	.agenda-tl__bar-name {
 		display: block;

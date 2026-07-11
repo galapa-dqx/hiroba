@@ -41,4 +41,7 @@ export const SCRAPE_CONFIG = {
   // identified by a slug (guide01, guide_4_2, wintrial_1, …) rather than a
   // 32-char hex id. The set is discovered by crawling from `guide01`.
   playguideBasePath: '/sc/public/playguide/',
+  // つよさ予報 — the recurring battle-content rotation schedules (defense force,
+  // panigarm, boot camp, abyss sinners, metal rookie).
+  tsuyosaPath: '/sc/tokoyami/',
 } as const;

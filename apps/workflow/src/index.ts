@@ -15,6 +15,7 @@ import {
   createDb,
   getEnabledLanguages,
   glossary,
+  replaceScheduleEvents,
   upsertListItems,
   upsertPlayguideListItems,
   upsertTopicListItems,
@@ -24,6 +25,7 @@ import {
 import {
   crawlPlayguides,
   fetchGlossary,
+  fetchTsuyosaForecast,
   scrapeNewsList,
   scrapeTopicsList,
 } from '@hiroba/scraper';
@@ -31,6 +33,7 @@ import { CATEGORIES } from '@hiroba/shared';
 
 import { createLogger, type Logger } from './logger';
 import { processRechecks } from './recheck';
+import { buildScheduleEvents } from './steps/build-schedule-events';
 import type { Env, ItemType } from './types';
 
 // Export the Durable Object and Workflow classes
@@ -145,6 +148,7 @@ export default Sentry.withSentry(
       if (isGlossaryRefresh) {
         await refreshGlossary(db, log);
         await refreshPlayguides(db, env, log);
+        await refreshSchedule(db, log);
       } else {
         await refreshNews(db, env, log);
         await refreshTopics(db, env, log);
@@ -167,6 +171,22 @@ async function refreshBanners(env: Env, log: Logger): Promise<void> {
     log.info(`Enqueued banner refresh (${instance.id})`);
   } catch (error) {
     log.error('Failed to enqueue banner refresh:', error);
+  }
+}
+
+/**
+ * Re-scrape the つよさ予報 rotation schedules and replace the materialized
+ * `events` rows. Deterministic (no LLM/Workflow) — parse straight to rows.
+ * Best-effort: a scrape/parse failure is logged, never fails the cron.
+ */
+async function refreshSchedule(db: Database, log: Logger): Promise<void> {
+  try {
+    const forecast = await fetchTsuyosaForecast();
+    const rows = buildScheduleEvents(forecast, Temporal.Now.instant());
+    await replaceScheduleEvents(db, rows);
+    log.info(`Refreshed schedule events (${rows.length} rows)`);
+  } catch (error) {
+    log.error('Failed to refresh schedule events:', error);
   }
 }
 
