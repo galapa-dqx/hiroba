@@ -140,4 +140,30 @@ describe('parseExtractedEvents', () => {
     );
     expect(events).toEqual([]);
   });
+
+  it('drops an over-long span as a standing program (> 180d), keeping normal campaigns', () => {
+    const events = parseExtractedEvents(
+      [
+        {
+          // ~198 days — within the wrong-year window, but far too long to be an
+          // event: a VISA-card / enrollment style standing program.
+          type: 'multiDay',
+          title: '「ドラゴンクエストX VISAカード」新規入会キャンペーン',
+          start: '2026-07-01',
+          end: '2027-01-15',
+        },
+        {
+          // ~61 days — a real time-boxed campaign, kept.
+          type: 'multiDay',
+          title: 'バージョン8.0 ありがとうプレゼント',
+          start: '2026-07-01',
+          end: '2026-08-31',
+        },
+      ],
+      pub,
+    );
+    expect(events.map((e) => e.title)).toEqual([
+      'バージョン8.0 ありがとうプレゼント',
+    ]);
+  });
 });
