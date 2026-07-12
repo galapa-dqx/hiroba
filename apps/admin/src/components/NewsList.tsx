@@ -16,11 +16,13 @@ import {
   type NewsItem,
 } from '../lib/api';
 import { subscribeJob } from '../lib/job-stream';
+import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /** Matches the server-side cap in lib/trigger-recent.ts. */
 const MAX_RECENT_TRIGGER = 50;
 
 export default function NewsList() {
+  const lang = usePrimaryLanguage();
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
@@ -41,7 +43,7 @@ export default function NewsList() {
 
   useEffect(() => {
     loadItems();
-  }, [category]);
+  }, [category, lang]);
 
   async function loadStats() {
     try {
@@ -57,6 +59,7 @@ export default function NewsList() {
       const { items, nextCursor } = await getNewsList({
         limit: 50,
         category: category || undefined,
+        lang,
       });
       setItems(items);
       setNextCursor(nextCursor);
@@ -73,6 +76,7 @@ export default function NewsList() {
         limit: 50,
         category: category || undefined,
         cursor: nextCursor,
+        lang,
       });
       setItems((prev) => [...prev, ...res.items]);
       setNextCursor(res.nextCursor);
@@ -303,7 +307,9 @@ export default function NewsList() {
               {items.map((item) => (
                 <tr key={item.id}>
                   <td className="title-cell">
-                    <a href={`/news/${item.id}`}>{item.titleJa}</a>
+                    <a href={`/news/${item.id}`}>
+                      {item.titleLocalized || item.titleJa}
+                    </a>
                     <a
                       className="external-link"
                       href={`https://hiroba.dqx.jp/sc/news/detail/${item.id}`}
@@ -313,6 +319,11 @@ export default function NewsList() {
                     >
                       ↗
                     </a>
+                    {item.titleLocalized && (
+                      <span className="title-cell__ja" lang="ja">
+                        {item.titleJa}
+                      </span>
+                    )}
                   </td>
                   <td>
                     <span className={`category-badge ${item.category}`}>

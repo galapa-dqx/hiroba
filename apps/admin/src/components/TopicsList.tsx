@@ -14,11 +14,13 @@ import {
   type TopicItem,
 } from '../lib/api';
 import { subscribeJob } from '../lib/job-stream';
+import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /** Matches the server-side cap in lib/trigger-recent.ts. */
 const MAX_RECENT_TRIGGER = 50;
 
 export default function TopicsList() {
+  const lang = usePrimaryLanguage();
   const [items, setItems] = useState<TopicItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
@@ -34,8 +36,11 @@ export default function TopicsList() {
 
   useEffect(() => {
     loadStats();
-    loadItems();
   }, []);
+
+  useEffect(() => {
+    loadItems();
+  }, [lang]);
 
   async function loadStats() {
     try {
@@ -48,7 +53,7 @@ export default function TopicsList() {
   async function loadItems() {
     setLoading(true);
     try {
-      const { items, nextCursor } = await getTopicsList({ limit: 50 });
+      const { items, nextCursor } = await getTopicsList({ limit: 50, lang });
       setItems(items);
       setNextCursor(nextCursor);
     } catch (err) {
@@ -60,7 +65,7 @@ export default function TopicsList() {
   async function loadMore() {
     if (!nextCursor) return;
     try {
-      const res = await getTopicsList({ limit: 50, cursor: nextCursor });
+      const res = await getTopicsList({ limit: 50, cursor: nextCursor, lang });
       setItems((prev) => [...prev, ...res.items]);
       setNextCursor(res.nextCursor);
     } catch (err) {
@@ -278,7 +283,9 @@ export default function TopicsList() {
               {items.map((item) => (
                 <tr key={item.id}>
                   <td className="title-cell">
-                    <a href={`/topics/${item.id}`}>{item.titleJa}</a>
+                    <a href={`/topics/${item.id}`}>
+                      {item.titleLocalized || item.titleJa}
+                    </a>
                     <a
                       className="external-link"
                       href={`https://hiroba.dqx.jp/sc/topics/detail/${item.id}/`}
@@ -288,6 +295,11 @@ export default function TopicsList() {
                     >
                       ↗
                     </a>
+                    {item.titleLocalized && (
+                      <span className="title-cell__ja" lang="ja">
+                        {item.titleJa}
+                      </span>
+                    )}
                   </td>
                   <td>{formatLocalDate(item.publishedAt)}</td>
                   <td>{item.hasBody ? '✓' : '—'}</td>

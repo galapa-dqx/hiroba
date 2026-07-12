@@ -816,11 +816,18 @@ export async function getTopics(
  */
 export async function listNewsAdmin(
   db: Database,
-  options: { category?: string; limit?: number; cursor?: string } = {},
+  options: {
+    category?: string;
+    limit?: number;
+    cursor?: string;
+    language?: string;
+  } = {},
 ): Promise<{
   items: Array<{
     id: string;
     titleJa: string;
+    /** Title in `language`, or null when not yet translated (⇒ show titleJa). */
+    titleLocalized: string | null;
     category: string;
     publishedAt: Temporal.Instant;
     hasBody: boolean;
@@ -830,6 +837,7 @@ export async function listNewsAdmin(
   nextCursor?: string;
 }> {
   const limit = Math.min(options.limit ?? 50, 100);
+  const language = options.language ?? 'en';
 
   const conditions = [];
   if (options.category) {
@@ -845,11 +853,21 @@ export async function listNewsAdmin(
     .select({
       id: newsItems.id,
       titleJa: newsItems.titleJa,
+      titleLocalized: translations.value,
       category: newsItems.category,
       publishedAt: newsItems.publishedAt,
       hasBody: sql<number>`(${newsItems.blocksJa} IS NOT NULL)`,
     })
     .from(newsItems)
+    .leftJoin(
+      translations,
+      and(
+        eq(translations.itemType, 'news'),
+        eq(translations.itemId, newsItems.id),
+        eq(translations.language, language),
+        eq(translations.field, 'title'),
+      ),
+    )
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(newsItems.publishedAt))
     .limit(limit + 1)
@@ -880,6 +898,7 @@ export async function listNewsAdmin(
     items: page.map((r) => ({
       id: r.id,
       titleJa: r.titleJa,
+      titleLocalized: r.titleLocalized,
       category: r.category,
       publishedAt: r.publishedAt,
       hasBody: !!r.hasBody,
@@ -898,11 +917,13 @@ export async function listNewsAdmin(
  */
 export async function listTopicsAdmin(
   db: Database,
-  options: { limit?: number; cursor?: string } = {},
+  options: { limit?: number; cursor?: string; language?: string } = {},
 ): Promise<{
   items: Array<{
     id: string;
     titleJa: string;
+    /** Title in `language`, or null when not yet translated (⇒ show titleJa). */
+    titleLocalized: string | null;
     publishedAt: Temporal.Instant;
     hasBody: boolean;
     translated: boolean;
@@ -911,6 +932,7 @@ export async function listTopicsAdmin(
   nextCursor?: string;
 }> {
   const limit = Math.min(options.limit ?? 50, 100);
+  const language = options.language ?? 'en';
 
   const conditions = [];
   if (options.cursor) {
@@ -923,10 +945,20 @@ export async function listTopicsAdmin(
     .select({
       id: topics.id,
       titleJa: topics.titleJa,
+      titleLocalized: translations.value,
       publishedAt: topics.publishedAt,
       hasBody: sql<number>`(${topics.blocksJa} IS NOT NULL)`,
     })
     .from(topics)
+    .leftJoin(
+      translations,
+      and(
+        eq(translations.itemType, 'topic'),
+        eq(translations.itemId, topics.id),
+        eq(translations.language, language),
+        eq(translations.field, 'title'),
+      ),
+    )
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(topics.publishedAt))
     .limit(limit + 1)
@@ -957,6 +989,7 @@ export async function listTopicsAdmin(
     items: page.map((r) => ({
       id: r.id,
       titleJa: r.titleJa,
+      titleLocalized: r.titleLocalized,
       publishedAt: r.publishedAt,
       hasBody: !!r.hasBody,
       translated: translated.has(r.id),

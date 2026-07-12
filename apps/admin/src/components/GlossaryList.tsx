@@ -8,12 +8,14 @@ import {
   upsertGlossaryOverride,
   type GlossaryEntry,
 } from '../lib/api';
+import { usePrimaryLanguage } from '../lib/use-primary-language';
 
-// The list is loaded for English; overrides are created for the same language.
-const LANG = 'en';
 const EMPTY_FORM = { sourceText: '', translatedText: '' };
 
 export default function GlossaryList() {
+  // The list is loaded for — and overrides created in — the sidebar's primary
+  // target language.
+  const lang = usePrimaryLanguage();
   const [entries, setEntries] = useState<GlossaryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -22,12 +24,12 @@ export default function GlossaryList() {
 
   useEffect(() => {
     loadEntries();
-  }, []);
+  }, [lang]);
 
   async function loadEntries() {
     setLoading(true);
     try {
-      const { entries } = await getGlossary(LANG);
+      const { entries } = await getGlossary(lang);
       setEntries(entries);
     } catch (err) {
       console.error(err);
@@ -41,7 +43,7 @@ export default function GlossaryList() {
     try {
       await upsertGlossaryOverride({
         sourceText: form.sourceText.trim(),
-        targetLanguage: LANG,
+        targetLanguage: lang,
         translatedText: form.translatedText.trim(),
       });
       setForm(EMPTY_FORM);
@@ -66,7 +68,7 @@ export default function GlossaryList() {
   async function handleDeleteOverride(sourceText: string) {
     if (!confirm(`Remove the override for "${sourceText}"?`)) return;
     try {
-      await deleteGlossaryOverride(sourceText, LANG);
+      await deleteGlossaryOverride(sourceText, lang);
       await loadEntries();
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete override');
@@ -99,7 +101,7 @@ export default function GlossaryList() {
         />
         <input
           type="text"
-          placeholder="English (Comeback)"
+          placeholder={`Translation (${lang.toUpperCase()})`}
           value={form.translatedText}
           onChange={(e) => setForm({ ...form, translatedText: e.target.value })}
           required
@@ -141,7 +143,7 @@ export default function GlossaryList() {
           <thead>
             <tr>
               <th>Japanese</th>
-              <th>English</th>
+              <th>{lang.toUpperCase()}</th>
               <th>Source</th>
               <th>Updated</th>
               <th>Actions</th>
