@@ -1,8 +1,19 @@
 ---
-import Layout from "../layouts/Layout.astro";
+import FlowRuns from "../components/FlowRuns";
 import WorkflowRuns from "../components/WorkflowRuns";
+import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout title="Workflow Tracker">
-	<WorkflowRuns client:load />
+	{/* Two panels coexist during the flow-framework migration (DQX-19):
+	    hub-tracked flow runs above, the legacy WorkflowManager tracker below.
+	    The legacy panel is deleted with WorkflowManager (DQX-26). */}
+	<section class="tracker-panel">
+		<h3>Flow runs</h3>
+		<FlowRuns client:load />
+	</section>
+	<section class="tracker-panel">
+		<h3>Article pipeline (legacy)</h3>
+		<WorkflowRuns client:load />
+	</section>
 </Layout>

@@ -27,6 +27,7 @@ import {
   type Database,
   type ListItem,
 } from '@hiroba/db';
+import { getFlowHub } from '@hiroba/flow/hub';
 import { imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   crawlPlayguides,
@@ -48,6 +49,7 @@ import { translateTitleChunk } from './steps/translate-titles';
 import type { Env, ItemType } from './types';
 
 // Export the Durable Object and Workflow classes
+export { FlowHub } from './flow-hub';
 export { WorkflowManager } from './workflow-manager';
 export { ArticleWorkflow } from './article-workflow';
 export { TitleWorkflow } from './title-workflow';
@@ -73,6 +75,47 @@ export default Sentry.withSentry(
       // Health check
       if (url.pathname === '/health') {
         return Response.json({ status: 'ok' });
+      }
+
+      // Flow-hub passthroughs (DQX-19): thin fronts over the single 'hub' DO
+      // instance. Like the rest of this router they're internal-only
+      // (workers_dev = false) — admin/web hold their own FLOW_HUB binding and
+      // talk to the DO directly; these routes serve local dev and any future
+      // service-binding caller.
+      if (url.pathname === '/flow/runs') {
+        const flow = url.searchParams.get('flow') ?? undefined;
+        // Guarded parse: a junk/negative limit falls back to the default
+        // (LIMIT NaN errors; SQLite treats LIMIT -1 as unbounded).
+        const limit = Number(url.searchParams.get('limit'));
+        const runs = await getFlowHub(env).listRuns({
+          flow,
+          limit: Number.isInteger(limit) && limit > 0 ? limit : undefined,
+        });
+        return Response.json({ runs });
+      }
+
+      // SSE stream for one run (?runId=… or ?flow=…&key=…) — the hub's fetch
+      // handler owns the protocol; pass the query through untouched.
+      if (url.pathname === '/flow/sse') {
+        return getFlowHub(env).fetch(request.url);
+      }
+
+      if (url.pathname === '/flow/start' && request.method === 'POST') {
+        const body = (await request.json()) as {
+          flow?: string;
+          params?: unknown;
+          cooldownMs?: number;
+          force?: boolean;
+        };
+        if (!body.flow) {
+          return Response.json({ error: 'flow required' }, { status: 400 });
+        }
+        const result = await getFlowHub(env).start(
+          body.flow,
+          body.params ?? null,
+          { cooldownMs: body.cooldownMs, force: body.force },
+        );
+        return Response.json(result);
       }
 
       // Route /workflow/* requests to the WorkflowManager DO
@@ -148,6 +191,9 @@ export default Sentry.withSentry(
             '/trigger',
             '/reconcile',
             '/workflow/:itemId/*',
+            '/flow/start',
+            '/flow/runs',
+            '/flow/sse',
           ],
         },
         { status: 404 },

@@ -5,6 +5,8 @@ type RuntimeEnv = {
   DB: D1Database;
   IMAGES_BUCKET: R2Bucket;
   WORKFLOW_MANAGER: DurableObjectNamespace;
+  /** FlowHub DO (flow framework control plane) — single 'hub' instance. */
+  FLOW_HUB: DurableObjectNamespace;
 };
 
 declare namespace App {

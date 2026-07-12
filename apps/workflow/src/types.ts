@@ -51,6 +51,9 @@ export type Env = {
   GEMINI_API_KEY: string;
   SENTRY_DSN: string;
   WORKFLOW_MANAGER: DurableObjectNamespace;
+  /** The flow framework's control plane — one 'hub' instance, one SQLite
+   *  database for all runs/steps/units state (src/flow-hub.ts). */
+  FLOW_HUB: DurableObjectNamespace;
   /** The unified news+topics pipeline (item type carried in the params). */
   ARTICLE_WORKFLOW: WorkflowBinding<ArticleWorkflowParams>;
   /** Eager title translation at discovery (DQX-11). */

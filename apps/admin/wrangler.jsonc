@@ -24,6 +24,13 @@
         "class_name": "WorkflowManager",
         "script_name": "hiroba-workflow",
       },
+      // The flow framework's control plane (DQX-19) — one 'hub' instance
+      // holding every flow run; read by the "Flow runs" panel.
+      {
+        "name": "FLOW_HUB",
+        "class_name": "FlowHub",
+        "script_name": "hiroba-workflow",
+      },
     ],
   },
 }

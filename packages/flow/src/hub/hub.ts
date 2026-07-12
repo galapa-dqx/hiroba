@@ -749,6 +749,28 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
 
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
+      // /runs mirrors listRuns() for callers that can only reach the DO over
+      // fetch — cross-script DO RPC is unsupported between local dev sessions,
+      // so the admin panel reads this route instead.
+      if (url.pathname.endsWith('/runs')) {
+        // Guarded parse: a junk/negative limit falls back to the default
+        // (LIMIT NaN errors; SQLite treats LIMIT -1 as unbounded).
+        const limit = Number(url.searchParams.get('limit'));
+        const runs = await this.listRuns({
+          flow: url.searchParams.get('flow') ?? undefined,
+          limit: Number.isInteger(limit) && limit > 0 ? limit : undefined,
+        });
+        // Each entry carries its current snapshot (a local SELECT per run):
+        // the poll is then a complete paint on its own — settled runs get
+        // their segment strip without a stream, and a dropped SSE heals on
+        // the next poll instead of leaving a stale strip.
+        return Response.json({
+          runs: runs.map((run) => ({
+            ...run,
+            snapshot: this.snapshotOf(run.runId),
+          })),
+        });
+      }
       if (!url.pathname.endsWith('/sse')) {
         return Response.json({ error: 'not found' }, { status: 404 });
       }

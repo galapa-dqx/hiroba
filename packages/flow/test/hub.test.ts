@@ -227,4 +227,40 @@ describe('listRuns', () => {
     const mine = runs.find((run) => run.runId === res.runId);
     expect(mine).toMatchObject({ key, status: 'complete' });
   });
+
+  it('serves the same listing over fetch /runs (for fetch-only callers)', async () => {
+    const key = uniqueKey('list-fetch');
+    const res = await hub().start('toy-linear', { key });
+    if (res.throttled) throw new Error('throttled');
+    await waitFor(
+      () => hub().getRun(res.runId),
+      (run) => run?.status === 'complete',
+    );
+    const response = await hub().fetch(
+      'https://hub/runs?flow=toy-linear&limit=50',
+    );
+    expect(response.status).toBe(200);
+    const { runs } = (await response.json()) as {
+      runs: Array<{
+        runId: string;
+        key: string;
+        status: string;
+        snapshot: Snapshot | null;
+      }>;
+    };
+    const mine = runs.find((run) => run.runId === res.runId);
+    expect(mine).toMatchObject({ key, status: 'complete' });
+    // Every entry embeds its snapshot — the listing alone paints full strips.
+    expect(mine?.snapshot?.status).toBe('complete');
+    expect(mine?.snapshot?.steps.work.current).toBe(3);
+
+    // Junk/negative limits fall back to the default instead of reaching
+    // SQLite as LIMIT NaN / LIMIT -1 (unbounded).
+    for (const junk of ['abc', '-1']) {
+      const guarded = await hub().fetch(`https://hub/runs?limit=${junk}`);
+      expect(guarded.status).toBe(200);
+      const body = (await guarded.json()) as { runs: unknown[] };
+      expect(Array.isArray(body.runs)).toBe(true);
+    }
+  });
 });
