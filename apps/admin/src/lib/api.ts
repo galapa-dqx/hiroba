@@ -665,3 +665,57 @@ export async function deleteEvent(id: string): Promise<{ success: boolean }> {
     method: 'DELETE',
   });
 }
+
+// Reset milestones API (admin-managed recurring game resets → calendar marks)
+
+export type ResetMilestoneEntry = {
+  id: string;
+  titleJa: string;
+  /** Per-language display names incl. "en"; falls back lang → en → titleJa. */
+  titles: Record<string, string>;
+  /** Full iCal string: DTSTART;TZID=Asia/Tokyo:… + RRULE:… */
+  rrule: string;
+  enabled: boolean;
+  sortOrder: number;
+  note: string | null;
+  createdAt: string; // ISO-8601 UTC instant
+  updatedAt: string; // ISO-8601 UTC instant
+};
+
+/** The enabled target languages the editor renders a name field for. */
+export type ResetLanguage = {
+  code: string;
+  label: string;
+  nativeLabel: string;
+};
+
+export async function getResets(): Promise<{
+  resets: ResetMilestoneEntry[];
+  languages: ResetLanguage[];
+}> {
+  return adminFetch('/api/resets');
+}
+
+export async function upsertReset(entry: {
+  id: string;
+  titleJa: string;
+  titles: Record<string, string>;
+  rrule: string;
+  enabled?: boolean;
+  sortOrder?: number;
+  note?: string | null;
+}): Promise<{ success: boolean; id: string }> {
+  return adminFetch('/api/resets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  });
+}
+
+export async function deleteReset(
+  id: string,
+): Promise<{ success: boolean; id: string }> {
+  return adminFetch(`/api/resets/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}

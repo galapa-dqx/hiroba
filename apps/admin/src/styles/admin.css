@@ -960,6 +960,83 @@ textarea::placeholder {
   margin-top: 1.5rem;
 }
 
+/* --------------------------------------------------- reset milestones --- */
+.reset-form {
+  padding: 1.4rem;
+  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  margin-bottom: 1.5rem;
+}
+.reset-form__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.reset-form__row > .form-group {
+  flex: 1 1 220px;
+  margin-bottom: 1rem;
+}
+.reset-form__langs > .form-group {
+  flex: 1 1 180px;
+}
+.reset-form__narrow {
+  flex: 0 1 120px !important;
+}
+.reset-form__recur {
+  border: 1px solid var(--border);
+  padding: 1rem 1.2rem 0.4rem;
+  margin: 0.5rem 0 1rem;
+}
+.reset-form__recur legend {
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 0 0.4rem;
+  color: var(--ink-soft);
+}
+.reset-form__time-inputs {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.reset-form__time-inputs input {
+  width: 4rem;
+}
+.reset-form__weekdays {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+}
+.reset-form__weekday {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.reset-form__weekday input {
+  width: auto;
+}
+.reset-form__preview {
+  margin: 0.4rem 0 0.8rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+.reset-form__enabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  align-self: center;
+}
+.reset-form__enabled input {
+  width: auto;
+}
+.data-table tr.is-disabled {
+  opacity: 0.55;
+}
+
 /* divider (<hr class="divider">) — gilt hairline */
 .divider,
 hr.divider {

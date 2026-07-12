@@ -116,6 +116,9 @@ importers:
       react-dom:
         specifier: ^19.0.0
         version: 19.2.3(react@19.2.3)
+      rrule-temporal:
+        specifier: ^2.0.0
+        version: 2.0.0
       temporal-polyfill:
         specifier: ^0.3.0
         version: 0.3.0
@@ -242,6 +245,9 @@ importers:
       drizzle-orm:
         specifier: 1.0.0-beta.6-cd45bda
         version: 1.0.0-beta.6-cd45bda(@cloudflare/workers-types@4.20260109.0)(@opentelemetry/api@1.9.0)(@types/mssql@9.1.8)(mssql@11.0.1)
+      rrule-temporal:
+        specifier: ^2.0.0
+        version: 2.0.0
       temporal-polyfill:
         specifier: ^0.3.0
         version: 0.3.0
@@ -2307,6 +2313,7 @@ packages:
 
   '@ungap/structured-clone@1.3.0':
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
+    deprecated: Potential CWE-502 - Update to 1.3.1 or higher
 
   '@unrs/resolver-binding-android-arm-eabi@1.11.1':
     resolution: {integrity: sha512-ppLRUgHVaGRWUx0R0Ut06Mjo9gBaBkg3v/8AxusGLhsIotbBLuRk51rAzqLC8gq6NyyAojEXglNjzf6R948DNw==}
@@ -4226,6 +4233,10 @@ packages:
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
 
+  rrule-temporal@2.0.0:
+    resolution: {integrity: sha512-gKYHKNXiQ7G6eiv+y2FKF5AaXp7LTBhG2HM+tHqh3FufRD7vGMpmjaVjjJqN42UfDQjVBGS0aTS1NKcIEtDo+A==}
+    engines: {node: '>=20'}
+
   run-applescript@7.1.0:
     resolution: {integrity: sha512-DPe5pVFaAsinSaV6QjQ6gdiedWDcRCbUuiQfQa2wmWV7+xC9bGulGI8+TdRmoFkAPaBXk8CrAbnlY2ISniJ47Q==}
     engines: {node: '>=18'}
@@ -4385,6 +4396,9 @@ packages:
   temporal-spec@0.3.0:
     resolution: {integrity: sha512-n+noVpIqz4hYgFSMOSiINNOUOMFtV5cZQNCmmszA6GiVFVRt3G7AqVyhXjhCSmowvQn+NsGn+jMDMKJYHd3bSQ==}
 
+  temporal-spec@1.0.0:
+    resolution: {integrity: sha512-00Ahj1e1ifaERTMOIIGpOCdOo9IEk2m6GGSMedsn9a2SIsGLdOTbmME1Htv6IM82b6VHrzSUTIVc7YHy6hdhFQ==}
+
   through@2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
 
@@ -4429,6 +4443,7 @@ packages:
   tsconfck@3.1.6:
     resolution: {integrity: sha512-ks6Vjr/jEw0P1gmOVwutM3B7fWxoWBL2KRDb1JfqGVawBmO5UsvmWOQFGHBPl5yxYz4eERr19E6L7NMv+Fej4w==}
     engines: {node: ^18 || >=20}
+    deprecated: unmaintained
     hasBin: true
     peerDependencies:
       typescript: ^5.0.0
@@ -9129,6 +9144,10 @@ snapshots:
       '@rollup/rollup-win32-x64-msvc': 4.55.1
       fsevents: 2.3.3
 
+  rrule-temporal@2.0.0:
+    dependencies:
+      temporal-spec: 1.0.0
+
   run-applescript@7.1.0: {}
 
   run-async@2.4.1: {}
@@ -9342,6 +9361,8 @@ snapshots:
       temporal-spec: 0.3.0
 
   temporal-spec@0.3.0: {}
+
+  temporal-spec@1.0.0: {}
 
   through@2.3.8: {}
 

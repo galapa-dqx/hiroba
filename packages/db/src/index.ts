@@ -8,5 +8,6 @@
 export { createDb, type Database } from './client';
 export * from './schema';
 export * from './queries';
+export * from './reset-events';
 export * from './snapshot';
 export * from './event-resolver';
