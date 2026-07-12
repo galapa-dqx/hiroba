@@ -548,11 +548,22 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       if (Date.now() - run.updatedAt < RECONCILE_AFTER_MS) return run;
       let next: HubRunStatus;
       let error: string | null = run.error;
+      let output: string | null = null;
       try {
         const instance = await this.binding(run.flow).get(run.runId);
         const engine = await instance.status();
         next = fromEngineStatus(engine.status);
         if (engine.error) error = errorMessage(engine.error);
+        // The producer's complete report normally carries the output; when
+        // the reconciler is the one settling the run, the engine's copy is
+        // all there is — joins polling getRun must not see null on success.
+        if (next === 'complete' && engine.output !== undefined) {
+          try {
+            output = JSON.stringify(engine.output);
+          } catch {
+            // Unserializable output is dropped, same as sanitizeOutput.
+          }
+        }
       } catch {
         next = 'unknown';
         error = 'Instance no longer known to the Workflows engine';
@@ -561,11 +572,13 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       // engine wins over our (older) probe result.
       const cas = this.sql.exec(
         // seq bump included: without it the reconciled status fans out with
-        // an unchanged seq and every SSE listener drops the frame.
-        `UPDATE runs SET status = ?, error = ?, updated_at = ?, seq = seq + 1
+        // an unchanged seq and every SSE listener drops the frame. Output
+        // follows the round-5 rule: only complete carries one.
+        `UPDATE runs SET status = ?, error = ?, output = ?, updated_at = ?, seq = seq + 1
          WHERE run_id = ? AND status = ?`,
         next,
         error,
+        output,
         Date.now(),
         run.runId,
         run.status,
@@ -581,6 +594,9 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       // Whoever writes a terminal state announces it; a losing CAS means the
       // winning report() already fanned out and notified.
       if (wrote && terminal(next)) {
+        // The reconciler settling a run complete is still a completion — the
+        // forgotten-step check applies the same as a producer report.
+        if (next === 'complete') this.warnUnfinished(run.runId);
         this.fanout(run.runId);
         await this.notifyWaiters(run.runId);
       }
@@ -742,8 +758,13 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           url.searchParams.get('flow') ?? undefined,
           url.searchParams.get('key') ?? undefined,
         );
-      const snap = runId ? await this.getSnapshot({ runId }) : null;
-      if (!runId || !snap) {
+      // The await here is for the 404 check + lazy reconcile side-effect
+      // only. The frame actually sent is re-read INSIDE stream start(), in
+      // the same synchronous block that registers the listener — this stale
+      // copy could miss a report (even a terminal one) landing during the
+      // await, and a missed terminal frame is a stream that never closes.
+      const probe = runId ? await this.getSnapshot({ runId }) : null;
+      if (!runId || !probe) {
         return Response.json({ error: 'run not found' }, { status: 404 });
       }
 
@@ -775,10 +796,16 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           let set = this.listeners.get(runId);
           if (!set) this.listeners.set(runId, (set = new Set()));
           set.add(listener);
-          // Full snapshot immediately — a late subscriber to a settled run
-          // still gets its terminal frame.
-          listener.send(snap);
-          if (snap.status === 'complete' || snap.status === 'failed') {
+          // Full snapshot immediately, read synchronously AFTER registration
+          // so no report can slip between the read and the listener existing.
+          const current = this.snapshotOf(runId);
+          if (!current) {
+            listener.close();
+            set.delete(listener);
+            return;
+          }
+          listener.send(current);
+          if (current.status === 'complete' || current.status === 'failed') {
             listener.close();
             set.delete(listener);
           }
