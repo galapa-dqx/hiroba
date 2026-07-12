@@ -1144,16 +1144,23 @@ export async function listPlayguidesAdmin(db: Database): Promise<
 }
 
 /**
- * One page of article ids of a single `itemType` whose fetched body contains
- * `sourceText`, ordered by id so `afterId` (the last id of the previous page)
- * gives stable keyset pagination through the *entire* affected set. Backs the
- * glossary regenerate workflow, which pages every match one durable step at a
- * time — no global cap, so no affected article is ever silently skipped.
+ * One page of article ids of a single `itemType` whose Japanese `title_ja` OR
+ * `blocks_ja` contains `sourceText`, ordered by id so `afterId` (the last id of
+ * the previous page) gives stable keyset pagination through the *entire*
+ * affected set. Backs the glossary regenerate workflow, which pages every match
+ * one durable step at a time — no global cap, so no affected article is ever
+ * silently skipped.
+ *
+ * Both fields are searched because the ArticleWorkflow's translate step resolves
+ * the glossary from `title_ja` + the serialized body and re-writes *both* the
+ * title and content translations (see steps/translate.ts). A term that appears
+ * only in an article's title still changes its translation, so title-only
+ * matches must be re-triggered too — including not-yet-fetched articles
+ * (`blocks_ja IS NULL`), whose stale title translation the re-run also fixes.
  *
  * Matches with `instr` (like {@link findMatchingGlossaryEntries}, so no LIKE
- * escaping); un-fetched bodies (`blocks_ja IS NULL`) never match. Triggering a
- * match doesn't remove it from the result set, so pagination must key on `id`
- * (not "rows drop out") to terminate.
+ * escaping). Triggering a match doesn't remove it from the result set, so
+ * pagination must key on `id` (not "rows drop out") to terminate.
  */
 export async function findArticlesContainingSourcePage(
   db: Database,
@@ -1169,7 +1176,10 @@ export async function findArticlesContainingSourcePage(
       .from(newsItems)
       .where(
         and(
-          sql`instr(${newsItems.blocksJa}, ${sourceText}) > 0`,
+          or(
+            sql`instr(${newsItems.titleJa}, ${sourceText}) > 0`,
+            sql`instr(${newsItems.blocksJa}, ${sourceText}) > 0`,
+          ),
           afterId != null ? gt(newsItems.id, afterId) : undefined,
         ),
       )
@@ -1185,7 +1195,10 @@ export async function findArticlesContainingSourcePage(
       .from(topics)
       .where(
         and(
-          sql`instr(${topics.blocksJa}, ${sourceText}) > 0`,
+          or(
+            sql`instr(${topics.titleJa}, ${sourceText}) > 0`,
+            sql`instr(${topics.blocksJa}, ${sourceText}) > 0`,
+          ),
           afterId != null ? gt(topics.id, afterId) : undefined,
         ),
       )
@@ -1200,7 +1213,10 @@ export async function findArticlesContainingSourcePage(
     .from(playguides)
     .where(
       and(
-        sql`instr(${playguides.blocksJa}, ${sourceText}) > 0`,
+        or(
+          sql`instr(${playguides.titleJa}, ${sourceText}) > 0`,
+          sql`instr(${playguides.blocksJa}, ${sourceText}) > 0`,
+        ),
         afterId != null ? gt(playguides.id, afterId) : undefined,
       ),
     )

@@ -69,7 +69,7 @@ describe('findArticlesContainingSourcePage', () => {
     ).toEqual(['guide_affected']);
   });
 
-  it('ignores bodies without the term and un-fetched (NULL) bodies', async () => {
+  it('ignores articles where neither title nor body contains the term', async () => {
     await ctx.db.insert(newsItems).values({
       id: NEWS_ID_MISS,
       titleJa: 'ニュース',
@@ -90,6 +90,21 @@ describe('findArticlesContainingSourcePage', () => {
     expect(
       await findArticlesContainingSourcePage(ctx.db, TERM, 'topic', null, 100),
     ).toEqual([]);
+  });
+
+  it('matches a term in title_ja even when the body is unfetched (NULL)', async () => {
+    // The ArticleWorkflow re-translates the title too, so a title-only match
+    // must be re-triggered — including a not-yet-fetched article.
+    await ctx.db.insert(topics).values({
+      id: TOPIC_ID,
+      titleJa: `${TERM}の攻略`,
+      publishedAt: AT,
+      blocksJa: null,
+    });
+
+    expect(
+      await findArticlesContainingSourcePage(ctx.db, TERM, 'topic', null, 100),
+    ).toEqual([TOPIC_ID]);
   });
 
   it('keyset-paginates through the entire affected set without dropping any', async () => {
