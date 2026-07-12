@@ -318,6 +318,81 @@ describe('f.open', () => {
   });
 });
 
+describe('f.open failure', () => {
+  const flow = defineFlow({
+    name: 'scanner-fail',
+    key: () => 'k',
+    steps: { scan: units() },
+  });
+
+  it('a throwing unit marks the step failed, not forever-running', async () => {
+    const run = await runFlowInline(
+      flow,
+      async (f) => {
+        const scan = f.open('scan');
+        await scan.expect(null);
+        await scan.unit('page-0', async () => {
+          throw new Error('scan blew up');
+        });
+        await scan.done();
+      },
+      undefined,
+    );
+    expect(String(run.error)).toMatch(/scan blew up/);
+    expect(run.snapshot.status).toBe('failed');
+    expect(run.snapshot.steps.scan.state).toBe('failed');
+  });
+});
+
+describe('join engine-step naming', () => {
+  it('two joins on one declared step get distinct, child-scoped names', async () => {
+    const child = defineFlow({
+      name: 'child',
+      key: (p: { item: string }) => p.item,
+      steps: { work: step() },
+    });
+    const parent = defineFlow({
+      name: 'serial-parent',
+      key: () => 'k',
+      steps: { pair: units() },
+    });
+    // A join port that runs a real engine step through the prefix it's
+    // given — mimicking createHubJoinPort's memoized start step.
+    const prefixes: string[] = [];
+    const run = await runFlowInline(
+      parent,
+      async (f) => {
+        const first = await f.joinSettled('pair', child, { item: 'one' });
+        const second = await f.joinSettled('pair', child, { item: 'two' });
+        return [first, second];
+      },
+      undefined,
+      {
+        joins: {
+          join: async (childDef, params, { engine, namePrefix }) => {
+            prefixes.push(namePrefix);
+            const started = await engine.do(`${namePrefix}start`, async () => ({
+              runId: childDef.key(params),
+            }));
+            return { status: 'complete', output: started.runId };
+          },
+        },
+      },
+    );
+    expect(run.error).toBeUndefined();
+    // Distinct prefixes → the second join's start step is NOT the first's
+    // memoized result; each child resolves to its own identity.
+    expect(prefixes).toEqual(['pair/child:one/', 'pair/child:two/']);
+    expect(run.output).toEqual([
+      { status: 'complete', output: 'one' },
+      { status: 'complete', output: 'two' },
+    ]);
+    expect(
+      run.trace.filter((t) => t.name.endsWith('/start') && !t.cached),
+    ).toHaveLength(2);
+  });
+});
+
 describe('failure rendering', () => {
   it('trailing pending steps derive not-reached, stored state stays truthful', async () => {
     const run = await runFlowInline(

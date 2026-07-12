@@ -152,6 +152,7 @@ export async function runFlowInline<D extends AnyFlowDef, T>(
   };
   try {
     const output = await body(flow, params);
+    await flow.flush(); // mirror the FlowEntrypoint shell's ordering
     reporter.report(runId, { kind: 'status', status: 'complete' });
     return {
       ...base,
@@ -160,6 +161,7 @@ export async function runFlowInline<D extends AnyFlowDef, T>(
       unfinishedSteps: state.unfinishedSteps(),
     };
   } catch (error) {
+    await flow.flush();
     reporter.report(runId, {
       kind: 'status',
       status: 'failed',

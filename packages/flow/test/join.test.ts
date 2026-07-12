@@ -104,6 +104,40 @@ describe('mapJoin parent/child', () => {
     expect(childRuns[0].status).toBe('complete');
   });
 
+  it('sequential joins on ONE declared step start distinct children', async () => {
+    // Regression: join engine-step names are scoped per child; before, the
+    // second join replayed the first join's memoized `pair/start` step and
+    // silently received the first child's outcome.
+    const a = uniqueKey('serial-a');
+    const b = uniqueKey('serial-b');
+    const res = await hub().start('toy-serial', {
+      key: uniqueKey('serial'),
+      itemA: a,
+      itemB: b,
+    });
+    if (res.throttled) throw new Error('throttled');
+
+    const run = await waitFor(
+      () => hub().getRun(res.runId),
+      (r) => r != null && r.status !== 'queued' && r.status !== 'running',
+    );
+    expect(run?.status).toBe('complete');
+    expect(run?.output).toEqual({ statuses: ['complete', 'complete'] });
+
+    const childKeys = (await hub().listRuns({ flow: 'toy-child' })).map(
+      (r) => r.key,
+    );
+    expect(childKeys).toContain(a);
+    expect(childKeys).toContain(b);
+
+    const snap = await hub().getSnapshot({ runId: res.runId });
+    expect(snap?.steps.pair).toMatchObject({
+      state: 'complete',
+      current: 2,
+      total: 2,
+    });
+  });
+
   it('a parent joining an already-terminal child short-circuits without waiting', async () => {
     const item = uniqueKey('pre-done');
     // Run the child to completion first, while its run row is still active

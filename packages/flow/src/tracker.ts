@@ -212,6 +212,11 @@ export type Flow<S extends StepsShape> = {
     child: (item: I) => JoinRequest,
     opts: { concurrency: number; id: (item: I) => string },
   ): Promise<JoinOutcome<CT>[]>;
+
+  /** Await every in-flight fire-and-forget report. The FlowEntrypoint shell
+   *  calls this before the terminal status report, so run completion can
+   *  never overtake step/unit facts at the hub. Flow bodies never call it. */
+  flush(): Promise<void>;
 };
 
 export type JoinRequest = { def: AnyFlowDef; params: unknown };
@@ -248,12 +253,19 @@ export function createFlow<D extends AnyFlowDef>(
   const log = opts.log ?? SILENT_LOG;
   const defaults = opts.defaults ?? DEFAULT_STEP_CONFIG;
 
-  /** Best-effort, never awaited, never throws: tracking must not fail work. */
+  /** Best-effort, not awaited on the hot path, never throws: tracking must
+   *  not fail work. In-flight reports are tracked so `flush()` can drain them
+   *  before a terminal status report overtakes them. */
+  const pending = new Set<Promise<unknown>>();
   const report = (r: Report): void => {
     try {
-      void Promise.resolve(reporter.report(runId, r)).catch((err: unknown) => {
-        log.warn(`flow report dropped (${r.kind})`, err);
-      });
+      const settled = Promise.resolve(reporter.report(runId, r)).catch(
+        (err: unknown) => {
+          log.warn(`flow report dropped (${r.kind})`, err);
+        },
+      );
+      pending.add(settled);
+      void settled.finally(() => pending.delete(settled));
     } catch (err) {
       log.warn(`flow report dropped (${r.kind})`, err);
     }
@@ -498,7 +510,15 @@ export function createFlow<D extends AnyFlowDef>(
           return Promise.resolve();
         },
         unit: (id, fn) =>
-          runBody(`${key}/${id}`, key, defaults, fn, { unit: id }),
+          runBody(`${key}/${id}`, key, defaults, fn, { unit: id }).catch(
+            (err: unknown) => {
+              // No continue-after-error: a unit that exhausted its retries
+              // fails the step, same as map/drain. Without this the step
+              // would sit `running` forever on a failed run.
+              report({ kind: 'step', step: key, state: 'failed' });
+              throw err;
+            },
+          ),
         done: () => {
           report({ kind: 'step', step: key, state: 'complete' });
           return Promise.resolve();
@@ -516,6 +536,14 @@ export function createFlow<D extends AnyFlowDef>(
 
     joinSettled: async (key, childDef, params) =>
       (await joinVia(key, childDef, params)) as never,
+
+    flush: async () => {
+      // New reports can be spawned while draining (a catch handler firing a
+      // failed report, say) — loop until the set is genuinely empty.
+      while (pending.size > 0) {
+        await Promise.all([...pending]);
+      }
+    },
 
     mapJoin: async (key, list, child, mapOpts) => {
       assertDeclared(key);
@@ -560,9 +588,16 @@ export function createFlow<D extends AnyFlowDef>(
           `runFlowInline in tests.`,
       );
     }
+    // Engine-step names must be unique per JOINED CHILD, not per declared
+    // step: a second join on the same key (a loop of joins) would otherwise
+    // reuse the memoized `<key>/start` step and silently receive the first
+    // child's outcome. The child's own identity is deterministic across
+    // replays, which is exactly what a step name needs. mapJoin passes its
+    // unit id instead so names line up with the reported units.
+    const unit = unitId ?? `${childDef.name}:${childDef.key(params)}`;
     return opts.joins.join(childDef, params, {
       engine,
-      namePrefix: unitId !== undefined ? `${key}/${unitId}/` : `${key}/`,
+      namePrefix: `${key}/${unit}/`,
     });
   };
 

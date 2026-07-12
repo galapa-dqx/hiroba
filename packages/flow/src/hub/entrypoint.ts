@@ -201,6 +201,10 @@ export abstract class FlowEntrypoint<
     await safeReport({ kind: 'status', status: 'running' });
     try {
       const output = await this.flow(f, params, event);
+      // Drain fire-and-forget step/unit reports first: the terminal status
+      // must never overtake the facts it summarizes (false warnUnfinished,
+      // SSE closing on a half-painted bar).
+      await f.flush();
       await safeReport({
         kind: 'status',
         status: 'complete',
@@ -209,10 +213,16 @@ export abstract class FlowEntrypoint<
       return output;
     } catch (error) {
       if (this.onFailure) {
-        await step.do('on-failure', () =>
-          this.onFailure!(params, error),
-        );
+        try {
+          await step.do('on-failure', () => this.onFailure!(params, error));
+        } catch (cleanupError) {
+          // Cleanup is best-effort: a throwing onFailure must not eat the
+          // failed status report (the run would sit `running` at the hub
+          // forever) nor mask the original error.
+          log.error('onFailure cleanup step failed', cleanupError);
+        }
       }
+      await f.flush();
       await safeReport({
         kind: 'status',
         status: 'failed',

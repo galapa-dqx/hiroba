@@ -22,6 +22,7 @@ export type TestEnv = {
   TOY_LINEAR: unknown;
   TOY_CHILD: unknown;
   TOY_PARENT: unknown;
+  TOY_SERIAL: unknown;
 } & FlowHubEnv;
 
 /** Tests exercise real engine retries — keep them short, not absent. */
@@ -144,6 +145,46 @@ export class ToyParentWorkflow extends FlowEntrypoint<
 }
 
 // -----------------------------------------------------------------------------
+// toy-serial — two plain joins on ONE declared step (regression: join engine
+// steps must be named per child, or the second join replays the first's memo)
+// -----------------------------------------------------------------------------
+
+export type SerialParams = {
+  key: string;
+  itemA: string;
+  itemB: string;
+};
+
+export const ToySerialFlow = defineFlow({
+  name: 'toy-serial',
+  key: (p: SerialParams) => p.key,
+  steps: { pair: units() },
+});
+
+export class ToySerialWorkflow extends FlowEntrypoint<
+  TestEnv,
+  typeof ToySerialFlow
+> {
+  readonly def = ToySerialFlow;
+  protected override stepDefaults = FAST_STEPS;
+
+  async flow(f: Flow<(typeof ToySerialFlow)['steps']>, params: SerialParams) {
+    const pair = f.open('pair');
+    await pair.expect(2);
+    const first = await f.joinSettled('pair', ToyChildFlow, {
+      item: params.itemA,
+    });
+    await pair.unit(params.itemA, async () => first.status);
+    const second = await f.joinSettled('pair', ToyChildFlow, {
+      item: params.itemB,
+    });
+    await pair.unit(params.itemB, async () => second.status);
+    await pair.done();
+    return { statuses: [first.status, second.status] };
+  }
+}
+
+// -----------------------------------------------------------------------------
 // hub + worker entry
 // -----------------------------------------------------------------------------
 
@@ -151,6 +192,7 @@ export class FlowHub extends createFlowHub([
   { def: ToyLinearFlow, binding: 'TOY_LINEAR' },
   { def: ToyChildFlow, binding: 'TOY_CHILD' },
   { def: ToyParentFlow, binding: 'TOY_PARENT' },
+  { def: ToySerialFlow, binding: 'TOY_SERIAL' },
 ]) {}
 
 export default {

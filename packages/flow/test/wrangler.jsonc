@@ -25,5 +25,10 @@
       "binding": "TOY_PARENT",
       "class_name": "ToyParentWorkflow",
     },
+    {
+      "name": "toy-serial",
+      "binding": "TOY_SERIAL",
+      "class_name": "ToySerialWorkflow",
+    },
   ],
 }

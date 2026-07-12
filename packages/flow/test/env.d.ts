@@ -8,5 +8,6 @@ declare namespace Cloudflare {
     TOY_LINEAR: unknown;
     TOY_CHILD: unknown;
     TOY_PARENT: unknown;
+    TOY_SERIAL: unknown;
   }
 }

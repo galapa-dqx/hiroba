@@ -407,7 +407,11 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       key?: string;
     }): Promise<Snapshot | null> {
       const runId = query.runId ?? this.latestRunId(query.flow, query.key);
-      return runId ? this.snapshotOf(runId) : null;
+      if (!runId) return null;
+      // Same lazy reconcile as getRun: snapshot readers (SSE connects, admin
+      // polls) must not see `running` forever after a silent producer death.
+      await this.getRun(runId);
+      return this.snapshotOf(runId);
     }
 
     async listRuns(
@@ -507,8 +511,9 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
         next = 'unknown';
         error = 'Instance no longer known to the Workflows engine';
       }
-      // CAS on the old status: a report that landed while we awaited wins.
-      this.sql.exec(
+      // CAS on the old status: a report that landed while we awaited the
+      // engine wins over our (older) probe result.
+      const cas = this.sql.exec(
         `UPDATE runs SET status = ?, error = ?, updated_at = ?
          WHERE run_id = ? AND status = ?`,
         next,
@@ -517,12 +522,21 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
         run.runId,
         run.status,
       );
-      const updated = { ...run, status: next, error };
-      if (terminal(next) && next !== run.status) {
+      const wrote = cas.rowsWritten > 0;
+      // Return DB truth, not the probe: if the CAS lost, a concurrent report
+      // already moved the row (possibly to terminal) and answering with the
+      // stale probe would let getRun/startAndWatch call a settled run active.
+      const row = this.sql
+        .exec(`SELECT * FROM runs WHERE run_id = ?`, run.runId)
+        .toArray()[0];
+      const fresh = row ? this.rowToRun(row) : { ...run, status: next, error };
+      // Whoever writes a terminal state announces it; a losing CAS means the
+      // winning report() already fanned out and notified.
+      if (wrote && terminal(next)) {
         this.fanout(run.runId);
         await this.notifyWaiters(run.runId);
       }
-      return updated;
+      return fresh;
     }
 
     private prune(): void {
@@ -658,7 +672,7 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           url.searchParams.get('flow') ?? undefined,
           url.searchParams.get('key') ?? undefined,
         );
-      const snap = runId ? this.snapshotOf(runId) : null;
+      const snap = runId ? await this.getSnapshot({ runId }) : null;
       if (!runId || !snap) {
         return Response.json({ error: 'run not found' }, { status: 404 });
       }
