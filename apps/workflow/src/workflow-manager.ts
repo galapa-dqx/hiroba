@@ -104,9 +104,10 @@ export class WorkflowManager extends DurableObject<Env> {
    */
   private bannerRefresh: string | null = null;
   /**
-   * In-flight glossary regenerations, keyed by the changed source term. Callers
-   * address a dedicated `glossary-regenerate:<term>` instance so this map is the
-   * single dedup point — re-triggering the same term while it runs is a no-op.
+   * In-flight glossary regenerations, keyed by the changed source term — a warm
+   * cache over the durable `regen:<term>` DO-storage key that is the authoritative
+   * dedup point (so a trigger on a freshly-evicted DO still finds a running
+   * orchestrator). Re-triggering the same term while it runs is a no-op.
    */
   private activeRegenerations = new Map<string, string>();
 
@@ -706,8 +707,14 @@ export class WorkflowManager extends DurableObject<Env> {
    * Fire the GlossaryRegenerateWorkflow for a changed glossary term, deduping a
    * run that's already in flight for the same term. Callers address this DO by
    * the `glossary-regenerate:<term>` instance name so every trigger for a term
-   * lands here and `activeRegenerations` is authoritative. The workflow itself
-   * scans D1 for the affected articles, so only the term travels in the payload.
+   * lands here. The workflow itself scans D1 for the affected articles, so only
+   * the term travels in the payload.
+   *
+   * Dedup is durable, mirroring ensureArticleWorkflow: the whole check-and-create
+   * runs inside `blockConcurrencyWhile` so two near-simultaneous triggers can't
+   * both start an orchestrator, and the in-flight instance id is persisted to DO
+   * storage — so a trigger landing on a freshly-evicted DO (empty in-memory map)
+   * still finds the running orchestrator instead of starting a duplicate.
    */
   private async handleRegenerateGlossary(request: Request): Promise<Response> {
     const body = (await request.json()) as { sourceText?: unknown };
@@ -718,14 +725,25 @@ export class WorkflowManager extends DurableObject<Env> {
     }
 
     const workflow = this.env.GLOSSARY_REGENERATE_WORKFLOW;
-    const existing = this.activeRegenerations.get(sourceText);
-    if (existing && (await this.isWorkflowActive(workflow, existing))) {
-      return Response.json({ status: 'already_running', instanceId: existing });
-    }
+    const storageKey = `regen:${sourceText}`;
 
-    const instance = await workflow.create({ params: { sourceText } });
-    this.activeRegenerations.set(sourceText, instance.id);
-    return Response.json({ status: 'started', instanceId: instance.id });
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const existing =
+        this.activeRegenerations.get(sourceText) ??
+        (await this.ctx.storage.get<string>(storageKey));
+      if (existing && (await this.isWorkflowActive(workflow, existing))) {
+        this.activeRegenerations.set(sourceText, existing);
+        return Response.json({
+          status: 'already_running',
+          instanceId: existing,
+        });
+      }
+
+      const instance = await workflow.create({ params: { sourceText } });
+      this.activeRegenerations.set(sourceText, instance.id);
+      await this.ctx.storage.put(storageKey, instance.id);
+      return Response.json({ status: 'started', instanceId: instance.id });
+    });
   }
 
   /**
