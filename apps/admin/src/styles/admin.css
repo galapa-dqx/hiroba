@@ -1657,6 +1657,62 @@ hr.divider {
   background: color-mix(in oklch, var(--accent-solid) 14%, transparent);
   border-bottom-color: var(--accent-solid);
 }
+/* --------------------------------------- inline attribute editor popover --- */
+/* Pinned beneath a time/event/button node; edits its ride-along attributes
+ * (the node's text is edited inline in the document). */
+.rtml-inline-editor {
+  z-index: 30;
+  width: 20rem;
+  max-width: calc(100vw - 2rem);
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem 0.6rem;
+  background: var(--surface-panel);
+  border: 1px solid var(--gold-edge);
+  box-shadow: var(--shadow-md);
+}
+.rtml-inline-editor__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rtml-inline-editor__kind {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--gold-ink);
+}
+.rtml-inline-editor__close {
+  min-width: 1.6rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  background: var(--surface-panel-2);
+  border: 1px solid var(--border);
+  box-shadow: none;
+  border-radius: 0;
+}
+.rtml-inline-editor__close:hover {
+  transform: none;
+  filter: none;
+  color: var(--ink);
+  border-color: var(--gold-edge);
+}
+.rtml-inline-editor__field {
+  display: grid;
+  gap: 0.15rem;
+}
+.rtml-inline-editor__field span {
+  font-size: 0.68rem;
+  color: var(--ink-faint);
+}
+.rtml-inline-editor__field input {
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.82rem;
+}
+
 /* ------------------------------------------------------ preserved blocks --- */
 .rtml-preserved__card {
   border: 1px solid var(--border);
@@ -1705,6 +1761,9 @@ hr.divider {
 .rtml-preserved__actions .rtml-preserved__remove:hover {
   background: var(--red-9);
   border-color: var(--red-10);
+}
+.rtml-preserved__actions .rtml-preserved__edit-image {
+  white-space: nowrap;
 }
 .rtml-preserved__preview {
   padding: 0.75rem 1rem;
