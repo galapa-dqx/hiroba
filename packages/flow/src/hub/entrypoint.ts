@@ -34,6 +34,9 @@ export type FlowHubEnv = {
     idFromName(name: string): unknown;
     get(id: unknown): unknown;
   };
+  /** Log verbosity for the default flow logger: debug | info | warn | error |
+   *  silent (unset/unrecognized = info) — the worker-wide convention. */
+  LOG_LEVEL?: string;
 };
 
 /** The single well-known hub instance — ONE DO, ONE SQLite database. */
@@ -61,12 +64,33 @@ function sanitizeOutput(output: unknown, log: FlowLogger): unknown {
   }
 }
 
-const consoleLogger: FlowLogger = {
-  debug: (...a) => console.debug(...a),
-  info: (...a) => console.info(...a),
-  warn: (...a) => console.warn(...a),
-  error: (...a) => console.error(...a),
-};
+// Higher rank = more severe. A message logs only when its rank >= threshold.
+const LOG_RANK = { debug: 10, info: 20, warn: 30, error: 40, silent: 100 };
+
+/**
+ * The default flow logger: console, every line prefixed `[<scope>]` (the flow
+ * name, so interleaved runs stay legible), gated by the worker's LOG_LEVEL.
+ * Workers has no built-in log-level filter — every console.* line reaches
+ * observability — so the gate lives here.
+ */
+export function scopedConsoleLogger(
+  scope: string,
+  rawLevel?: string,
+): FlowLogger {
+  const level = rawLevel?.toLowerCase() as keyof typeof LOG_RANK | undefined;
+  const threshold = (level && LOG_RANK[level]) || LOG_RANK.info;
+  const at =
+    (rank: number, sink: (...a: unknown[]) => void) =>
+    (message: string, ...rest: unknown[]): void => {
+      if (rank >= threshold) sink(`[${scope}] ${message}`, ...rest);
+    };
+  return {
+    debug: at(LOG_RANK.debug, (...a) => console.debug(...a)),
+    info: at(LOG_RANK.info, (...a) => console.info(...a)),
+    warn: at(LOG_RANK.warn, (...a) => console.warn(...a)),
+    error: at(LOG_RANK.error, (...a) => console.error(...a)),
+  };
+}
 
 /**
  * Hub-backed join transport. The child identity is memoized in a step
@@ -159,9 +183,10 @@ export abstract class FlowEntrypoint<
 
   /** Override to tighten/loosen the bounded step defaults for this flow. */
   protected stepDefaults?: EngineStepConfig;
-  /** Override to swap the console logger (e.g. for a leveled logger). */
+  /** Override to swap the default logger (console, scoped by the flow name,
+   *  gated by env.LOG_LEVEL). */
   protected flowLogger(): FlowLogger {
-    return consoleLogger;
+    return scopedConsoleLogger(this.def.name, this.env.LOG_LEVEL);
   }
 
   async run(

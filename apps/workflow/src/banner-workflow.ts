@@ -5,12 +5,11 @@
  * the hourly cron (src/index.ts) and the admin's banners/refresh endpoint.
  */
 
-import type { Flow, FlowLogger } from '@hiroba/flow';
+import type { Flow } from '@hiroba/flow';
 import { FlowEntrypoint } from '@hiroba/flow/hub';
 import { BannerFlow } from '@hiroba/flows';
 
 import { runBannerFlow } from './banner-flow';
-import { createLogger } from './logger';
 import type { BannerWorkflowOutput, Env } from './types';
 
 export class BannerWorkflow extends FlowEntrypoint<
@@ -19,10 +18,6 @@ export class BannerWorkflow extends FlowEntrypoint<
   BannerWorkflowOutput
 > {
   readonly def = BannerFlow;
-
-  protected override flowLogger(): FlowLogger {
-    return createLogger(this.env, 'banners');
-  }
 
   flow(f: Flow<(typeof BannerFlow)['steps']>): Promise<BannerWorkflowOutput> {
     return runBannerFlow(f, this.env);
