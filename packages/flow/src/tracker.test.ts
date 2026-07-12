@@ -176,6 +176,23 @@ describe('f.drain', () => {
     );
   });
 
+  it('clamps non-positive concurrency instead of completing empty', async () => {
+    const run = await runFlowInline(
+      flow,
+      (f) =>
+        f.drain(
+          'pages',
+          async (page) => (page <= 2 ? `p${page}` : DRAIN_STOP),
+          {
+            concurrency: 0,
+          },
+        ),
+      undefined,
+    );
+    expect(run.error).toBeUndefined();
+    expect(run.output).toEqual(['p1', 'p2']);
+  });
+
   it('a worker throw stops dispatch and fails the step', async () => {
     const run = await runFlowInline(
       flow,

@@ -441,6 +441,9 @@ export function createFlow<D extends AnyFlowDef>(
       // DISPATCHING; pages already in flight finish (harmlessly empty). The
       // sentinel page reports no unit: it was the probe that found the end,
       // not work.
+      // Clamp like runPool: concurrency 0 would dispatch nothing and report
+      // a silently-empty step complete.
+      const concurrency = Math.max(1, drainOpts.concurrency);
       let stopped = false;
       let nextPage = 1;
       let firstError: unknown;
@@ -466,7 +469,7 @@ export function createFlow<D extends AnyFlowDef>(
 
       while (!stopped && firstError === undefined) {
         while (
-          inFlight.size < drainOpts.concurrency &&
+          inFlight.size < concurrency &&
           !stopped &&
           firstError === undefined
         ) {

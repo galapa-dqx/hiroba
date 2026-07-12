@@ -199,25 +199,37 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
     ): Promise<StartResult> {
       const reg = this.reg(flow);
       const key = reg.def.key(params);
-      const now = Date.now();
 
-      // 1+2 are one synchronous block — atomic on a single-threaded DO.
-      const active = this.sql
-        .exec(
-          `SELECT run_id, status FROM runs
-           WHERE flow = ? AND key = ? AND status IN ('queued','running')
-           LIMIT 1`,
-          flow,
-          key,
-        )
-        .toArray()[0];
-      if (active) {
-        return {
-          runId: active.run_id as string,
-          created: false,
-          status: active.status as HubRunStatus,
-        };
+      // Attach-or-fall-through. A fresh active row attaches directly; a STALE
+      // one gets the same lazy reconcile every read path runs — attaching to
+      // a corpse would both hand the caller a dead run and block the dedup
+      // slot forever. reconcile() awaits (engine probe), so after it the
+      // world may have changed and the loop re-checks from the top; the
+      // final no-active-row SELECT and the INSERT below share one
+      // synchronous block, which is what keeps the claim atomic.
+      for (let guard = 0; guard < 5; guard++) {
+        const active = this.sql
+          .exec(
+            `SELECT * FROM runs
+             WHERE flow = ? AND key = ? AND status IN ('queued','running')
+             LIMIT 1`,
+            flow,
+            key,
+          )
+          .toArray()[0];
+        if (!active) break;
+        const run = this.rowToRun(active);
+        if (Date.now() - run.updatedAt < RECONCILE_AFTER_MS) {
+          return { runId: run.runId, created: false, status: run.status };
+        }
+        const fresh = await this.reconcile(run);
+        if (isActiveStatus(fresh.status)) {
+          return { runId: fresh.runId, created: false, status: fresh.status };
+        }
+        // Settled by the reconcile — loop; the next SELECT sees either no
+        // active row (create below) or a racer's fresh run (attach to it).
       }
+      const now = Date.now();
 
       if (!opts.force && opts.cooldownMs) {
         const row = this.sql
@@ -255,14 +267,6 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           ord,
         );
       });
-      this.sql.exec(
-        `INSERT INTO throttle (flow, key, last_attempt) VALUES (?, ?, ?)
-         ON CONFLICT (flow, key) DO UPDATE SET last_attempt = excluded.last_attempt`,
-        flow,
-        key,
-        now,
-      );
-
       try {
         await this.binding(flow).create({ id: runId, params });
       } catch (err) {
@@ -280,6 +284,16 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
         this.fanout(runId);
         throw err;
       }
+      // Stamped only after a SUCCESSFUL create: the cooldown throttles
+      // re-triggers of runs that actually happened — an engine outage must
+      // not lock the key out for a whole cooldown window on top of failing.
+      this.sql.exec(
+        `INSERT INTO throttle (flow, key, last_attempt) VALUES (?, ?, ?)
+         ON CONFLICT (flow, key) DO UPDATE SET last_attempt = excluded.last_attempt`,
+        flow,
+        key,
+        Date.now(),
+      );
       return { runId, created: true, status: 'queued' };
     }
 
