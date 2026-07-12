@@ -41,22 +41,26 @@ export default function PlayguideList() {
     void load();
   }, [lang]);
 
-  async function load() {
+  /** Reload the list. Returns true only when it fetched fresh data. */
+  async function load(): Promise<boolean> {
     const seq = ++loadSeq.current;
     setLoading(true);
     try {
       const { items } = await getPlayguideList({ lang: langRef.current });
-      if (seq !== loadSeq.current) return; // a newer load superseded this one
+      if (seq !== loadSeq.current) return false; // a newer load superseded this
       setItems(items);
       setMessage(null); // clear any stale error/notice now that data is fresh
+      return true;
     } catch (err) {
       // Only surface the error if this is still the newest load — a slow,
       // superseded fetch failing shouldn't overwrite a fresher success.
       if (seq === loadSeq.current) {
         setMessage(err instanceof Error ? err.message : 'Failed to load');
       }
+      return false;
+    } finally {
+      if (seq === loadSeq.current) setLoading(false);
     }
-    if (seq === loadSeq.current) setLoading(false);
   }
 
   async function onCrawl() {
@@ -64,11 +68,15 @@ export default function PlayguideList() {
     setMessage(null);
     try {
       const r = await crawlPlayguides();
-      // load() clears `message` on success, so set the summary afterwards.
-      await load();
-      setMessage(
-        `Crawled ${r.crawled} page(s), ${r.newItems} new (${r.titlesEnqueued} title(s) queued).`,
-      );
+      // load() clears `message` on success, so set the summary afterwards — but
+      // only if the reload actually succeeded, else we'd mask its error and
+      // claim success over a stale table.
+      const reloaded = await load();
+      if (reloaded) {
+        setMessage(
+          `Crawled ${r.crawled} page(s), ${r.newItems} new (${r.titlesEnqueued} title(s) queued).`,
+        );
+      }
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Crawl failed');
     } finally {
