@@ -1391,10 +1391,13 @@ export async function getEventsForDay(
     .where(
       and(
         lt(events.startTime, dayEnd),
-        gte(
-          sql`COALESCE(${events.endTime}, ${events.startTime})`,
-          // Serialize with the column's own driver mapping (offset: 'never').
-          dayStart.toString({ offset: 'never' }),
+        or(
+          // Starts within the day (covers point-in-time events at 00:00)…
+          gte(events.startTime, dayStart),
+          // …or began earlier and runs strictly past 00:00. An event ending
+          // exactly at 00:00 belongs to the previous day, so it no longer shows
+          // as a zero-height sliver pinned to the top of this one.
+          gt(events.endTime, dayStart),
         ),
       ),
     )
