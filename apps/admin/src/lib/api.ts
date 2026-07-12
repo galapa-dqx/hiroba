@@ -395,20 +395,18 @@ export async function deleteGlossaryOverride(
   );
 }
 
-/** Result of a glossary "regenerate affected texts" fan-out. */
+/** Result of kicking off a glossary "regenerate affected texts" run. */
 export type RegenerateAffectedResult = {
-  success: boolean;
-  /** How many article workflows were (re-)triggered. */
-  triggered: number;
-  /** True when the match cap was hit, so more affected texts may exist. */
-  hasMore: boolean;
-  items: Array<{ itemType: 'news' | 'topic' | 'playguide'; id: string }>;
+  /** 'started' when a run was launched, 'already_running' if one was in flight. */
+  status: 'started' | 'already_running';
+  instanceId: string;
 };
 
 /**
- * Find every fetched article whose Japanese body contains `sourceText` and
- * re-run its workflow — use after editing an override so existing translations
- * pick up the new term.
+ * Kick off a background workflow that re-runs every article whose Japanese body
+ * contains `sourceText` — use after editing an override so existing translations
+ * pick up the new term. Returns immediately; the workflow pages the whole
+ * affected set (no cap) and dedupes a run already in flight for the same term.
  */
 export async function regenerateGlossaryAffected(
   sourceText: string,

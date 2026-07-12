@@ -77,27 +77,25 @@ export default function GlossaryList() {
     }
   }
 
-  // Search article bodies for this Japanese term and re-run the workflow of each
-  // match, so existing translations pick up an edited glossary entry.
+  // Kick off a background workflow that re-runs every article whose body uses
+  // this Japanese term, so existing translations pick up an edited glossary entry.
   async function handleRegenerate(sourceText: string) {
     if (
       !confirm(
-        `Regenerate translated texts that use "${sourceText}"? This searches ` +
-          `every fetched article body and re-runs the workflow for each match.`,
+        `Regenerate every translated article that uses "${sourceText}"? This ` +
+          `re-runs their workflows in the background — it can take a while.`,
       )
     )
       return;
     setRegenerating(sourceText);
     try {
       const res = await regenerateGlossaryAffected(sourceText);
-      if (res.triggered === 0) {
-        alert(`No fetched article bodies contain "${sourceText}".`);
-      } else {
-        alert(
-          `Re-running workflows for ${res.triggered} article(s)` +
-            (res.hasMore ? ' (capped — more matches may exist).' : '.'),
-        );
-      }
+      alert(
+        res.status === 'already_running'
+          ? `A regeneration for "${sourceText}" is already running.`
+          : `Started regenerating articles that use "${sourceText}". This runs ` +
+              `in the background; watch the Workflows page for progress.`,
+      );
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to regenerate');
       console.error(err);

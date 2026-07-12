@@ -103,6 +103,16 @@ name = "banner-workflow"
 binding = "BANNER_WORKFLOW"
 class_name = "BannerWorkflow"
 
+# Cloudflare Workflow for regenerating every article affected by a changed
+# glossary term. Triggered from the admin glossary list (via the WorkflowManager
+# DO, which dedupes per term); keyset-pages the whole affected set one durable
+# step at a time so it isn't bound by a single request's subrequest limit, then
+# re-triggers each match's ArticleWorkflow.
+[[workflows]]
+name = "glossary-regenerate-workflow"
+binding = "GLOSSARY_REGENERATE_WORKFLOW"
+class_name = "GlossaryRegenerateWorkflow"
+
 # Scheduled triggers. The nightly work is staggered into separate invocations
 # so each job gets its own subrequest/CPU budget and can't starve the next
 # (the playguide crawl alone fetches ~130 pages):

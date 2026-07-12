@@ -97,6 +97,12 @@ export class WorkflowManager extends DurableObject<Env> {
    * mirrors `scrape`.
    */
   private bannerRefresh: string | null = null;
+  /**
+   * In-flight glossary regenerations, keyed by the changed source term. Callers
+   * address a dedicated `glossary-regenerate:<term>` instance so this map is the
+   * single dedup point — re-triggering the same term while it runs is a no-op.
+   */
+  private activeRegenerations = new Map<string, string>();
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
@@ -133,6 +139,9 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     if (url.pathname === '/refresh-banners' && request.method === 'POST') {
       return this.handleRefreshBanners();
+    }
+    if (url.pathname === '/regenerate-glossary' && request.method === 'POST') {
+      return this.handleRegenerateGlossary(request);
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
@@ -648,6 +657,42 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     const instance = await workflow.create({ params: {} });
     this.bannerRefresh = instance.id;
+    return Response.json({ status: 'started', instanceId: instance.id });
+  }
+
+  /**
+   * Fire the GlossaryRegenerateWorkflow for a changed glossary term, deduping a
+   * run that's already queued/running for the same term. Callers address this DO
+   * by the `glossary-regenerate:<term>` instance name so every trigger for a term
+   * lands here and `activeRegenerations` is authoritative. The workflow itself
+   * scans D1 for the affected articles, so only the term travels in the payload.
+   */
+  private async handleRegenerateGlossary(request: Request): Promise<Response> {
+    const body = (await request.json()) as { sourceText?: unknown };
+    const sourceText =
+      typeof body.sourceText === 'string' ? body.sourceText.trim() : '';
+    if (!sourceText) {
+      return Response.json({ error: 'sourceText required' }, { status: 400 });
+    }
+
+    const workflow = this.env.GLOSSARY_REGENERATE_WORKFLOW;
+    const existing = this.activeRegenerations.get(sourceText);
+    if (existing) {
+      try {
+        const status = await (await workflow.get(existing)).status();
+        if (status.status === 'running' || status.status === 'queued') {
+          return Response.json({
+            status: 'already_running',
+            instanceId: existing,
+          });
+        }
+      } catch {
+        // The engine no longer knows the instance — fall through, start fresh.
+      }
+    }
+
+    const instance = await workflow.create({ params: { sourceText } });
+    this.activeRegenerations.set(sourceText, instance.id);
     return Response.json({ status: 'started', instanceId: instance.id });
   }
 

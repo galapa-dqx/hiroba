@@ -52,6 +52,7 @@ export { TitleWorkflow } from './title-workflow';
 export { TitleBackfillWorkflow } from './title-backfill-workflow';
 export { NewsBackfillWorkflow } from './news-backfill-workflow';
 export { BannerWorkflow } from './banner-workflow';
+export { GlossaryRegenerateWorkflow } from './glossary-regenerate-workflow';
 
 export default Sentry.withSentry(
   (env: Env) => ({

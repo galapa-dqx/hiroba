@@ -1,14 +1,13 @@
 /**
- * Glossary "regenerate affected texts" API — POST { sourceText } to find every
- * fetched article whose Japanese body contains the term and re-run its workflow.
- * Use after fixing an override so existing translations pick up the new term.
+ * Glossary "regenerate affected texts" API — POST { sourceText } to re-run every
+ * article whose Japanese body contains the term, so translations pick up an
+ * edited override. Delegates to the WorkflowManager DO, which starts (and
+ * dedupes per term) the durable GlossaryRegenerateWorkflow; that workflow pages
+ * the whole affected set with no cap, so this returns immediately rather than
+ * fanning out every trigger inline.
  */
 
 import type { APIRoute } from 'astro';
-
-import { createDb } from '@hiroba/db';
-
-import { regenerateArticlesForSource } from '../../../lib/regenerate-affected';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -19,7 +18,7 @@ function json(data: unknown, status = 200): Response {
 
 export const POST: APIRoute = async ({ locals, request }) => {
   const runtime = locals.runtime as {
-    env: { DB: D1Database; WORKFLOW_MANAGER: DurableObjectNamespace };
+    env: { WORKFLOW_MANAGER: DurableObjectNamespace };
   };
 
   let body: { sourceText?: unknown };
@@ -35,11 +34,19 @@ export const POST: APIRoute = async ({ locals, request }) => {
     return json({ error: 'sourceText is required' }, 400);
   }
 
-  const result = await regenerateArticlesForSource(
-    createDb(runtime.env.DB),
-    runtime.env.WORKFLOW_MANAGER,
-    sourceText,
+  // Dedicated DO instance per term so the manager dedupes concurrent runs.
+  const doId = runtime.env.WORKFLOW_MANAGER.idFromName(
+    `glossary-regenerate:${sourceText}`,
   );
+  const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
+  const res = await stub.fetch('http://internal/regenerate-glossary', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceText }),
+  });
 
-  return json({ success: true, ...result });
+  return new Response(await res.text(), {
+    status: res.status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 };

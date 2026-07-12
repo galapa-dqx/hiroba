@@ -1,7 +1,7 @@
 import { Temporal } from 'temporal-polyfill';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { findArticlesContainingSource } from './queries';
+import { findArticlesContainingSourcePage } from './queries';
 import { newsItems } from './schema/news-items';
 import { playguides } from './schema/playguides';
 import { topics } from './schema/topics';
@@ -30,8 +30,8 @@ const AT = Temporal.Instant.from('2026-01-01T00:00:00Z');
 
 const bodyWith = (text: string) => [{ type: 'paragraph', children: [text] }];
 
-describe('findArticlesContainingSource', () => {
-  it('matches fetched bodies across all three article types', async () => {
+describe('findArticlesContainingSourcePage', () => {
+  it('matches fetched bodies for the requested type only', async () => {
     await ctx.db.insert(newsItems).values({
       id: NEWS_ID,
       titleJa: 'ニュース',
@@ -52,16 +52,21 @@ describe('findArticlesContainingSource', () => {
       blocksJa: bodyWith(TERM) as never,
     });
 
-    const { items, hasMore } = await findArticlesContainingSource(ctx.db, TERM);
-
-    expect(hasMore).toBe(false);
-    expect(new Set(items)).toEqual(
-      new Set([
-        { itemType: 'news', id: NEWS_ID },
-        { itemType: 'topic', id: TOPIC_ID },
-        { itemType: 'playguide', id: 'guide_affected' },
-      ]),
-    );
+    expect(
+      await findArticlesContainingSourcePage(ctx.db, TERM, 'news', null, 100),
+    ).toEqual([NEWS_ID]);
+    expect(
+      await findArticlesContainingSourcePage(ctx.db, TERM, 'topic', null, 100),
+    ).toEqual([TOPIC_ID]);
+    expect(
+      await findArticlesContainingSourcePage(
+        ctx.db,
+        TERM,
+        'playguide',
+        null,
+        100,
+      ),
+    ).toEqual(['guide_affected']);
   });
 
   it('ignores bodies without the term and un-fetched (NULL) bodies', async () => {
@@ -79,60 +84,44 @@ describe('findArticlesContainingSource', () => {
       blocksJa: null,
     });
 
-    const { items } = await findArticlesContainingSource(ctx.db, TERM);
-
-    expect(items).toEqual([]);
+    expect(
+      await findArticlesContainingSourcePage(ctx.db, TERM, 'news', null, 100),
+    ).toEqual([]);
+    expect(
+      await findArticlesContainingSourcePage(ctx.db, TERM, 'topic', null, 100),
+    ).toEqual([]);
   });
 
-  it('caps results at the limit and flags hasMore', async () => {
-    for (let i = 0; i < 3; i++) {
+  it('keyset-paginates through the entire affected set without dropping any', async () => {
+    // 5 matching topics with sortable ids c0…c4. Paging in batches of 2 with the
+    // last id as the cursor must return every id exactly once, in id order.
+    const ids = Array.from({ length: 5 }, (_, i) => `c${i}`.padEnd(32, '0'));
+    for (const id of ids) {
       await ctx.db.insert(topics).values({
-        // 32-char hex ids: 'c0…', 'c1…', 'c2…'
-        id: `c${i}`.padEnd(32, '0'),
+        id,
         titleJa: 'トピック',
         publishedAt: AT,
         blocksJa: bodyWith(TERM) as never,
       });
     }
 
-    const { items, hasMore } = await findArticlesContainingSource(
-      ctx.db,
-      TERM,
-      2,
-    );
-
-    expect(items).toHaveLength(2);
-    expect(hasMore).toBe(true);
-  });
-
-  it('does not let one type starve the others when over the cap', async () => {
-    // Many news matches plus a single playguide match, with a cap of 2. A naive
-    // concat (news, then topics, then guides) would fill the cap with news and
-    // drop the guide entirely; round-robin must keep the guide in the slice.
-    for (let i = 0; i < 5; i++) {
-      await ctx.db.insert(newsItems).values({
-        id: `d${i}`.padEnd(32, '0'),
-        titleJa: 'ニュース',
-        category: 'news',
-        publishedAt: AT,
-        blocksJa: bodyWith(TERM) as never,
-      });
+    const collected: string[] = [];
+    let cursor: string | null = null;
+    for (;;) {
+      const page: string[] = await findArticlesContainingSourcePage(
+        ctx.db,
+        TERM,
+        'topic',
+        cursor,
+        2,
+      );
+      if (page.length === 0) break;
+      collected.push(...page);
+      cursor = page[page.length - 1];
+      if (page.length < 2) break;
     }
-    await ctx.db.insert(playguides).values({
-      id: 'guide_starve',
-      titleJa: 'ガイド',
-      sortOrder: 0,
-      blocksJa: bodyWith(TERM) as never,
-    });
 
-    const { items, hasMore } = await findArticlesContainingSource(
-      ctx.db,
-      TERM,
-      2,
-    );
-
-    expect(items).toHaveLength(2);
-    expect(hasMore).toBe(true);
-    expect(items.map((i) => i.itemType)).toContain('playguide');
+    // Every id, once, in ascending order — nothing capped away.
+    expect(collected).toEqual([...ids].sort());
   });
 });

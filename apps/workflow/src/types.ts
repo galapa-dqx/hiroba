@@ -62,6 +62,9 @@ export type Env = {
   NEWS_BACKFILL_WORKFLOW: WorkflowBinding<NewsBackfillWorkflowParams>;
   /** Home-page rotation banners: scrape → mirror → transcribe → localize. */
   BANNER_WORKFLOW: WorkflowBinding<BannerWorkflowParams>;
+  /** Regenerate every article whose body contains an edited glossary term —
+   *  pages the whole affected set one durable step at a time (no cap). */
+  GLOSSARY_REGENERATE_WORKFLOW: WorkflowBinding<GlossaryRegenerateWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
@@ -146,6 +149,21 @@ export type NewsBackfillWorkflowOutput = {
   pages: number;
   scraped: number;
   newItems: number;
+};
+
+/**
+ * Parameters for the GlossaryRegenerateWorkflow. Just the Japanese term whose
+ * translation changed: the workflow scans D1 for every article whose body
+ * contains it and re-runs each one's ArticleWorkflow.
+ */
+export type GlossaryRegenerateWorkflowParams = {
+  sourceText: string;
+};
+
+/** Result of the GlossaryRegenerateWorkflow — how many articles it re-triggered. */
+export type GlossaryRegenerateWorkflowOutput = {
+  sourceText: string;
+  triggered: number;
 };
 
 /** Result of the fetch-body step (scrape + parse → blocks_ja). */

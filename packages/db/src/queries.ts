@@ -8,6 +8,7 @@ import {
   desc,
   eq,
   getTableColumns,
+  gt,
   gte,
   inArray,
   isNotNull,
@@ -1143,65 +1144,70 @@ export async function listPlayguidesAdmin(db: Database): Promise<
 }
 
 /**
- * Find every article whose Japanese block tree contains `sourceText` — used by
- * the glossary "regenerate affected texts" action to locate which fetched
- * bodies a term change touches. Matches with `instr` (like
- * {@link findMatchingGlossaryEntries}) so no LIKE escaping is needed; only
- * fetched bodies are searched (`blocks_ja IS NOT NULL`). Results are capped at
- * `limit` and `hasMore` flags when that cap was hit so the caller can warn that
- * more matches exist. The three types are round-robin interleaved before the
- * cap is applied, so a term appearing in more than `limit` news items can't
- * starve out matching topics/playguides (which would otherwise never regenerate).
+ * One page of article ids of a single `itemType` whose fetched body contains
+ * `sourceText`, ordered by id so `afterId` (the last id of the previous page)
+ * gives stable keyset pagination through the *entire* affected set. Backs the
+ * glossary regenerate workflow, which pages every match one durable step at a
+ * time — no global cap, so no affected article is ever silently skipped.
+ *
+ * Matches with `instr` (like {@link findMatchingGlossaryEntries}, so no LIKE
+ * escaping); un-fetched bodies (`blocks_ja IS NULL`) never match. Triggering a
+ * match doesn't remove it from the result set, so pagination must key on `id`
+ * (not "rows drop out") to terminate.
  */
-export async function findArticlesContainingSource(
+export async function findArticlesContainingSourcePage(
   db: Database,
   sourceText: string,
-  limit = 200,
-): Promise<{
-  items: Array<{ itemType: ArticleType; id: string }>;
-  hasMore: boolean;
-}> {
-  const cap = limit + 1;
-
-  const newsRows = await db
-    .select({ id: newsItems.id })
-    .from(newsItems)
-    .where(sql`instr(${newsItems.blocksJa}, ${sourceText}) > 0`)
-    .limit(cap)
-    .all();
-
-  const topicRows = await db
-    .select({ id: topics.id })
-    .from(topics)
-    .where(sql`instr(${topics.blocksJa}, ${sourceText}) > 0`)
-    .limit(cap)
-    .all();
-
-  const guideRows = await db
-    .select({ id: playguides.id })
-    .from(playguides)
-    .where(sql`instr(${playguides.blocksJa}, ${sourceText}) > 0`)
-    .limit(cap)
-    .all();
-
-  const byType: Array<Array<{ itemType: ArticleType; id: string }>> = [
-    newsRows.map((r) => ({ itemType: 'news' as const, id: r.id })),
-    topicRows.map((r) => ({ itemType: 'topic' as const, id: r.id })),
-    guideRows.map((r) => ({ itemType: 'playguide' as const, id: r.id })),
-  ];
-
-  // Round-robin so the cap is shared fairly across types rather than filling up
-  // with one type (news, first in the list) and dropping the rest.
-  const items: Array<{ itemType: ArticleType; id: string }> = [];
-  const longest = Math.max(...byType.map((list) => list.length));
-  for (let i = 0; i < longest; i++) {
-    for (const list of byType) {
-      if (i < list.length) items.push(list[i]);
-    }
+  itemType: ArticleType,
+  afterId: string | null,
+  limit: number,
+): Promise<string[]> {
+  // Branch per type rather than a union column so the drizzle types stay precise.
+  if (itemType === 'news') {
+    const rows = await db
+      .select({ id: newsItems.id })
+      .from(newsItems)
+      .where(
+        and(
+          sql`instr(${newsItems.blocksJa}, ${sourceText}) > 0`,
+          afterId != null ? gt(newsItems.id, afterId) : undefined,
+        ),
+      )
+      .orderBy(asc(newsItems.id))
+      .limit(limit)
+      .all();
+    return rows.map((r) => r.id);
   }
 
-  const hasMore = items.length > limit;
-  return { items: hasMore ? items.slice(0, limit) : items, hasMore };
+  if (itemType === 'topic') {
+    const rows = await db
+      .select({ id: topics.id })
+      .from(topics)
+      .where(
+        and(
+          sql`instr(${topics.blocksJa}, ${sourceText}) > 0`,
+          afterId != null ? gt(topics.id, afterId) : undefined,
+        ),
+      )
+      .orderBy(asc(topics.id))
+      .limit(limit)
+      .all();
+    return rows.map((r) => r.id);
+  }
+
+  const rows = await db
+    .select({ id: playguides.id })
+    .from(playguides)
+    .where(
+      and(
+        sql`instr(${playguides.blocksJa}, ${sourceText}) > 0`,
+        afterId != null ? gt(playguides.id, afterId) : undefined,
+      ),
+    )
+    .orderBy(asc(playguides.id))
+    .limit(limit)
+    .all();
+  return rows.map((r) => r.id);
 }
 
 /** Invalidate a playguide's cached block tree (re-fetched on next view / re-run). */
