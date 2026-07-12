@@ -109,14 +109,6 @@ export class WorkflowManager extends DurableObject<Env> {
     instanceId: string;
     progress: { label: string; done?: number; total?: number };
   } | null = null;
-  /**
-   * In-flight glossary regenerations, keyed by the changed source term — a warm
-   * cache over the durable `regen:<term>` DO-storage key that is the authoritative
-   * dedup point (so a trigger on a freshly-evicted DO still finds a running
-   * orchestrator). Re-triggering the same term while it runs is a no-op.
-   */
-  private activeRegenerations = new Map<string, string>();
-
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
@@ -149,9 +141,6 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     if (url.pathname === '/scrape-sse') {
       return this.handleScrapeSSE();
-    }
-    if (url.pathname === '/regenerate-glossary' && request.method === 'POST') {
-      return this.handleRegenerateGlossary(request);
     }
     if (url.pathname === '/regenerate-image' && request.method === 'POST') {
       return this.handleRegenerateImage(request);
@@ -682,82 +671,6 @@ export class WorkflowManager extends DurableObject<Env> {
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
       },
-    });
-  }
-
-  /**
-   * Whether a workflow instance is still in flight, tolerant of a transient
-   * engine blip. Retries the status lookup a few times so a one-off failure
-   * doesn't read as "gone" (which would let a duplicate run start), and treats
-   * every active state — including `paused` — as live via `isRunActive`. A
-   * persistently unresolvable instance is treated as gone so a fresh run can
-   * start. Mirrors ensureArticleWorkflow's dedup robustness for the singleton
-   * (per-term / per-language / …) workflows.
-   */
-  private async isWorkflowActive(
-    workflow: {
-      get(
-        id: string,
-      ): Promise<{ status(): Promise<{ status: WorkflowRunStatus }> }>;
-    },
-    instanceId: string,
-    attempts = 3,
-  ): Promise<boolean> {
-    for (let attempt = 0; attempt < attempts; attempt++) {
-      try {
-        const status = await (await workflow.get(instanceId)).status();
-        return isRunActive(status.status);
-      } catch {
-        if (attempt < attempts - 1) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, 200 * (attempt + 1)),
-          );
-        }
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Fire the GlossaryRegenerateWorkflow for a changed glossary term, deduping a
-   * run that's already in flight for the same term. Callers address this DO by
-   * the `glossary-regenerate:<term>` instance name so every trigger for a term
-   * lands here. The workflow itself scans D1 for the affected articles, so only
-   * the term travels in the payload.
-   *
-   * Dedup is durable, mirroring ensureArticleWorkflow: the whole check-and-create
-   * runs inside `blockConcurrencyWhile` so two near-simultaneous triggers can't
-   * both start an orchestrator, and the in-flight instance id is persisted to DO
-   * storage — so a trigger landing on a freshly-evicted DO (empty in-memory map)
-   * still finds the running orchestrator instead of starting a duplicate.
-   */
-  private async handleRegenerateGlossary(request: Request): Promise<Response> {
-    const body = (await request.json()) as { sourceText?: unknown };
-    const sourceText =
-      typeof body.sourceText === 'string' ? body.sourceText.trim() : '';
-    if (!sourceText) {
-      return Response.json({ error: 'sourceText required' }, { status: 400 });
-    }
-
-    const workflow = this.env.GLOSSARY_REGENERATE_WORKFLOW;
-    const storageKey = `regen:${sourceText}`;
-
-    return this.ctx.blockConcurrencyWhile(async () => {
-      const existing =
-        this.activeRegenerations.get(sourceText) ??
-        (await this.ctx.storage.get<string>(storageKey));
-      if (existing && (await this.isWorkflowActive(workflow, existing))) {
-        this.activeRegenerations.set(sourceText, existing);
-        return Response.json({
-          status: 'already_running',
-          instanceId: existing,
-        });
-      }
-
-      const instance = await workflow.create({ params: { sourceText } });
-      this.activeRegenerations.set(sourceText, instance.id);
-      await this.ctx.storage.put(storageKey, instance.id);
-      return Response.json({ status: 'started', instanceId: instance.id });
     });
   }
 

@@ -17,6 +17,11 @@
       "binding": "BANNER_WORKFLOW",
       "class_name": "BannerWorkflow",
     },
+    {
+      "name": "glossary-regenerate-workflow",
+      "binding": "GLOSSARY_REGENERATE_WORKFLOW",
+      "class_name": "GlossaryRegenerateWorkflow",
+    },
   ],
   "d1_databases": [
     {

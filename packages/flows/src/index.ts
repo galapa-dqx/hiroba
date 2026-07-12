@@ -9,3 +9,4 @@
  */
 
 export { BannerFlow } from './banner';
+export { GlossaryRegenFlow } from './glossary-regen';

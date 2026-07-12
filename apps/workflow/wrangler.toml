@@ -121,11 +121,12 @@ name = "banner-workflow"
 binding = "BANNER_WORKFLOW"
 class_name = "BannerWorkflow"
 
-# Cloudflare Workflow for regenerating every article affected by a changed
-# glossary term. Triggered from the admin glossary list (via the WorkflowManager
-# DO, which dedupes per term); keyset-pages the whole affected set one durable
-# step at a time so it isn't bound by a single request's subrequest limit, then
-# re-triggers each match's ArticleWorkflow.
+# GlossaryRegenFlow (DQX-21): regenerate everything affected by a changed
+# glossary term. Started only via the FlowHub (hub.start('glossary-regen'),
+# keyed per term so concurrent triggers attach) from the admin glossary list;
+# keyset-pages the whole affected set one durable step at a time so it isn't
+# bound by a single request's subrequest limit, then re-triggers each match's
+# ArticleWorkflow.
 [[workflows]]
 name = "glossary-regenerate-workflow"
 binding = "GLOSSARY_REGENERATE_WORKFLOW"

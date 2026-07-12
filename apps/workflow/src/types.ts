@@ -67,8 +67,10 @@ export type Env = {
    *  transcribe → translate → localize. Instances are created only by the
    *  FlowHub — triggers go through hub.start('banner'). */
   BANNER_WORKFLOW: WorkflowBinding<BannerWorkflowParams>;
-  /** Regenerate every article whose body contains an edited glossary term —
-   *  pages the whole affected set one durable step at a time (no cap). */
+  /** Regenerate everything affected by an edited glossary term
+   *  (GlossaryRegenFlow, DQX-21): keyset-pages the whole affected set (no
+   *  cap). Instances are created only by the FlowHub — triggers go through
+   *  hub.start('glossary-regen'), keyed per term. */
   GLOSSARY_REGENERATE_WORKFLOW: WorkflowBinding<GlossaryRegenerateWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
