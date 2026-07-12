@@ -63,6 +63,18 @@ describe('createRunState', () => {
     expect(state.unfinishedSteps()).toEqual([]);
   });
 
+  it('clears output on any non-complete status (restart-then-fail)', () => {
+    const state = createRunState(def, 'r1');
+    state.apply({ kind: 'status', status: 'complete', output: { ok: true } });
+    expect(state.snapshot().output).toEqual({ ok: true });
+    // Engine restart({from}) reruns the instance: running clears, and a
+    // subsequent failure must not expose success-shaped output.
+    state.apply({ kind: 'status', status: 'running' });
+    state.apply({ kind: 'status', status: 'failed', error: 'rerun died' });
+    expect(state.snapshot().output).toBeUndefined();
+    expect(state.snapshot().error).toBe('rerun died');
+  });
+
   it('snapshots are defensive copies', () => {
     const state = createRunState(def, 'r1');
     const before = state.snapshot();

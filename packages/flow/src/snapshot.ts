@@ -166,7 +166,11 @@ export function createRunState<D extends AnyFlowDef>(def: D, runId: string) {
       case 'status': {
         snapshot.status = report.status;
         snapshot.error = report.error ?? null;
-        if (report.output !== undefined) snapshot.output = report.output;
+        // Output is meaningful only on complete; any other status clears it
+        // (mirrors the hub — a restarted-then-failed run must not keep
+        // success-shaped output).
+        snapshot.output =
+          report.status === 'complete' ? report.output : undefined;
         break;
       }
     }

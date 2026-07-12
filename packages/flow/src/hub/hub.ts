@@ -373,12 +373,17 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           );
           break;
         case 'status':
+          // Output is meaningful ONLY on complete — any other status clears
+          // it. A restarted-then-failed run must not keep success-shaped
+          // output for joins/getRun to hand out alongside status 'failed'.
           this.sql.exec(
-            `UPDATE runs SET status = ?, error = ?, output = COALESCE(?, output)
+            `UPDATE runs SET status = ?, error = ?, output = ?
              WHERE run_id = ?`,
             report.status,
             report.error ?? null,
-            report.output !== undefined ? JSON.stringify(report.output) : null,
+            report.status === 'complete' && report.output !== undefined
+              ? JSON.stringify(report.output)
+              : null,
             runId,
           );
           break;
