@@ -36,6 +36,7 @@ import {
   getTitleTranslations,
   getTopic,
   listWorkflowRuns,
+  MANUAL_IMAGE_MODEL,
   pruneWorkflowRuns,
   recordWorkflowRun,
   updateWorkflowRunStatus,
@@ -705,6 +706,8 @@ export class WorkflowManager extends DurableObject<Env> {
     const blocks: Block[] = [
       { type: 'image', src: imageUpstreamUrl(image.key) },
     ];
+    // Force past any existing (or manual) row, and stamp the result manual so —
+    // like an upload — an operator's regeneration survives the nightly refresh.
     const result = await localizeImages(
       db,
       this.env.IMAGES_BUCKET,
@@ -712,7 +715,7 @@ export class WorkflowManager extends DurableObject<Env> {
       this.env.OPENAI_API_KEY,
       blocks,
       [{ code: target.code, label: target.label }],
-      { force: true },
+      { force: true, model: MANUAL_IMAGE_MODEL },
     );
 
     // Report the url row's settled state so the client can show the new image

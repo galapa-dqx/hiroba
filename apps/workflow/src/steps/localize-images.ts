@@ -138,6 +138,8 @@ async function localizeImagesForLanguage(
   rows: Awaited<ReturnType<typeof getImagesByKeys>>,
   target: TargetLanguage,
   force: boolean,
+  /** The model to stamp on the produced `url` row (its later skip identity). */
+  model: string,
 ): Promise<LocalizeResult> {
   const language = target.code;
   const ids = rows.map((r) => r.id);
@@ -267,7 +269,7 @@ async function localizeImagesForLanguage(
         language,
         field: 'url',
         value: localizedKey,
-        model: IMAGE_MODEL,
+        model,
       });
       localized++;
     } catch (err) {
@@ -284,7 +286,9 @@ async function localizeImagesForLanguage(
 /**
  * Localize every text-bearing image referenced by `blocks`, once per target
  * language. Idempotent per (language, model) — pass `force` to regenerate images
- * already localized (or manually overridden), e.g. an admin-triggered redo.
+ * already localized (or manually overridden), e.g. an admin-triggered redo, and
+ * `model` to override the identity stamped on the result (an admin regeneration
+ * stamps MANUAL_IMAGE_MODEL so it, like an upload, survives the nightly refresh).
  */
 export async function localizeImages(
   db: Database,
@@ -293,7 +297,7 @@ export async function localizeImages(
   apiKey: string,
   blocks: Block[],
   targetLanguages: TargetLanguage[],
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; model?: string } = {},
 ): Promise<LocalizeResult> {
   const keys = [
     ...new Set(
@@ -316,6 +320,7 @@ export async function localizeImages(
       rows,
       target,
       opts.force ?? false,
+      opts.model ?? IMAGE_MODEL,
     );
     total.localized += result.localized;
     total.skipped += result.skipped;
