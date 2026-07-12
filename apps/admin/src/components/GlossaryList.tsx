@@ -5,6 +5,7 @@ import { formatLocalDate } from '@hiroba/ui/format-date';
 import {
   deleteGlossaryOverride,
   getGlossary,
+  regenerateGlossaryAffected,
   upsertGlossaryOverride,
   type GlossaryEntry,
 } from '../lib/api';
@@ -21,6 +22,8 @@ export default function GlossaryList() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
+  // The source term whose regenerate fan-out is currently in flight (null = idle).
+  const [regenerating, setRegenerating] = useState<string | null>(null);
   // Monotonic token so a slow in-flight load from an earlier language can't
   // clobber a newer one's entries.
   const loadSeq = useRef(0);
@@ -84,13 +87,43 @@ export default function GlossaryList() {
     }
   }
 
-  const filteredEntries = search
+  // Kick off a background workflow that re-runs every article whose body uses
+  // this Japanese term, so existing translations pick up an edited glossary entry.
+  async function handleRegenerate(sourceText: string) {
+    if (
+      !confirm(
+        `Regenerate every translated article that uses "${sourceText}"? This ` +
+          `re-runs their workflows in the background — it can take a while.`,
+      )
+    )
+      return;
+    setRegenerating(sourceText);
+    try {
+      const res = await regenerateGlossaryAffected(sourceText);
+      alert(
+        res.status === 'already_running'
+          ? `A regeneration for "${sourceText}" is already running.`
+          : `Started regenerating articles that use "${sourceText}". They re-run ` +
+              `in the background; each affected article appears on the Workflows ` +
+              `page as it is re-triggered.`,
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to regenerate');
+      console.error(err);
+    }
+    setRegenerating(null);
+  }
+
+  // Default to just the admin overrides — the imported mirror is thousands of
+  // rows. A search reveals the full effective glossary (overrides + imported).
+  const query = search.trim().toLowerCase();
+  const filteredEntries = query
     ? entries.filter(
         (e) =>
-          e.sourceText.toLowerCase().includes(search.toLowerCase()) ||
-          e.translatedText.toLowerCase().includes(search.toLowerCase()),
+          e.sourceText.toLowerCase().includes(query) ||
+          e.translatedText.toLowerCase().includes(query),
       )
-    : entries;
+    : entries.filter((e) => e.isOverride);
 
   if (loading) {
     return <p className="loading">Loading...</p>;
@@ -136,16 +169,24 @@ export default function GlossaryList() {
       <div className="filters">
         <input
           type="text"
-          placeholder="Search..."
+          placeholder="Search all terms…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <span className="count">{filteredEntries.length} entries</span>
+        <span className="count">
+          {filteredEntries.length} {query ? 'matching' : 'override'}
+          {filteredEntries.length === 1 ? ' entry' : ' entries'}
+          {query ? '' : ' — search to include imported terms'}
+        </span>
         <button onClick={loadEntries}>Refresh</button>
       </div>
 
       {filteredEntries.length === 0 ? (
-        <p>No glossary entries found.</p>
+        <p>
+          {query
+            ? 'No glossary entries found.'
+            : 'No overrides yet — add one above, or search to browse imported terms.'}
+        </p>
       ) : (
         <table className="data-table">
           <thead>
@@ -183,7 +224,17 @@ export default function GlossaryList() {
                     >
                       Delete
                     </button>
-                  )}
+                  )}{' '}
+                  <button
+                    onClick={() => handleRegenerate(entry.sourceText)}
+                    className="btn-small"
+                    disabled={regenerating !== null}
+                    title="Re-run the workflow for every fetched article whose body uses this term"
+                  >
+                    {regenerating === entry.sourceText
+                      ? 'Regenerating…'
+                      : 'Regenerate'}
+                  </button>
                 </td>
               </tr>
             ))}

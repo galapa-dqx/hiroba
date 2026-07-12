@@ -403,6 +403,29 @@ export async function deleteGlossaryOverride(
   );
 }
 
+/** Result of kicking off a glossary "regenerate affected texts" run. */
+export type RegenerateAffectedResult = {
+  /** 'started' when a run was launched, 'already_running' if one was in flight. */
+  status: 'started' | 'already_running';
+  instanceId: string;
+};
+
+/**
+ * Kick off a background workflow that re-runs every article whose Japanese body
+ * contains `sourceText` — use after editing an override so existing translations
+ * pick up the new term. Returns immediately; the workflow pages the whole
+ * affected set (no cap) and dedupes a run already in flight for the same term.
+ */
+export async function regenerateGlossaryAffected(
+  sourceText: string,
+): Promise<RegenerateAffectedResult> {
+  return adminFetch('/api/glossary/regenerate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceText }),
+  });
+}
+
 export async function importGlossary(
   file: File,
   targetLanguage: string,
