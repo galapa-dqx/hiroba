@@ -55,10 +55,15 @@ bucket_name = "galapa--images"
 [images]
 binding = "IMAGES"
 
-# Durable Object for coordinating workflow operations and WebSocket connections
+# Durable Objects:
+# - WORKFLOW_MANAGER: legacy per-item coordination + SSE (dissolves in DQX-26)
+# - FLOW_HUB: the flow framework's control plane — ONE instance ('hub'), ONE
+#   SQLite database for all runs/steps/units state (docs/flow-framework.md).
+#   Mounted dark in DQX-19; flows register in src/flow-hub.ts as they port.
 [durable_objects]
 bindings = [
-  { name = "WORKFLOW_MANAGER", class_name = "WorkflowManager" }
+  { name = "WORKFLOW_MANAGER", class_name = "WorkflowManager" },
+  { name = "FLOW_HUB", class_name = "FlowHub" }
 ]
 
 [[migrations]]
@@ -66,6 +71,11 @@ tag = "v1"
 # SQLite-backed DO namespace — required on the Workers free plan, and the
 # recommended default for new Durable Objects regardless of plan.
 new_sqlite_classes = ["WorkflowManager"]
+
+[[migrations]]
+tag = "v2"
+# Additive — deploys alongside the existing v1 namespace untouched.
+new_sqlite_classes = ["FlowHub"]
 
 # Cloudflare Workflow for the unified article pipeline (news + topics):
 # fetch-body → extract-events → mirror-images → transcribe-images → translate →

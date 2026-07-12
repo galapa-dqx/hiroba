@@ -1106,6 +1106,18 @@ hr.divider {
 }
 
 /* ------------------------------------------------------ workflow tracker --- */
+/* Two tracker panels coexist during the flow-framework migration (DQX-19). */
+.tracker-panel + .tracker-panel {
+  margin-top: 2.5rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--border);
+}
+.tracker-panel > h3 {
+  margin-bottom: 0.75rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
 .wf-run {
   background: var(--surface-panel);
   border: 1px solid var(--border);
@@ -1259,6 +1271,21 @@ hr.divider {
   background: linear-gradient(180deg, var(--gold-hi), var(--gold-mid));
 }
 
+/* flow-framework segment states (Flow runs panel, DQX-19) */
+.wf-stage.is-complete {
+  color: var(--green-11);
+  background: var(--green-4);
+}
+.wf-stage.is-skipped {
+  font-style: italic;
+}
+.wf-stage.is-not-reached {
+  opacity: 0.55;
+}
+.wf-retry {
+  font-weight: 700;
+}
+
 /* stacked per-item rows for multi-image stages */
 .wf-substeps {
   list-style: none;
@@ -1322,7 +1349,9 @@ hr.divider {
 }
 
 .wf-status--errored,
-.wf-status--terminated {
+.wf-status--terminated,
+.wf-status--failed,
+.wf-status--unknown {
   color: var(--red-11);
 }
 .wf-status--complete {

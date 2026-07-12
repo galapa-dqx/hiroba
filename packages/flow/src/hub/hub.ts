@@ -749,6 +749,17 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
 
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
+      // /runs mirrors listRuns() for callers that can only reach the DO over
+      // fetch — cross-script DO RPC is unsupported between local dev sessions,
+      // so the admin panel reads this route instead.
+      if (url.pathname.endsWith('/runs')) {
+        const limit = url.searchParams.get('limit');
+        const runs = await this.listRuns({
+          flow: url.searchParams.get('flow') ?? undefined,
+          limit: limit ? Number(limit) : undefined,
+        });
+        return Response.json({ runs });
+      }
       if (!url.pathname.endsWith('/sse')) {
         return Response.json({ error: 'not found' }, { status: 404 });
       }

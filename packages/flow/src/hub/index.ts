@@ -15,7 +15,12 @@ export {
   type WatchResult,
 } from './api';
 
-export { createFlowHub, type FlowRegistration } from './hub';
+export {
+  createFlowHub,
+  type FlowHubClass,
+  type FlowHubInstance,
+  type FlowRegistration,
+} from './hub';
 
 export {
   createHubJoinPort,

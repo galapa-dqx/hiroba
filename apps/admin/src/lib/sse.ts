@@ -36,3 +36,17 @@ export async function proxyDoSse(
   const res = await stub.fetch(`http://internal${path}`);
   return new Response(res.body, { status: res.status, headers: SSE_HEADERS });
 }
+
+/**
+ * Proxy the FlowHub's per-run snapshot stream (DQX-19). The hub is one
+ * well-known instance; the run is addressed by the query string (`?runId=…`
+ * or `?flow=…&key=…`), passed through untouched.
+ */
+export async function proxyHubSse(
+  env: { FLOW_HUB: DurableObjectNamespace },
+  search: string,
+): Promise<Response> {
+  const stub = env.FLOW_HUB.get(env.FLOW_HUB.idFromName('hub'));
+  const res = await stub.fetch(`http://internal/sse${search}`);
+  return new Response(res.body, { status: res.status, headers: SSE_HEADERS });
+}
