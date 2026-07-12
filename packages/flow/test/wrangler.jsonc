@@ -1,0 +1,34 @@
+// Test-only worker config for the pool-workers integration tier.
+// Mirrors how an app mounts the hub: one FLOW_HUB DO binding (SQLite class)
+// plus one workflow binding per flow.
+{
+  "name": "flow-test",
+  "main": "./fixtures/worker.ts",
+  "compatibility_date": "2025-11-01",
+  "durable_objects": {
+    "bindings": [{ "name": "FLOW_HUB", "class_name": "FlowHub" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FlowHub"] }],
+  "workflows": [
+    {
+      "name": "toy-linear",
+      "binding": "TOY_LINEAR",
+      "class_name": "ToyLinearWorkflow",
+    },
+    {
+      "name": "toy-child",
+      "binding": "TOY_CHILD",
+      "class_name": "ToyChildWorkflow",
+    },
+    {
+      "name": "toy-parent",
+      "binding": "TOY_PARENT",
+      "class_name": "ToyParentWorkflow",
+    },
+    {
+      "name": "toy-serial",
+      "binding": "TOY_SERIAL",
+      "class_name": "ToySerialWorkflow",
+    },
+  ],
+}

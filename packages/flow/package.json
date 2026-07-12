@@ -1,0 +1,24 @@
+{
+  "name": "@hiroba/flow",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./hub": "./src/hub/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run -c vitest.unit.config.ts && vitest run -c vitest.workers.config.ts",
+    "test:watch": "vitest -c vitest.unit.config.ts",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.18.4",
+    "@cloudflare/workers-types": "^4.20250507.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.54.0"
+  }
+}
