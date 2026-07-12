@@ -1276,6 +1276,11 @@ hr.divider {
   color: var(--green-11);
   background: var(--green-4);
 }
+/* View-derived: stored `running` on a settled run — ended mid-step. */
+.wf-stage.is-interrupted {
+  color: var(--yellow-11);
+  background: var(--yellow-4);
+}
 .wf-stage.is-skipped {
   font-style: italic;
 }

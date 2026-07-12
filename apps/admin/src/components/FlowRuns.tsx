@@ -34,6 +34,7 @@ function SegmentGlyph({ view, spin }: { view: string; spin: boolean }) {
       complete: '✓',
       failed: '✕',
       skipped: '↷',
+      interrupted: '△',
       'not-reached': '·',
       pending: '·',
       running: '·',
@@ -54,17 +55,31 @@ function SegmentStrip({
    *  which can go stale if the SSE dropped before the terminal frame. */
   runStatus: HubRunStatus;
 }) {
+  const settled = !isActive(runStatus);
   const dead = runStatus === 'failed' || snapshot.status === 'failed';
   // "This run is dead" keys off run status, never off a red segment — a step
   // can flap failed → running across engine retries while the run is fine.
+  // When the run settled without any step stored failed (reconciler verdict,
+  // or the last frames never arrived), the step still marked running is where
+  // it died — use it as the boundary so trailing steps read not-reached.
+  const failedStep = snapshot.order.findIndex(
+    (key) => snapshot.steps[key].state === 'failed',
+  );
   const failedIndex = dead
-    ? snapshot.order.findIndex((key) => snapshot.steps[key].state === 'failed')
+    ? failedStep >= 0
+      ? failedStep
+      : snapshot.order.findIndex(
+          (key) => snapshot.steps[key].state === 'running',
+        )
     : -1;
   return (
     <ol className="wf-stages">
       {snapshot.order.map((key, i) => {
         const step: StepState = snapshot.steps[key];
-        const view = segmentView(step, i, failedIndex);
+        const stored = segmentView(step, i, failedIndex);
+        // View-derived, like not-reached: a segment stored `running` on a
+        // settled run isn't running anything — the run ended mid-step.
+        const view = stored === 'running' && settled ? 'interrupted' : stored;
         const count = renderCount(step);
         const spin = view === 'running' && isActive(runStatus);
         return (
