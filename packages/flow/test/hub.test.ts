@@ -245,5 +245,14 @@ describe('listRuns', () => {
     };
     const mine = runs.find((run) => run.runId === res.runId);
     expect(mine).toMatchObject({ key, status: 'complete' });
+
+    // Junk/negative limits fall back to the default instead of reaching
+    // SQLite as LIMIT NaN / LIMIT -1 (unbounded).
+    for (const junk of ['abc', '-1']) {
+      const guarded = await hub().fetch(`https://hub/runs?limit=${junk}`);
+      expect(guarded.status).toBe(200);
+      const body = (await guarded.json()) as { runs: unknown[] };
+      expect(Array.isArray(body.runs)).toBe(true);
+    }
   });
 });

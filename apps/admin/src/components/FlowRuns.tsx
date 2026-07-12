@@ -45,22 +45,28 @@ function SegmentGlyph({ view, spin }: { view: string; spin: boolean }) {
   );
 }
 
-function SegmentStrip({ snapshot }: { snapshot: Snapshot }) {
+function SegmentStrip({
+  snapshot,
+  runStatus,
+}: {
+  snapshot: Snapshot;
+  /** The polled RunInfo status — authoritative over the snapshot's own copy,
+   *  which can go stale if the SSE dropped before the terminal frame. */
+  runStatus: HubRunStatus;
+}) {
+  const dead = runStatus === 'failed' || snapshot.status === 'failed';
   // "This run is dead" keys off run status, never off a red segment — a step
   // can flap failed → running across engine retries while the run is fine.
-  const failedIndex =
-    snapshot.status === 'failed'
-      ? snapshot.order.findIndex(
-          (key) => snapshot.steps[key].state === 'failed',
-        )
-      : -1;
+  const failedIndex = dead
+    ? snapshot.order.findIndex((key) => snapshot.steps[key].state === 'failed')
+    : -1;
   return (
     <ol className="wf-stages">
       {snapshot.order.map((key, i) => {
         const step: StepState = snapshot.steps[key];
         const view = segmentView(step, i, failedIndex);
         const count = renderCount(step);
-        const spin = view === 'running' && isActive(snapshot.status);
+        const spin = view === 'running' && isActive(runStatus);
         return (
           <li
             key={key}
@@ -104,7 +110,7 @@ function FlowRunCard({ run, snapshot }: { run: RunInfo; snapshot?: Snapshot }) {
           updated {formatRelativePast(run.updatedAt)}
         </span>
       </div>
-      {snapshot && <SegmentStrip snapshot={snapshot} />}
+      {snapshot && <SegmentStrip snapshot={snapshot} runStatus={run.status} />}
       {run.error && <p className="wf-run__error">{run.error}</p>}
     </article>
   );
@@ -173,9 +179,13 @@ export default function FlowRuns() {
       open.set(run.runId, source);
     }
 
-    // Runs the list no longer reports active lost their stream's purpose.
+    // A run that settled keeps its stream: the hub sends the terminal frame
+    // and closes server-side, which lands here as onerror — closing on the
+    // poll's say-so instead could drop a terminal frame still in flight.
+    // Reap only streams whose run left the listing entirely (pruned).
+    const listed = new Set(runs.map((r) => r.runId));
     for (const [runId, source] of open) {
-      if (!activeIds.has(runId)) {
+      if (!listed.has(runId)) {
         source.close();
         open.delete(runId);
       }

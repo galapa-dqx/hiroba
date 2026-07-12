@@ -753,10 +753,12 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       // fetch — cross-script DO RPC is unsupported between local dev sessions,
       // so the admin panel reads this route instead.
       if (url.pathname.endsWith('/runs')) {
-        const limit = url.searchParams.get('limit');
+        // Guarded parse: a junk/negative limit falls back to the default
+        // (LIMIT NaN errors; SQLite treats LIMIT -1 as unbounded).
+        const limit = Number(url.searchParams.get('limit'));
         const runs = await this.listRuns({
           flow: url.searchParams.get('flow') ?? undefined,
-          limit: limit ? Number(limit) : undefined,
+          limit: Number.isInteger(limit) && limit > 0 ? limit : undefined,
         });
         return Response.json({ runs });
       }

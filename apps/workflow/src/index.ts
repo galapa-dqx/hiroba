@@ -84,10 +84,12 @@ export default Sentry.withSentry(
       // service-binding caller.
       if (url.pathname === '/flow/runs') {
         const flow = url.searchParams.get('flow') ?? undefined;
-        const limit = url.searchParams.get('limit');
+        // Guarded parse: a junk/negative limit falls back to the default
+        // (LIMIT NaN errors; SQLite treats LIMIT -1 as unbounded).
+        const limit = Number(url.searchParams.get('limit'));
         const runs = await getFlowHub(env).listRuns({
           flow,
-          limit: limit ? Number(limit) : undefined,
+          limit: Number.isInteger(limit) && limit > 0 ? limit : undefined,
         });
         return Response.json({ runs });
       }
