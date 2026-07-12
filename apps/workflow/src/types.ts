@@ -63,7 +63,9 @@ export type Env = {
   /** Whole-archive news list scrape — pages the archive one durable step at a
    *  time so it isn't bound by a single request's subrequest limit (DQX-14). */
   NEWS_BACKFILL_WORKFLOW: WorkflowBinding<NewsBackfillWorkflowParams>;
-  /** Home-page rotation banners: scrape → mirror → transcribe → localize. */
+  /** Home-page rotation banners (BannerFlow, DQX-20): scrape → mirror →
+   *  transcribe → translate → localize. Instances are created only by the
+   *  FlowHub — triggers go through hub.start('banner'). */
   BANNER_WORKFLOW: WorkflowBinding<BannerWorkflowParams>;
   /** Regenerate every article whose body contains an edited glossary term —
    *  pages the whole affected set one durable step at a time (no cap). */

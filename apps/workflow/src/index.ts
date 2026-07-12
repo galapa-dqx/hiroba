@@ -28,6 +28,7 @@ import {
   type ListItem,
 } from '@hiroba/db';
 import { getFlowHub } from '@hiroba/flow/hub';
+import { BannerFlow } from '@hiroba/flows';
 import { imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   crawlPlayguides,
@@ -250,15 +251,22 @@ export default Sentry.withSentry(
 );
 
 /**
- * Kick off the BannerWorkflow to re-scrape and (re-)localize the home-page
+ * Kick off the BannerFlow to re-scrape and (re-)localize the home-page
  * rotation banners. Idempotent — already-localized banners are skipped — so an
- * hourly run only does real work when the rotation changes. Best-effort: a
- * failure to enqueue is logged, never fails the refresh.
+ * hourly run only does real work when the rotation changes. Started via the
+ * hub, which dedupes on the flow's constant key: a run still in flight is
+ * attached to, never doubled. Best-effort: a failure to enqueue is logged,
+ * never fails the refresh.
  */
 async function refreshBanners(env: Env, log: Logger): Promise<void> {
   try {
-    const instance = await env.BANNER_WORKFLOW.create({ params: {} });
-    log.info(`Enqueued banner refresh (${instance.id})`);
+    const result = await getFlowHub(env).start(BannerFlow.name, {});
+    if (result.throttled) return; // unreachable without cooldownMs
+    log.info(
+      result.created
+        ? `Enqueued banner refresh (${result.runId})`
+        : `Banner refresh already running (${result.runId})`,
+    );
   } catch (error) {
     log.error('Failed to enqueue banner refresh:', error);
   }
