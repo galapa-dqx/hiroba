@@ -6,6 +6,39 @@
 > lives in [flow-framework/progress-design.md](flow-framework/progress-design.md);
 > the API sketches in [flow-framework/](flow-framework/).
 
+## The object model
+
+Three nested objects, each with exactly one writer. The `Report` union is
+literally the write API for the hub's three tables:
+
+| Level    | Table   | Report kinds    | What it is                                                                                                                                    |
+| -------- | ------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Run**  | `runs`  | `status`        | One execution of a flow (= one workflow instance). `queued → running → complete/failed` — the run's lifecycle.                                |
+| **Step** | `steps` | `step`, `total` | One declared segment (from `defineFlow`, seeded `pending` before anything executes). `pending → running → complete/failed/skipped` + `total`. |
+| **Unit** | `units` | `unit`          | The atom of completion inside a step — one row per finished unit. A unit has no state; the row existing IS the fact. `current` = COUNT(\*).   |
+
+A run has N steps (declared ahead of execution); a step has N units
+(discovered at runtime). A plain `step()`/`phase()` is just a step whose unit
+set is exactly `{'1'}` — task-vs-loop is a cardinality, not a kind.
+
+Roles, along the other axis:
+
+- **Producer** — the running flow body, via the tracker. Emits only facts it
+  directly witnessed (`step`/`total`/`unit`); never aggregates (`current`),
+  never conclusions. The one exception: the `FlowEntrypoint` shell emits the
+  two run-level `status` reports, because only it witnesses "the body
+  resolved/threw".
+- **Hub** — store/deriver: applies reports idempotently, derives `current`,
+  stamps `seq`, fans out snapshots. Adds no facts of its own (except the lazy
+  reconciler back-filling `status` for a run whose producer died mid-sentence).
+- **Consumer** — sees only `Snapshot`; never touches `Report`.
+
+Why `step: failed` and `status: failed` are deliberately independent: a step
+can flap `failed → running → complete` across engine retries while the run is
+fine, and when the run does die, later steps stay honestly `pending` (the view
+derives `not-reached`). **Key "this run is dead" off `status`, never off a
+segment being red** — otherwise a recovered run flashes a spuriously dead bar.
+
 ## Vocabulary (settled)
 
 | Name             | What it is                                                                                                                                                                                                         |
