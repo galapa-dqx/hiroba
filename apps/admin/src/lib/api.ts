@@ -395,6 +395,31 @@ export async function deleteGlossaryOverride(
   );
 }
 
+/** Result of a glossary "regenerate affected texts" fan-out. */
+export type RegenerateAffectedResult = {
+  success: boolean;
+  /** How many article workflows were (re-)triggered. */
+  triggered: number;
+  /** True when the match cap was hit, so more affected texts may exist. */
+  hasMore: boolean;
+  items: Array<{ itemType: 'news' | 'topic' | 'playguide'; id: string }>;
+};
+
+/**
+ * Find every fetched article whose Japanese body contains `sourceText` and
+ * re-run its workflow — use after editing an override so existing translations
+ * pick up the new term.
+ */
+export async function regenerateGlossaryAffected(
+  sourceText: string,
+): Promise<RegenerateAffectedResult> {
+  return adminFetch('/api/glossary/regenerate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceText }),
+  });
+}
+
 export async function importGlossary(
   file: File,
   targetLanguage: string,

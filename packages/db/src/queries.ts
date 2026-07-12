@@ -1142,6 +1142,56 @@ export async function listPlayguidesAdmin(db: Database): Promise<
   }));
 }
 
+/**
+ * Find every article whose Japanese block tree contains `sourceText` — used by
+ * the glossary "regenerate affected texts" action to locate which fetched
+ * bodies a term change touches. Matches with `instr` (like
+ * {@link findMatchingGlossaryEntries}) so no LIKE escaping is needed; only
+ * fetched bodies are searched (`blocks_ja IS NOT NULL`). Results are capped at
+ * `limit` across all types, and `hasMore` flags when that cap was hit so the
+ * caller can warn that more matches exist.
+ */
+export async function findArticlesContainingSource(
+  db: Database,
+  sourceText: string,
+  limit = 200,
+): Promise<{
+  items: Array<{ itemType: ArticleType; id: string }>;
+  hasMore: boolean;
+}> {
+  const cap = limit + 1;
+
+  const newsRows = await db
+    .select({ id: newsItems.id })
+    .from(newsItems)
+    .where(sql`instr(${newsItems.blocksJa}, ${sourceText}) > 0`)
+    .limit(cap)
+    .all();
+
+  const topicRows = await db
+    .select({ id: topics.id })
+    .from(topics)
+    .where(sql`instr(${topics.blocksJa}, ${sourceText}) > 0`)
+    .limit(cap)
+    .all();
+
+  const guideRows = await db
+    .select({ id: playguides.id })
+    .from(playguides)
+    .where(sql`instr(${playguides.blocksJa}, ${sourceText}) > 0`)
+    .limit(cap)
+    .all();
+
+  const items: Array<{ itemType: ArticleType; id: string }> = [
+    ...newsRows.map((r) => ({ itemType: 'news' as const, id: r.id })),
+    ...topicRows.map((r) => ({ itemType: 'topic' as const, id: r.id })),
+    ...guideRows.map((r) => ({ itemType: 'playguide' as const, id: r.id })),
+  ];
+
+  const hasMore = items.length > limit;
+  return { items: hasMore ? items.slice(0, limit) : items, hasMore };
+}
+
 /** Invalidate a playguide's cached block tree (re-fetched on next view / re-run). */
 export async function invalidatePlayguideBody(
   db: Database,

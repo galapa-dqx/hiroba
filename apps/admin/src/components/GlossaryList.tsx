@@ -5,6 +5,7 @@ import { formatLocalDate } from '@hiroba/ui/format-date';
 import {
   deleteGlossaryOverride,
   getGlossary,
+  regenerateGlossaryAffected,
   upsertGlossaryOverride,
   type GlossaryEntry,
 } from '../lib/api';
@@ -19,6 +20,8 @@ export default function GlossaryList() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
+  // The source term whose regenerate fan-out is currently in flight (null = idle).
+  const [regenerating, setRegenerating] = useState<string | null>(null);
 
   useEffect(() => {
     loadEntries();
@@ -74,13 +77,44 @@ export default function GlossaryList() {
     }
   }
 
-  const filteredEntries = search
+  // Search article bodies for this Japanese term and re-run the workflow of each
+  // match, so existing translations pick up an edited glossary entry.
+  async function handleRegenerate(sourceText: string) {
+    if (
+      !confirm(
+        `Regenerate translated texts that use "${sourceText}"? This searches ` +
+          `every fetched article body and re-runs the workflow for each match.`,
+      )
+    )
+      return;
+    setRegenerating(sourceText);
+    try {
+      const res = await regenerateGlossaryAffected(sourceText);
+      if (res.triggered === 0) {
+        alert(`No fetched article bodies contain "${sourceText}".`);
+      } else {
+        alert(
+          `Re-running workflows for ${res.triggered} article(s)` +
+            (res.hasMore ? ' (capped — more matches may exist).' : '.'),
+        );
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to regenerate');
+      console.error(err);
+    }
+    setRegenerating(null);
+  }
+
+  // Default to just the admin overrides — the imported mirror is thousands of
+  // rows. A search reveals the full effective glossary (overrides + imported).
+  const query = search.trim().toLowerCase();
+  const filteredEntries = query
     ? entries.filter(
         (e) =>
-          e.sourceText.toLowerCase().includes(search.toLowerCase()) ||
-          e.translatedText.toLowerCase().includes(search.toLowerCase()),
+          e.sourceText.toLowerCase().includes(query) ||
+          e.translatedText.toLowerCase().includes(query),
       )
-    : entries;
+    : entries.filter((e) => e.isOverride);
 
   if (loading) {
     return <p className="loading">Loading...</p>;
@@ -126,16 +160,24 @@ export default function GlossaryList() {
       <div className="filters">
         <input
           type="text"
-          placeholder="Search..."
+          placeholder="Search all terms…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <span className="count">{filteredEntries.length} entries</span>
+        <span className="count">
+          {filteredEntries.length} {query ? 'matching' : 'override'}
+          {filteredEntries.length === 1 ? ' entry' : ' entries'}
+          {query ? '' : ' — search to include imported terms'}
+        </span>
         <button onClick={loadEntries}>Refresh</button>
       </div>
 
       {filteredEntries.length === 0 ? (
-        <p>No glossary entries found.</p>
+        <p>
+          {query
+            ? 'No glossary entries found.'
+            : 'No overrides yet — add one above, or search to browse imported terms.'}
+        </p>
       ) : (
         <table className="data-table">
           <thead>
@@ -173,7 +215,17 @@ export default function GlossaryList() {
                     >
                       Delete
                     </button>
-                  )}
+                  )}{' '}
+                  <button
+                    onClick={() => handleRegenerate(entry.sourceText)}
+                    className="btn-small"
+                    disabled={regenerating !== null}
+                    title="Re-run the workflow for every fetched article whose body uses this term"
+                  >
+                    {regenerating === entry.sourceText
+                      ? 'Regenerating…'
+                      : 'Regenerate'}
+                  </button>
                 </td>
               </tr>
             ))}
