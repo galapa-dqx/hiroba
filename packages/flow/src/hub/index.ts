@@ -26,5 +26,6 @@ export {
   createHubJoinPort,
   FlowEntrypoint,
   getFlowHub,
+  scopedConsoleLogger,
   type FlowHubEnv,
 } from './entrypoint';

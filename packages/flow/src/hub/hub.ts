@@ -771,6 +771,29 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           })),
         });
       }
+      // /start mirrors start() for fetch-only callers (the admin's trigger
+      // routes) — same reason as /runs above. Errors surface as a 500 with
+      // the message rather than a rejected stub.fetch.
+      if (url.pathname.endsWith('/start') && request.method === 'POST') {
+        const body = (await request.json()) as {
+          flow?: string;
+          params?: unknown;
+          cooldownMs?: number;
+          force?: boolean;
+        };
+        if (!body.flow) {
+          return Response.json({ error: 'flow required' }, { status: 400 });
+        }
+        try {
+          const result = await this.start(body.flow, body.params ?? null, {
+            cooldownMs: body.cooldownMs,
+            force: body.force,
+          });
+          return Response.json(result);
+        } catch (err) {
+          return Response.json({ error: errorMessage(err) }, { status: 500 });
+        }
+      }
       if (!url.pathname.endsWith('/sse')) {
         return Response.json({ error: 'not found' }, { status: 404 });
       }

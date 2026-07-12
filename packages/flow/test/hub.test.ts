@@ -86,6 +86,45 @@ describe('start', () => {
     expect(forced.created).toBe(true);
   });
 
+  it('serves start over fetch /start (for fetch-only callers)', async () => {
+    const key = uniqueKey('start-fetch');
+    const post = (body: unknown): Promise<Response> =>
+      hub().fetch('https://hub/start', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+    const first = await post({ flow: 'toy-linear', params: { key } });
+    expect(first.status).toBe(200);
+    const started = (await first.json()) as {
+      runId: string;
+      created: boolean;
+    };
+    expect(started.created).toBe(true);
+
+    // Same key while active: attaches, same runId.
+    const second = await post({ flow: 'toy-linear', params: { key } });
+    const attached = (await second.json()) as {
+      runId: string;
+      created: boolean;
+    };
+    expect(attached).toMatchObject({ runId: started.runId, created: false });
+
+    await waitFor(
+      () => hub().getRun(started.runId),
+      (run) => run?.status === 'complete',
+    );
+
+    const missing = await post({ params: { key } });
+    expect(missing.status).toBe(400);
+
+    // An unregistered flow is a caller bug — a 500 with the message, not a
+    // rejected stub.fetch.
+    const unknown = await post({ flow: 'nope', params: { key } });
+    expect(unknown.status).toBe(500);
+  });
+
   it('answers null snapshots for unknown flows and keys', async () => {
     // start() on an unregistered flow throws DO-side (a programming error
     // caught on first dev run); asserting the throw over RPC leaves vitest

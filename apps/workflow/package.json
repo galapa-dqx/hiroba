@@ -10,13 +10,14 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest"
+    "test": "vitest run -c vitest.unit.config.ts && vitest run -c vitest.workers.config.ts",
+    "test:watch": "vitest -c vitest.unit.config.ts"
   },
   "dependencies": {
     "@google/genai": "^2.11.0",
     "@hiroba/db": "workspace:*",
     "@hiroba/flow": "workspace:*",
+    "@hiroba/flows": "workspace:*",
     "@hiroba/richtext": "workspace:*",
     "@hiroba/scraper": "workspace:*",
     "@hiroba/shared": "workspace:*",
@@ -29,10 +30,11 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.9.0",
+    "@cloudflare/vitest-pool-workers": "^0.18.4",
     "@cloudflare/workers-types": "^4.20250507.0",
     "drizzle-kit": "1.0.0-beta.6-cd45bda",
     "typescript": "^5.9.3",
+    "vitest": "^4.1.0",
     "wrangler": "^4.54.0"
   }
 }
