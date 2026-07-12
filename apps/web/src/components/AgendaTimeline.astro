@@ -314,11 +314,13 @@ const empty =
 	}
 	.agenda-tl__swim-bar {
 		position: absolute;
+		/* Height is exactly the rotation's window (endFrac ≤ 1), so a bar never
+		   spills past the bottom. No min-height: the icon shrinks to fit instead,
+		   keeping the axis geometry predictable. */
 		top: var(--top);
 		height: var(--h);
 		left: 2px;
 		right: 2px;
-		min-height: 1.1rem;
 	}
 	/* A filled rectangle spanning the rotation's window, with its icon inside —
 	   tinted like the main schedule bars so the two read as the same family. */
@@ -553,6 +555,8 @@ const empty =
 	.agenda-tl__mark {
 		position: absolute;
 		top: var(--top);
+		/* Point-in-time: centre the rule + label on the fraction, not top-align it. */
+		transform: translateY(-50%);
 		left: 0;
 		right: 0;
 		/* Inset the label to match the bars; the line (::before) stays full width. */
