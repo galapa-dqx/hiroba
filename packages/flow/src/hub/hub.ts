@@ -270,7 +270,9 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
         // our INSERT and this failure holds the runId — it should observe a
         // failed run, not a vanished one.
         this.sql.exec(
-          `UPDATE runs SET status = 'failed', error = ?, updated_at = ? WHERE run_id = ?`,
+          // seq bump included: SSE listeners drop non-increasing seq, and
+          // this write is the frame that tells them the run settled.
+          `UPDATE runs SET status = 'failed', error = ?, updated_at = ?, seq = seq + 1 WHERE run_id = ?`,
           `engine create failed: ${errorMessage(err)}`,
           Date.now(),
           runId,
@@ -514,7 +516,9 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       // CAS on the old status: a report that landed while we awaited the
       // engine wins over our (older) probe result.
       const cas = this.sql.exec(
-        `UPDATE runs SET status = ?, error = ?, updated_at = ?
+        // seq bump included: without it the reconciled status fans out with
+        // an unchanged seq and every SSE listener drops the frame.
+        `UPDATE runs SET status = ?, error = ?, updated_at = ?, seq = seq + 1
          WHERE run_id = ? AND status = ?`,
         next,
         error,
@@ -587,8 +591,13 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
         };
       }
       // Registered BEFORE we answer "still running": either the caller sees a
-      // terminal status above, or this row exists before the terminal report
-      // can arrive — no unobserved-completion gap.
+      // terminal status, or this row exists before the terminal report can
+      // arrive — no unobserved-completion gap. The INSERT and the re-read
+      // below are one synchronous block, and `run` may be stale (getRun can
+      // yield at its engine probe, and a terminal report can land in that
+      // window — landing before this INSERT, so its notifyWaiters never saw
+      // us). The re-read closes that: any terminalization either shows here,
+      // or happens after the waiter row exists.
       this.sql.exec(
         `INSERT OR IGNORE INTO waiters (child_run_id, parent_instance_id, parent_flow)
          VALUES (?, ?, ?)`,
@@ -596,9 +605,26 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
         parent.instanceId,
         parent.flow,
       );
+      const row = this.sql
+        .exec(`SELECT * FROM runs WHERE run_id = ?`, run.runId)
+        .toArray()[0];
+      const fresh = row ? this.rowToRun(row) : run;
+      if (terminal(fresh.status)) {
+        this.sql.exec(
+          `DELETE FROM waiters WHERE child_run_id = ? AND parent_instance_id = ?`,
+          run.runId,
+          parent.instanceId,
+        );
+        return {
+          runId: run.runId,
+          status: fresh.status,
+          error: fresh.error,
+          output: fresh.output,
+        };
+      }
       return {
         runId: run.runId,
-        status: run.status,
+        status: fresh.status,
         error: null,
         output: null,
       };
