@@ -4,6 +4,13 @@ main = "src/index.ts"
 compatibility_date = "2025-11-21"
 compatibility_flags = ["nodejs_compat"]
 
+# No public HTTP entry point. This worker is driven only by its cron triggers
+# (the `scheduled` handler) and reached only through the WORKFLOW_MANAGER durable
+# object binding from web/admin — never over HTTP. Disabling the workers.dev route
+# closes the otherwise-unauthenticated fetch router (/trigger, /reconcile,
+# /workflow/*) to the public internet. Bindings and cron are unaffected.
+workers_dev = false
+
 [observability]
 enabled = true
 
