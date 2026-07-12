@@ -9,7 +9,12 @@ import { describe, expect, it } from 'vitest';
 import { defineFlow, phase, step, units } from './define';
 import { runFlowInline } from './inline';
 import { segmentView } from './snapshot';
-import { DRAIN_STOP, FlowJoinError, type JoinPort } from './tracker';
+import {
+  DRAIN_STOP,
+  FlowJoinError,
+  joinRequest,
+  type JoinPort,
+} from './tracker';
 
 const linear = defineFlow({
   name: 'linear',
@@ -94,6 +99,48 @@ describe('f.map', () => {
     expect(doNames).toEqual(
       expect.arrayContaining(['write/list', 'write/a', 'write/b', 'write/c']),
     );
+  });
+
+  it('rejects duplicate unit ids before any unit runs', async () => {
+    const run = await runFlowInline(
+      flow,
+      (f) =>
+        f.map(
+          'write',
+          async () => ['a', 'b', 'a'],
+          async (item) => item,
+          { concurrency: 2, id: (item) => item },
+        ),
+      undefined,
+    );
+    expect(String(run.error)).toMatch(/duplicate unit id "a"/);
+    expect(run.snapshot.steps.write.state).toBe('failed');
+    // Fail-fast: no unit engine step ever dispatched.
+    expect(run.trace.some((t) => t.name === 'write/a')).toBe(false);
+  });
+
+  it('a failing list step marks the segment failed, not pending', async () => {
+    const run = await runFlowInline(
+      flow,
+      (f) =>
+        f.map(
+          'write',
+          async () => ['a'],
+          async (item) => item,
+          { concurrency: 1, id: (item) => item },
+        ),
+      undefined,
+      {
+        stubs: {
+          'write/list': () => {
+            throw new Error('list died');
+          },
+        },
+      },
+    );
+    expect(String(run.error)).toMatch(/list died/);
+    expect(run.snapshot.status).toBe('failed');
+    expect(run.snapshot.steps.write.state).toBe('failed');
   });
 
   it('replays without re-running completed units or double-counting', async () => {
@@ -458,14 +505,16 @@ describe('joins', () => {
     },
   });
 
-  it('joinSettled surfaces child outcomes without throwing (degrade policy)', async () => {
+  it('mapJoin surfaces child outcomes without throwing (degrade policy)', async () => {
+    // mapJoin — NOT joinSettled inside map units: that shape nests engine
+    // steps in production and double-reports units (map's + the join's own).
     const run = await runFlowInline(
       parent,
       (f) =>
-        f.map(
+        f.mapJoin(
           'images',
           async () => ['ok.png', 'bad.png'],
-          (img) => f.joinSettled('images', child, { imageKey: img }),
+          (img) => joinRequest(child, { imageKey: img }),
           { concurrency: 2, id: (img) => img },
         ),
       undefined,
@@ -486,6 +535,21 @@ describe('joins', () => {
       state: 'complete',
       current: 2,
     });
+  });
+
+  it('a sole plain join reports its declared step (no pending segment)', async () => {
+    const run = await runFlowInline(
+      parent,
+      async (f) => f.joinSettled('images', child, { imageKey: 'solo.png' }),
+      undefined,
+      { joins: stubJoins({ 'solo.png': { mirrored: true } }) },
+    );
+    expect(run.error).toBeUndefined();
+    expect(run.snapshot.steps.images).toMatchObject({
+      state: 'complete',
+      current: 1,
+    });
+    expect(run.unfinishedSteps).toEqual([]);
   });
 
   it('join throws FlowJoinError when the child is a prerequisite', async () => {

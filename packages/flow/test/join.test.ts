@@ -134,7 +134,7 @@ describe('mapJoin parent/child', () => {
     expect(snap?.steps.pair).toMatchObject({
       state: 'complete',
       current: 2,
-      total: 2,
+      total: null, // plain joins never set a denominator — indeterminate
     });
   });
 

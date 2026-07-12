@@ -169,17 +169,14 @@ export class ToySerialWorkflow extends FlowEntrypoint<
   protected override stepDefaults = FAST_STEPS;
 
   async flow(f: Flow<(typeof ToySerialFlow)['steps']>, params: SerialParams) {
-    const pair = f.open('pair');
-    await pair.expect(2);
+    // Plain joins self-report: each counts a unit under 'pair' and settles
+    // the segment — no open() scaffolding needed.
     const first = await f.joinSettled('pair', ToyChildFlow, {
       item: params.itemA,
     });
-    await pair.unit(params.itemA, async () => first.status);
     const second = await f.joinSettled('pair', ToyChildFlow, {
       item: params.itemB,
     });
-    await pair.unit(params.itemB, async () => second.status);
-    await pair.done();
     return { statuses: [first.status, second.status] };
   }
 }

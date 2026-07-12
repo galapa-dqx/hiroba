@@ -85,10 +85,10 @@ const SILENT_LOG: FlowLogger = {
 };
 
 // -----------------------------------------------------------------------------
-// Joins — transport port only. The FlowHub client implements this (DQX-18);
-// until then the default port throws. join/joinSettled do NOT report units:
-// reporting belongs to the enclosing primitive (a join inside `map` is that
-// map's unit; the map wrapper reports it).
+// Joins. The PORT is transport-only (the FlowHub client implements it);
+// reporting is layered on top: plain join/joinSettled report their declared
+// step themselves (a sole-join segment must not sit pending on a complete
+// run), while mapJoin suppresses that and reports at the map level.
 // -----------------------------------------------------------------------------
 
 export type JoinOutcome<T = unknown> =
@@ -376,6 +376,67 @@ export function createFlow<D extends AnyFlowDef>(
     await Promise.all(lanes);
   };
 
+  /** Shared front half of map/mapJoin: report running, run the memoized list
+   *  step (failing the segment if the list itself dies — otherwise a failed
+   *  run shows no red segment at all), and reject duplicate unit ids before
+   *  any unit runs. Duplicate ids would reuse one engine-step name, silently
+   *  replaying the first item's memoized result for every later duplicate. */
+  const listUnits = async <I>(
+    key: string,
+    list: () => Promise<I[]>,
+    id: (item: I) => string,
+  ): Promise<{ items: I[]; ids: string[] }> => {
+    report({ kind: 'step', step: key, state: 'running' });
+    let items: I[];
+    try {
+      items = await runBody(`${key}/list`, key, defaults, list, {});
+    } catch (err) {
+      report({ kind: 'step', step: key, state: 'failed' });
+      throw err;
+    }
+    const ids = items.map(id);
+    const seen = new Set<string>();
+    for (const unitId of ids) {
+      if (seen.has(unitId)) {
+        report({ kind: 'step', step: key, state: 'failed' });
+        throw new Error(
+          `Flow "${def.name}": "${key}" produced duplicate unit id ` +
+            `"${unitId}" — unit ids must be unique, stable domain ids`,
+        );
+      }
+      seen.add(unitId);
+    }
+    report({ kind: 'total', step: key, total: items.length });
+    return { items, ids };
+  };
+
+  /** A plain join IS its declared step's work — report it as such, or a
+   *  sole-join segment sits pending forever on a complete run. joinSettled
+   *  completes the step regardless of the child outcome (degrade policy:
+   *  the join settled; the outcome is data). mapJoin bypasses this and
+   *  reports at the map level instead. */
+  const reportedJoin = async (
+    key: string,
+    childDef: AnyFlowDef,
+    params: unknown,
+  ): Promise<JoinOutcome> => {
+    report({ kind: 'step', step: key, state: 'running' });
+    let outcome: JoinOutcome;
+    try {
+      outcome = await joinVia(key, childDef, params);
+    } catch (err) {
+      // Port/engine failure (not a failed child — that's an outcome).
+      report({ kind: 'step', step: key, state: 'failed' });
+      throw err;
+    }
+    report({
+      kind: 'unit',
+      step: key,
+      unit: `${childDef.name}:${childDef.key(params)}`,
+    });
+    return outcome;
+  };
+
   const flow: Flow<D['steps']> = {
     step: (key, fn, config) => {
       assertDeclared(key);
@@ -408,13 +469,11 @@ export function createFlow<D extends AnyFlowDef>(
       // unit set. Unit ids come from the domain (mapOpts.id), never array
       // indices — indices reshuffle when the source data changes under a
       // retried run.
-      const items = await runBody(`${key}/list`, key, defaults, list, {});
-      report({ kind: 'step', step: key, state: 'running' });
-      report({ kind: 'total', step: key, total: items.length });
+      const { items, ids } = await listUnits(key, list, mapOpts.id);
       const results = new Array<unknown>(items.length);
       try {
         await runPool(items, mapOpts.concurrency, async (item, index) => {
-          const unitId = mapOpts.id(item);
+          const unitId = ids[index];
           results[index] = await runBody(
             `${key}/${unitId}`,
             key,
@@ -530,15 +589,21 @@ export function createFlow<D extends AnyFlowDef>(
     },
 
     join: async (key, childDef, params) => {
-      const outcome = await joinVia(key, childDef, params);
+      const outcome = await reportedJoin(key, childDef, params);
       if (outcome.status === 'failed') {
+        // The child was a prerequisite — the segment failed with it.
+        report({ kind: 'step', step: key, state: 'failed' });
         throw new FlowJoinError(childDef.name, outcome.error);
       }
+      report({ kind: 'step', step: key, state: 'complete' });
       return outcome.output as never;
     },
 
-    joinSettled: async (key, childDef, params) =>
-      (await joinVia(key, childDef, params)) as never,
+    joinSettled: async (key, childDef, params) => {
+      const outcome = await reportedJoin(key, childDef, params);
+      report({ kind: 'step', step: key, state: 'complete' });
+      return outcome as never;
+    },
 
     flush: async () => {
       // New reports can be spawned while draining (a catch handler firing a
@@ -550,13 +615,11 @@ export function createFlow<D extends AnyFlowDef>(
 
     mapJoin: async (key, list, child, mapOpts) => {
       assertDeclared(key);
-      const items = await runBody(`${key}/list`, key, defaults, list, {});
-      report({ kind: 'step', step: key, state: 'running' });
-      report({ kind: 'total', step: key, total: items.length });
+      const { items, ids } = await listUnits(key, list, mapOpts.id);
       const results = new Array<JoinOutcome>(items.length);
       try {
         await runPool(items, mapOpts.concurrency, async (item, index) => {
-          const unitId = mapOpts.id(item);
+          const unitId = ids[index];
           const request = child(item);
           results[index] = await joinVia(
             key,

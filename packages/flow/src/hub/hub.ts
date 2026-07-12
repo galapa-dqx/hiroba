@@ -245,16 +245,41 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       }
 
       const runId = crypto.randomUUID();
-      this.sql.exec(
-        `INSERT INTO runs (run_id, flow, key, params, status, seq, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'queued', 0, ?, ?)`,
-        runId,
-        flow,
-        key,
-        JSON.stringify(params ?? null),
-        now,
-        now,
-      );
+      try {
+        this.sql.exec(
+          `INSERT INTO runs (run_id, flow, key, params, status, seq, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'queued', 0, ?, ?)`,
+          runId,
+          flow,
+          key,
+          JSON.stringify(params ?? null),
+          now,
+          now,
+        );
+      } catch (err) {
+        // The partial unique index is the claim's backstop. Today no await
+        // sits between the attach loop's final SELECT and this INSERT, so a
+        // racer can't exist — but the documented contract (the loser
+        // attaches) must not depend on that block staying await-free across
+        // future edits.
+        const racer = this.sql
+          .exec(
+            `SELECT run_id, status FROM runs
+             WHERE flow = ? AND key = ? AND status IN ('queued','running')
+             LIMIT 1`,
+            flow,
+            key,
+          )
+          .toArray()[0];
+        if (racer) {
+          return {
+            runId: racer.run_id as string,
+            created: false,
+            status: racer.status as HubRunStatus,
+          };
+        }
+        throw err;
+      }
       // Seed the FULL pending step map eagerly — the bar draws every segment
       // on frame one.
       Object.entries(reg.def.steps).forEach(([step, desc], ord) => {
