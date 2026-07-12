@@ -35,6 +35,12 @@ const lanes = SWIMLANE_META.map((m) => ({ ...m, bars: swimlanes[m.key] ?? [] }))
 	(l) => l.bars.length > 0,
 );
 
+// Grid columns: time gutter, main track, then one fixed column per swimlane.
+// Built here (not in CSS) because `repeat(0, …)` is invalid and would drop the
+// whole grid-template-columns on days with no swimlane events — collapsing the
+// axis into a 50/50 auto split.
+const gridColumns = `3.4rem 1fr${lanes.length ? ` repeat(${lanes.length}, 5rem)` : ""}`;
+
 const dayStart = day.toZonedDateTime(AGENDA_ZONE);
 const dayStartMs = dayStart.toInstant().epochMilliseconds;
 
@@ -78,7 +84,7 @@ const empty =
 	bars.length === 0 && milestones.length === 0 && lanes.length === 0;
 ---
 
-<div class="agenda-tl" style={`--swim-count:${lanes.length}; --swim-w:5rem`}>
+<div class="agenda-tl" style={`grid-template-columns:${gridColumns}`}>
 	{/* Header row: a label per side column (placed explicitly). */}
 	{lanes.map((l, i) => (
 		<div class="agenda-tl__swim-head" style={`grid-column:${3 + i}`}>{l.label}</div>
@@ -253,7 +259,8 @@ const empty =
 <style>
 	.agenda-tl {
 		display: grid;
-		grid-template-columns: 3.4rem 1fr repeat(var(--swim-count, 0), var(--swim-w, 4.6rem));
+		/* grid-template-columns is set inline (see AgendaTimeline.astro) so the
+		   swimlane columns can be omitted entirely when there are none. */
 		grid-template-rows: auto 1fr;
 		gap: 0;
 	}
