@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   crawlPlayguides,
@@ -6,33 +6,43 @@ import {
   triggerPlayguideWorkflow,
   type PlayguideItem,
 } from '../lib/api';
+import { subscribeJob } from '../lib/job-stream';
+import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /**
  * Playguide management — the bounded guide set (no pagination). A "Crawl now"
  * button re-runs discovery from `guide01` (mirrors the daily cron); each row
- * links to the shared article editor and can (re-)trigger its pipeline.
+ * links to the shared article editor and can (re-)trigger its pipeline. Titles
+ * render in the sidebar's primary target language, falling back to Japanese.
  */
 export default function PlayguideList() {
+  const lang = usePrimaryLanguage();
   const [items, setItems] = useState<PlayguideItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [crawling, setCrawling] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [workflowStatus, setWorkflowStatus] = useState<Map<string, string>>(
+    new Map(),
+  );
+  // Monotonic token so a slow in-flight list load (e.g. from an earlier
+  // language) can't clobber the results of a newer one.
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [lang]);
 
   async function load() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
-      const { items } = await getPlayguideList();
+      const { items } = await getPlayguideList({ lang });
+      if (seq !== loadSeq.current) return; // a newer load superseded this one
       setItems(items);
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Failed to load');
-    } finally {
-      setLoading(false);
     }
+    if (seq === loadSeq.current) setLoading(false);
   }
 
   async function onCrawl() {
@@ -52,47 +62,55 @@ export default function PlayguideList() {
   }
 
   async function onTrigger(slug: string) {
-    setBusy((b) => new Set(b).add(slug));
     try {
       await triggerPlayguideWorkflow(slug);
-      setMessage(`Triggered pipeline for ${slug}.`);
-    } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Trigger failed');
-    } finally {
-      setBusy((b) => {
-        const next = new Set(b);
-        next.delete(slug);
-        return next;
+      setWorkflowStatus((prev) => new Map(prev).set(slug, 'Starting...'));
+
+      const setStatus = (line: string) =>
+        setWorkflowStatus((prev) => new Map(prev).set(slug, line));
+      subscribeJob(`/api/playguide/${slug}/sse`, {
+        onProgress: (p) => setStatus(p.label),
+        onDone: () => {
+          setStatus('Done!');
+          setTimeout(() => {
+            setWorkflowStatus((prev) => {
+              const next = new Map(prev);
+              next.delete(slug);
+              return next;
+            });
+            void load();
+          }, 2000);
+        },
+        onError: (msg) =>
+          setStatus(msg === 'Connection lost' ? msg : `Error: ${msg}`),
       });
+    } catch (err) {
+      alert('Failed to trigger workflow');
+      console.error(err);
     }
   }
 
   return (
-    <section>
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1rem',
-        }}
-      >
-        <h1>Play Guide ({items.length})</h1>
+    <div className="playguide-list-page">
+      <div className="actions">
+        <h3>Play Guide ({items.length})</h3>
         <button type="button" onClick={onCrawl} disabled={crawling}>
           {crawling ? 'Crawling…' : 'Crawl now'}
         </button>
-      </header>
-
-      {message && <p role="status">{message}</p>}
+        <button type="button" onClick={() => void load()} disabled={loading}>
+          Refresh
+        </button>
+        {message && <span className="workflow-status">{message}</span>}
+      </div>
 
       {loading ? (
-        <p>Loading…</p>
+        <p className="loading">Loading...</p>
       ) : items.length === 0 ? (
         <p>
           No guide pages yet. Click “Crawl now” to discover them from guide01.
         </p>
       ) : (
-        <table>
+        <table className="data-table">
           <thead>
             <tr>
               <th>Order</th>
@@ -100,35 +118,57 @@ export default function PlayguideList() {
               <th>Slug</th>
               <th>Body</th>
               <th>Translated</th>
-              <th />
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {items.map((item) => (
               <tr key={item.id}>
                 <td>{item.sortOrder}</td>
-                <td>
-                  <a href={`/playguide/${item.id}`}>{item.titleJa}</a>
+                <td className="title-cell">
+                  <a href={`/playguide/${item.id}`}>
+                    {item.titleLocalized || item.titleJa}
+                  </a>
+                  <a
+                    className="external-link"
+                    href={`https://hiroba.dqx.jp/sc/public/playguide/${item.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="View original on Hiroba"
+                  >
+                    ↗
+                  </a>
+                  {item.titleLocalized && (
+                    <span className="title-cell__ja" lang="ja">
+                      {item.titleJa}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <code>{item.id}</code>
                 </td>
                 <td>{item.hasBody ? '✓' : '—'}</td>
                 <td>{item.translated ? '✓' : '—'}</td>
-                <td>
+                <td className="actions-cell">
                   <button
                     type="button"
                     onClick={() => onTrigger(item.id)}
-                    disabled={busy.has(item.id)}
+                    className="btn-small"
+                    disabled={workflowStatus.has(item.id)}
                   >
-                    {busy.has(item.id) ? '…' : 'Run'}
+                    Run Workflow
                   </button>
+                  {workflowStatus.has(item.id) && (
+                    <span className="workflow-status">
+                      {workflowStatus.get(item.id)}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
-    </section>
+    </div>
   );
 }

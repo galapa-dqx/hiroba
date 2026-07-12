@@ -246,13 +246,20 @@ export async function deleteTopicTranslation(
 export type PlayguideItem = {
   id: string;
   titleJa: string;
+  /** Title in the requested language, or null when not yet translated. */
+  titleLocalized: string | null;
   sortOrder: number;
   hasBody: boolean;
   translated: boolean;
 };
 
-export async function getPlayguideList(): Promise<{ items: PlayguideItem[] }> {
-  return adminFetch('/api/playguide');
+export async function getPlayguideList(options?: {
+  lang?: string;
+}): Promise<{ items: PlayguideItem[] }> {
+  const params = new URLSearchParams();
+  if (options?.lang) params.set('lang', options.lang);
+  const url = `/api/playguide${params.toString() ? `?${params}` : ''}`;
+  return adminFetch(url);
 }
 
 export type PlayguideCrawlResult = {

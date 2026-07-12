@@ -1140,23 +1140,40 @@ export async function getPlayguides(
  * Lightweight playguide list for the admin UI (mirrors listTopicsAdmin): a
  * `hasBody` flag plus per-item translation status, no block trees on the wire.
  */
-export async function listPlayguidesAdmin(db: Database): Promise<
+export async function listPlayguidesAdmin(
+  db: Database,
+  options: { language?: string } = {},
+): Promise<
   Array<{
     id: string;
     titleJa: string;
+    /** Title in `language`, or null when not yet translated (⇒ show titleJa). */
+    titleLocalized: string | null;
     sortOrder: number;
     hasBody: boolean;
     translated: boolean;
   }>
 > {
+  const language = options.language ?? 'en';
+
   const rows = await db
     .select({
       id: playguides.id,
       titleJa: playguides.titleJa,
+      titleLocalized: translations.value,
       sortOrder: playguides.sortOrder,
       hasBody: sql<number>`(${playguides.blocksJa} IS NOT NULL)`,
     })
     .from(playguides)
+    .leftJoin(
+      translations,
+      and(
+        eq(translations.itemType, 'playguide'),
+        eq(translations.itemId, playguides.id),
+        eq(translations.language, language),
+        eq(translations.field, 'title'),
+      ),
+    )
     .orderBy(asc(playguides.sortOrder), asc(playguides.id))
     .all();
 
@@ -1181,6 +1198,7 @@ export async function listPlayguidesAdmin(db: Database): Promise<
   return rows.map((r) => ({
     id: r.id,
     titleJa: r.titleJa,
+    titleLocalized: r.titleLocalized,
     sortOrder: r.sortOrder,
     hasBody: !!r.hasBody,
     translated: translated.has(r.id),
