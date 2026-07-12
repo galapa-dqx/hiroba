@@ -93,8 +93,9 @@ export default function GlossaryList() {
       alert(
         res.status === 'already_running'
           ? `A regeneration for "${sourceText}" is already running.`
-          : `Started regenerating articles that use "${sourceText}". This runs ` +
-              `in the background; watch the Workflows page for progress.`,
+          : `Started regenerating articles that use "${sourceText}". They re-run ` +
+              `in the background; each affected article appears on the Workflows ` +
+              `page as it is re-triggered.`,
       );
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to regenerate');
