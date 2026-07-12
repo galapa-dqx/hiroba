@@ -52,10 +52,15 @@ export const BACKFILL_TITLE_THRESHOLD = 5;
 /**
  * Minimum gap between page-driven backfill starts for one language. A run in
  * flight is always attached to regardless (the hub dedupes on the language
- * key); this throttles the case where a run already finished but left
- * stragglers the model kept dropping — still over the threshold, so every
- * organic list view would otherwise start a fresh scan. Mirrors the article
- * pipeline's re-trigger cooldown; the admin pre-warm bypasses it with `force`.
+ * key); this throttles SETTLED runs — a completed scan that left stragglers
+ * the model kept dropping (still over the threshold, so every organic list
+ * view would otherwise start a fresh scan), and, deliberately, a FAILED one:
+ * a backfill that exhausted its retries means the translation backend is
+ * down, and re-launching a whole-archive scan per page view during an outage
+ * only amplifies it (the old DO path restarted immediately; this is the fix,
+ * not a regression). Lists stay on their JA fallbacks either way, the next
+ * window self-heals, and the admin pre-warm bypasses with `force`. Mirrors
+ * the article pipeline's re-trigger cooldown.
  */
 const BACKFILL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
