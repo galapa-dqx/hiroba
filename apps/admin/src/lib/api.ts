@@ -536,6 +536,94 @@ export async function getImages(options: {
   return adminFetch(`/api/images?${params}`);
 }
 
+/** Per-language localization state on the single-image edit screen. */
+export type ImageLangDetail = {
+  /** Translated-spans row state; null = not started for this language. */
+  textState: PhaseState | null;
+  /** Translated text spans (index-aligned to textsJa); null until saved. */
+  texts: string[] | null;
+  /** Localized-image row state; null = not started for this language. */
+  urlState: PhaseState | null;
+  /** R2 key of the localized image (`l10n/<lang>/<key>`); null until produced. */
+  localizedKey: string | null;
+  /** Model that produced the localized image ('manual' = hand-supplied). */
+  urlModel: string | null;
+  /** Failure detail when a step failed. */
+  error: string | null;
+  translatedAt: string | null; // ISO-8601 UTC instant
+};
+
+export type ImageDetail = {
+  id: number;
+  key: string; // imageKey <host>/<path> — the R2 key of the original
+  textsJa: string[] | null; // transcribed source spans; null = not transcribed
+  hasText: boolean;
+  mirrorState: PhaseState;
+  transcribeState: PhaseState;
+  updatedAt: string; // ISO-8601 UTC instant
+  /** Enabled languages, in code order — one editor tab each. */
+  languages: ArticleLanguage[];
+  /** State per language code (present for every entry in `languages`). */
+  translations: Record<string, ImageLangDetail>;
+};
+
+export async function getImageDetail(id: number): Promise<ImageDetail> {
+  return adminFetch(`/api/images/${id}`);
+}
+
+/** Save the edited JA→target spans (index-aligned to textsJa) for a language. */
+export async function saveImageTranslation(
+  id: number,
+  lang: string,
+  texts: string[],
+): Promise<{ success: boolean }> {
+  return adminFetch(`/api/images/${id}/${lang}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texts }),
+  });
+}
+
+/** Outcome of a synchronous gpt-image-2 regeneration for one (image, language). */
+export type RegenerateResult = {
+  status: 'done' | 'failed';
+  state: PhaseState | null;
+  localizedKey: string | null;
+};
+
+/** Re-run gpt-image-2 for one image/language using the saved spans. */
+export async function regenerateImage(
+  id: number,
+  lang: string,
+): Promise<RegenerateResult> {
+  return adminFetch(`/api/images/${id}/${lang}/regenerate`, { method: 'POST' });
+}
+
+/** Upload a hand-made localized image for one image/language. */
+export async function uploadImage(
+  id: number,
+  lang: string,
+  file: File,
+): Promise<{ success: boolean; localizedKey: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`/api/images/${id}/${lang}/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    let message = `API error: ${res.status}`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) message = data.error;
+    } catch {
+      // Non-JSON error body — keep the status message.
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
 /** Pre-warm a language's whole-archive title backfill (DQX-13). */
 export async function backfillLanguageTitles(
   code: string,

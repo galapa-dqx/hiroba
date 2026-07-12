@@ -128,7 +128,12 @@ function ImageRow({ img, langLabel }: { img: AdminImage; langLabel: string }) {
       </div>
 
       <div className="img-side">
-        <div className="img-side__head">{langLabel}</div>
+        <div className="img-side__head">
+          <span>{langLabel}</span>
+          <a className="img-side__edit" href={`/images/${img.id}`}>
+            Edit ↗
+          </a>
+        </div>
         {localized ? (
           <>
             <a

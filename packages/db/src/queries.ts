@@ -1791,6 +1791,36 @@ export async function getImagesByKeys(
   );
 }
 
+/** One stored image by its surrogate id — the admin image-edit page's anchor. */
+export async function getImageById(
+  db: Database,
+  id: number,
+): Promise<Image | null> {
+  const row = await db.select().from(images).where(eq(images.id, id)).get();
+  return row ?? null;
+}
+
+/**
+ * Every translation row for one image across all languages and both fields
+ * (`text`/`url`) — the admin edit page reads these to render each language's
+ * span pairs and localized-image state in one shot.
+ */
+export async function getImageTranslationRows(
+  db: Database,
+  imageId: number,
+): Promise<Translation[]> {
+  return db
+    .select()
+    .from(translations)
+    .where(
+      and(
+        eq(translations.itemType, 'image'),
+        eq(translations.itemId, String(imageId)),
+      ),
+    )
+    .all();
+}
+
 /** The subset of `imageIds` that already have a translated `text` row for `language`. */
 export async function getTranslatedImageIds(
   db: Database,
@@ -2104,6 +2134,15 @@ export async function getTitleTranslations(
   );
   return new Map(rows.map((r) => [r.itemId, r.value!]));
 }
+
+/**
+ * Sentinel `model` for a localized image supplied by hand in the admin (an
+ * uploaded raster, or the output of an admin-triggered regeneration the operator
+ * has committed to). The localize step treats a row with this model as settled —
+ * so the nightly pipeline never silently overwrites a manual override — while an
+ * explicit admin "Regenerate" still forces past it (see localizeImages `force`).
+ */
+export const MANUAL_IMAGE_MODEL = 'manual';
 
 /** Upsert a per-image translation row (item_type='image', item_id=image id). */
 export async function upsertImageTranslation(

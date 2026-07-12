@@ -1,0 +1,10 @@
+---
+import ImageEdit from "../../components/ImageEdit";
+import Layout from "../../layouts/Layout.astro";
+
+const { id } = Astro.params;
+---
+
+<Layout title="Edit Image">
+	<ImageEdit id={Number(id)} client:only="react" />
+</Layout>
