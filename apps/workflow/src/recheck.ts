@@ -65,7 +65,8 @@ async function triggerArticleWorkflow(
   );
   await stub.fetch('http://internal/trigger', {
     method: 'POST',
-    body: JSON.stringify({ itemId, itemType }),
+    // System-initiated heal — force past the page-view re-trigger cooldown.
+    body: JSON.stringify({ itemId, itemType, force: true }),
     headers: { 'Content-Type': 'application/json' },
   });
 }

@@ -32,10 +32,11 @@ export async function triggerRecentWorkflows(
     await stub.fetch('http://internal/trigger', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      // Admin fan-out — force past the page-view re-trigger cooldown.
       body: JSON.stringify(
         itemType === 'topic'
-          ? { itemId: id, itemType: 'topic' }
-          : { itemId: id },
+          ? { itemId: id, itemType: 'topic', force: true }
+          : { itemId: id, force: true },
       ),
     });
   }

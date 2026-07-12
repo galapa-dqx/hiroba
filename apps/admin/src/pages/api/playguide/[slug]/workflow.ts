@@ -12,7 +12,8 @@ export const POST: APIRoute = async ({ locals, params }) => {
 
   const res = await stub.fetch('http://internal/trigger', {
     method: 'POST',
-    body: JSON.stringify({ itemId: slug, itemType: 'playguide' }),
+    // Admin trigger — force past the page-view re-trigger cooldown.
+    body: JSON.stringify({ itemId: slug, itemType: 'playguide', force: true }),
     headers: { 'Content-Type': 'application/json' },
   });
 

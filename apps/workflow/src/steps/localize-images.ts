@@ -51,7 +51,13 @@ const FETCH_HEADERS = {
   Referer: 'https://hiroba.dqx.jp/',
 };
 
-const CACHE_CONTROL = 'public, max-age=31536000, immutable';
+// Localized rasters live at a STABLE key (`l10n/<lang>/<imageKey>`) and are
+// regenerated in place — on an image-model change, or an admin edit/upload — so
+// they can't be `immutable` like the content-keyed originals (mirror-images),
+// or a stale copy would stick for a year. A few hours keeps them self-correcting
+// if an edge purge is ever missed; a regeneration purges the exact URL for an
+// immediate refresh (see purgeImage in workflow-manager's regenerate handler).
+const CACHE_CONTROL = 'public, max-age=21600'; // 6 hours
 
 /** Max concurrent gpt-image-2 edits; kept modest to stay under rate limits. */
 const LOCALIZE_CONCURRENCY = 6;

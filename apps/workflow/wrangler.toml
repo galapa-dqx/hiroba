@@ -26,6 +26,14 @@ enabled = true
 # block, or locally via `.dev.vars` / the root .env (dev loads it via dotenv).
 [vars]
 LOG_LEVEL = "info"
+# Origins used to build URLs for edge-cache purge (src/purge.ts). Verify these
+# match production before relying on busting.
+WEB_BASE_URL = "https://news.galapa.app"
+IMAGE_BASE = "https://img.news.galapa.app"
+CF_ZONE_ID = "d8a17a397c1bc8d302988fd4b1ec7355"
+# CF_PURGE_TOKEN is a secret (Zone → Cache Purge) and is NOT stored here — set it
+# out of band:  wrangler secret put CF_PURGE_TOKEN
+# Until it's set alongside CF_ZONE_ID, purge logs a warning and no-ops.
 
 [version_metadata]
 binding = "CF_VERSION_METADATA"

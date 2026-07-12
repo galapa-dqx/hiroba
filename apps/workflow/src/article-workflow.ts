@@ -31,6 +31,7 @@ import { type Block } from '@hiroba/richtext';
 import { getArticle, getArticleBlocks } from './article';
 import { createGemini } from './gemini';
 import { createLogger, runStep } from './logger';
+import { purgeArticle } from './purge';
 import { extractAndSaveEvents } from './steps/extract-events';
 import { fetchAndSaveArticleBody } from './steps/fetch-body';
 import { localizeImages } from './steps/localize-images';
@@ -79,7 +80,21 @@ export class ArticleWorkflow extends WorkflowEntrypoint<
     );
 
     try {
-      return await this.runSteps(itemType, itemId, languages, db, log, step);
+      const output = await this.runSteps(
+        itemType,
+        itemId,
+        languages,
+        db,
+        log,
+        step,
+      );
+      // The article just (re)settled — bust the edge copies of its detail
+      // pages across every language so readers see the update without waiting
+      // on the long article TTL. Best-effort: purge swallows its own errors.
+      await step.do('purge-cache', () =>
+        purgeArticle(this.env, itemType, itemId, languages, log),
+      );
+      return output;
     } catch (err) {
       // Terminal workflow failure (a step exhausted its retries): settle every
       // state this item still holds open so SSE clients and later triggers see

@@ -68,6 +68,17 @@ export type Env = {
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
+  /**
+   * Edge-cache purge config (see src/purge.ts). All optional — purge no-ops
+   * until they're set, so the pipeline runs unchanged without them.
+   */
+  CF_ZONE_ID?: string;
+  /** API token with the Zone → Cache Purge permission (a secret). */
+  CF_PURGE_TOKEN?: string;
+  /** Public origin of the web app, for building article URLs to purge. */
+  WEB_BASE_URL?: string;
+  /** Public host of the R2 image bucket, for building image URLs to purge. */
+  IMAGE_BASE?: string;
 };
 
 /**

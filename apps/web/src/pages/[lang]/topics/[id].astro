@@ -6,6 +6,7 @@ import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
 import { hydrateArticleImages } from "../../../lib/article-images";
 import { triggerWorkflow } from "../../../lib/workflow";
+import { CACHE_ARTICLE_COMPLETE, CACHE_ARTICLE_DEGRADED, CACHE_NONE } from "../../../lib/cache";
 import { statusStrings, useTranslations } from "../../../i18n";
 
 // Validated against the whitelist by the middleware.
@@ -30,11 +31,20 @@ const isTranslated = !!localizedBlocks;
 // shows the processing notice and the SSE stream drives progress + reload.
 const snapshot = await computeSnapshot(db, "topic", id, lang);
 const ready = isSnapshotSettled(snapshot);
+const complete = isSnapshotComplete(snapshot);
+
+// Cache by readiness: a still-processing page is never cached (the SSE stream
+// drives it), a complete article caches hard (and is purged on change), a
+// settled-but-degraded one stays short so a background heal surfaces on its own.
+Astro.response.headers.set(
+	"Cache-Control",
+	!ready ? CACHE_NONE : complete ? CACHE_ARTICLE_COMPLETE : CACHE_ARTICLE_DEGRADED,
+);
 
 // Fire the pipeline unless everything already finished cleanly — a
 // degraded-but-settled article displays now and retries its failures in the
 // background.
-if (!isSnapshotComplete(snapshot)) {
+if (!complete) {
 	triggerWorkflow(runtime, "topic", id);
 }
 

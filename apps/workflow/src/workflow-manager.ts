@@ -53,6 +53,7 @@ import {
   type WorkflowRunStatus,
 } from '@hiroba/shared';
 
+import { purgeImage } from './purge';
 import { localizeImages } from './steps/localize-images';
 import type { Env, ItemType, NewsBackfillWorkflowOutput } from './types';
 
@@ -60,6 +61,17 @@ import type { Env, ItemType, NewsBackfillWorkflowOutput } from './types';
 const SETTLED_VISIBLE_HOURS = 24;
 /** How long settled rows stay in the registry at all (GC horizon). */
 const SETTLED_RETAINED_HOURS = 24 * 7;
+
+/**
+ * Minimum gap between page-driven pipeline re-triggers for one article. A
+ * settled-but-degraded article (e.g. an image the model can't produce) is not
+ * `complete`, so every organic view would otherwise start a fresh pipeline —
+ * full LLM/image work scaling with traffic. Throttling to one attempt per
+ * window caps re-run cost at the size of the catalogue, not the traffic to it.
+ * Genuine self-healing still happens (just not on every hit); admin and cron
+ * bypass this with `force`.
+ */
+const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 type Active = { instanceId: string; itemType: ItemType };
 
@@ -220,7 +232,17 @@ export class WorkflowManager extends DurableObject<Env> {
             // restarted, or the client reached the stream first. Start the
             // pipeline ourselves rather than erroring — the stream is
             // self-healing, so viewing an unprocessed article kicks it off.
-            active = await this.ensureArticleWorkflow(itemId, itemType);
+            // A client is actively watching an unsettled article, so force past
+            // the re-trigger cooldown (which guards degraded *settled* pages).
+            active =
+              (await this.ensureArticleWorkflow(itemId, itemType, {
+                force: true,
+              })) ?? undefined;
+            if (!active) {
+              send({ type: 'error', error: 'Could not start workflow' });
+              controller.close();
+              return;
+            }
           }
 
           const workflow = this.env.ARTICLE_WORKFLOW;
@@ -279,6 +301,7 @@ export class WorkflowManager extends DurableObject<Env> {
     const body = (await request.json()) as {
       itemId: string;
       itemType?: ItemType;
+      force?: boolean;
     };
     const { itemId } = body;
     const itemType: ItemType = body.itemType ?? 'news';
@@ -287,7 +310,15 @@ export class WorkflowManager extends DurableObject<Env> {
       return Response.json({ error: 'itemId required' }, { status: 400 });
     }
 
-    const active = await this.ensureArticleWorkflow(itemId, itemType);
+    // Admin and cron set `force` to bypass the re-trigger cooldown; page views
+    // leave it unset, so a settled-but-degraded article throttles instead of
+    // re-running its pipeline on every visit.
+    const active = await this.ensureArticleWorkflow(itemId, itemType, {
+      force: body.force ?? false,
+    });
+    if (!active) {
+      return Response.json({ status: 'throttled' });
+    }
     return Response.json({ status: 'started', instanceId: active.instanceId });
   }
 
@@ -346,7 +377,8 @@ export class WorkflowManager extends DurableObject<Env> {
   private async ensureArticleWorkflow(
     itemId: string,
     itemType: ItemType,
-  ): Promise<Active> {
+    { force = false }: { force?: boolean } = {},
+  ): Promise<Active | null> {
     return this.ctx.blockConcurrencyWhile(async () => {
       const workflow = this.env.ARTICLE_WORKFLOW;
       const db = createDb(this.env.DB);
@@ -391,6 +423,20 @@ export class WorkflowManager extends DurableObject<Env> {
         };
       }
 
+      // No run is in flight. Throttle page-driven re-triggers here (after the
+      // dedup checks, so an in-flight run is always reused regardless): without
+      // this, a settled-but-incomplete article starts a fresh pipeline on every
+      // organic view. One attempt per cooldown window is plenty for genuine
+      // self-healing; `force` (admin/cron) skips it.
+      if (!force) {
+        const last = await this.ctx.storage.get<number>(
+          `retrigger:${itemType}:${itemId}`,
+        );
+        if (last != null && Date.now() - last < RETRIGGER_COOLDOWN_MS) {
+          return null;
+        }
+      }
+
       // Create the replacement FIRST — it doubles as an engine health probe.
       // If the engine is down this throws before we touch the registry, so a
       // `stale` row we couldn't resolve stays active and the item is simply
@@ -400,6 +446,9 @@ export class WorkflowManager extends DurableObject<Env> {
       const instance = await workflow.create({ params: { itemId, itemType } });
       const active: Active = { instanceId: instance.id, itemType };
       this.activeWorkflows.set(itemId, active);
+      // Stamp the attempt so the cooldown above throttles the next organic
+      // re-trigger (a forced run resets the window too — harmless).
+      await this.ctx.storage.put(`retrigger:${itemType}:${itemId}`, Date.now());
       try {
         // Retire the superseded row to its real status BEFORE recording the new
         // one, so the partial unique index (one active row per item) never sees
@@ -814,10 +863,22 @@ export class WorkflowManager extends DurableObject<Env> {
     );
     const values = await getImageTranslations(db, [imageId], language, 'url');
     const state = states.get(imageId) ?? null;
+    const localizedKey = values.get(imageId) ?? null;
+
+    // The localized image lives at a stable URL, so a browser/edge copy of the
+    // old raster would otherwise linger past this edit. Bust it now for an
+    // immediate refresh (best-effort; no-ops until purge is configured).
+    if (result.localized > 0 && localizedKey) {
+      await purgeImage(this.env, localizedKey, {
+        warn: (m) => console.warn(m),
+        debug: () => {},
+      });
+    }
+
     return Response.json({
       status: result.localized > 0 ? 'done' : 'failed',
       state,
-      localizedKey: values.get(imageId) ?? null,
+      localizedKey,
     });
   }
 

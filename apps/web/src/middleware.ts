@@ -2,6 +2,8 @@ import { defineMiddleware } from 'astro:middleware';
 
 import { createDb, FALLBACK_LANGUAGE, getEnabledLanguages } from '@hiroba/db';
 
+import { CACHE_LIST } from './lib/cache';
+
 /** Language-neutral route prefixes (never language-prefixed). */
 const isNeutralPath = (pathname: string): boolean =>
   pathname.startsWith('/api/') || pathname.startsWith('/img/');
@@ -83,10 +85,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
   const response = await next();
 
-  // Cache SSR pages for 5 minutes, stale-while-revalidate for 1 hour.
-  response.headers.set(
-    'Cache-Control',
-    'public, max-age=300, stale-while-revalidate=3600',
-  );
+  // Pages that need a specific policy (articles by readiness, the calendar's
+  // top-of-hour rollover) set their own Cache-Control via Astro.response; only
+  // fill the default when they didn't. The default suits the list/index pages.
+  if (!response.headers.has('Cache-Control')) {
+    response.headers.set('Cache-Control', CACHE_LIST);
+  }
   return response;
 });

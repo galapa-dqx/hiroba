@@ -9,10 +9,18 @@ import { scheduleInfo } from "../../lib/schedule";
 import AgendaBand from "../../components/AgendaBand.astro";
 import AgendaTimeline from "../../components/AgendaTimeline.astro";
 import { dateLocale, useTranslations } from "../../i18n";
+import { cacheCalendar } from "../../lib/cache";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
 const t = useTranslations(lang);
+
+// Expire on the next top-of-hour so the "today" view rolls over cleanly at JST
+// midnight rather than an hour after it happened to be cached.
+Astro.response.headers.set(
+	"Cache-Control",
+	cacheCalendar(Temporal.Now.instant().epochMilliseconds / 1000),
+);
 
 const runtime = Astro.locals.runtime;
 const db = createDb(runtime.env.DB);

@@ -102,6 +102,7 @@ export default Sentry.withSentry(
         const body = (await request.json()) as {
           itemId: string;
           itemType?: ItemType;
+          force?: boolean;
         };
         const { itemId } = body;
         const itemType = body.itemType ?? 'news';
@@ -122,7 +123,9 @@ export default Sentry.withSentry(
 
         return stub.fetch('http://internal/trigger', {
           method: 'POST',
-          body: JSON.stringify({ itemId, itemType }),
+          // Forward the caller's `force` so an operator hit can bypass the
+          // re-trigger cooldown; absent, it throttles like a page view.
+          body: JSON.stringify({ itemId, itemType, force: body.force }),
           headers: { 'Content-Type': 'application/json' },
         });
       }
