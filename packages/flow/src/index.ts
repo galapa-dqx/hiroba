@@ -44,6 +44,8 @@ export {
   DEFAULT_STEP_CONFIG,
   DRAIN_STOP,
   FlowJoinError,
+  joinRequest,
+  type JoinRequest,
   type CreateFlowOptions,
   type EngineStep,
   type EngineStepConfig,

@@ -25,7 +25,7 @@
  * unit.
  */
 
-import type { AnyFlowDef, FlowDef, StepsShape } from './define';
+import type { AnyFlowDef, FlowDef, ParamsOf, StepsShape } from './define';
 import type { FlowReporter, Report } from './snapshot';
 
 // -----------------------------------------------------------------------------
@@ -199,7 +199,31 @@ export type Flow<S extends StepsShape> = {
     def: FlowDef<string, CP, StepsShape>,
     params: CP,
   ): Promise<JoinOutcome<CT>>;
+
+  /** Fan out JOINS over a list at bounded concurrency. Distinct from `map`
+   *  because a join is already made of engine steps (memoized start +
+   *  waitForEvent) — wrapping one inside a unit's own `step.do` would nest
+   *  engine steps, which we never rely on. Consequently unit reports fire
+   *  outside step bodies here (idempotent overwrites on replay). Always
+   *  settled semantics — the caller decides what a failed child means. */
+  mapJoin<I, CT = unknown>(
+    key: keyof S & string,
+    list: () => Promise<I[]>,
+    child: (item: I) => JoinRequest,
+    opts: { concurrency: number; id: (item: I) => string },
+  ): Promise<JoinOutcome<CT>[]>;
 };
+
+export type JoinRequest = { def: AnyFlowDef; params: unknown };
+
+/** Build a `mapJoin` child request with params typechecked against the child
+ *  definition — the loose `JoinRequest` shape is for plumbing only. */
+export function joinRequest<CD extends AnyFlowDef>(
+  def: CD,
+  params: ParamsOf<CD>,
+): JoinRequest {
+  return { def, params };
+}
 
 export type CreateFlowOptions = {
   /** Per-flow override of the bounded step defaults. */
@@ -492,12 +516,41 @@ export function createFlow<D extends AnyFlowDef>(
 
     joinSettled: async (key, childDef, params) =>
       (await joinVia(key, childDef, params)) as never,
+
+    mapJoin: async (key, list, child, mapOpts) => {
+      assertDeclared(key);
+      const items = await runBody(`${key}/list`, key, defaults, list, {});
+      report({ kind: 'step', step: key, state: 'running' });
+      report({ kind: 'total', step: key, total: items.length });
+      const results = new Array<JoinOutcome>(items.length);
+      try {
+        await runPool(items, mapOpts.concurrency, async (item, index) => {
+          const unitId = mapOpts.id(item);
+          const request = child(item);
+          results[index] = await joinVia(
+            key,
+            request.def,
+            request.params,
+            unitId,
+          );
+          // Outside any step body on purpose (see interface doc) — replays
+          // re-fire this against memoized joins; the unit PK absorbs it.
+          report({ kind: 'unit', step: key, unit: unitId });
+        });
+      } catch (err) {
+        report({ kind: 'step', step: key, state: 'failed' });
+        throw err;
+      }
+      report({ kind: 'step', step: key, state: 'complete' });
+      return results as never;
+    },
   };
 
   const joinVia = (
     key: string,
     childDef: AnyFlowDef,
     params: unknown,
+    unitId?: string,
   ): Promise<JoinOutcome> => {
     assertDeclared(key);
     if (!opts.joins) {
@@ -509,7 +562,7 @@ export function createFlow<D extends AnyFlowDef>(
     }
     return opts.joins.join(childDef, params, {
       engine,
-      namePrefix: `${key}/`,
+      namePrefix: unitId !== undefined ? `${key}/${unitId}/` : `${key}/`,
     });
   };
 

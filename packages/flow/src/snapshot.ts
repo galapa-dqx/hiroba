@@ -51,6 +51,8 @@ export type Snapshot<
   runId: string;
   status: RunStatus;
   error: string | null;
+  /** Terminal output, when the producer chose to ship one (small summaries). */
+  output?: unknown;
   /** Monotonic per run — SSE ordering + stale-frame drop on reconnect. */
   seq: number;
   /** Authoritative segment order (= definition insertion order). Shipped so
@@ -79,6 +81,10 @@ export type Report =
       kind: 'status';
       status: 'running' | 'complete' | 'failed';
       error?: string;
+      /** Terminal output of the run, if small enough to travel — joined
+       *  parents receive it as the child's result. Keep it a summary, not a
+       *  payload: real data belongs in D1. */
+      output?: unknown;
     };
 
 /** The tracker's outbound port. The FlowHub implements this over DO RPC; the
@@ -160,6 +166,7 @@ export function createRunState<D extends AnyFlowDef>(def: D, runId: string) {
       case 'status': {
         snapshot.status = report.status;
         snapshot.error = report.error ?? null;
+        if (report.output !== undefined) snapshot.output = report.output;
         break;
       }
     }
