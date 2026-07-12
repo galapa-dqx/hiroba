@@ -31,6 +31,11 @@ export default function PlayguideList() {
   // Monotonic token so a slow in-flight list load (e.g. from an earlier
   // language) can't clobber the results of a newer one.
   const loadSeq = useRef(0);
+  // Always read the *current* language, not the value captured when a deferred
+  // caller (onCrawl, workflow onDone) closed over it — otherwise a language
+  // change during that async work could reload the list in the stale language.
+  const langRef = useRef(lang);
+  langRef.current = lang;
 
   useEffect(() => {
     void load();
@@ -40,7 +45,7 @@ export default function PlayguideList() {
     const seq = ++loadSeq.current;
     setLoading(true);
     try {
-      const { items } = await getPlayguideList({ lang });
+      const { items } = await getPlayguideList({ lang: langRef.current });
       if (seq !== loadSeq.current) return; // a newer load superseded this one
       setItems(items);
       setMessage(null); // clear any stale error/notice now that data is fresh
