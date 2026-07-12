@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import CategoryDot from '@hiroba/ui/CategoryDot';
 import { formatLocalDate } from '@hiroba/ui/format-date';
@@ -16,11 +16,13 @@ import {
   type NewsItem,
 } from '../lib/api';
 import { subscribeJob } from '../lib/job-stream';
+import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /** Matches the server-side cap in lib/trigger-recent.ts. */
 const MAX_RECENT_TRIGGER = 50;
 
 export default function NewsList() {
+  const lang = usePrimaryLanguage();
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
@@ -34,6 +36,9 @@ export default function NewsList() {
   const [recentCount, setRecentCount] = useState(10);
   const [triggering, setTriggering] = useState(false);
   const [triggerMsg, setTriggerMsg] = useState<string | null>(null);
+  // Monotonic token so a slow in-flight list load (e.g. from an earlier
+  // language/category) can't clobber the results of a newer one.
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     loadStats();
@@ -41,7 +46,7 @@ export default function NewsList() {
 
   useEffect(() => {
     loadItems();
-  }, [category]);
+  }, [category, lang]);
 
   async function loadStats() {
     try {
@@ -52,28 +57,34 @@ export default function NewsList() {
   }
 
   async function loadItems() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
       const { items, nextCursor } = await getNewsList({
         limit: 50,
         category: category || undefined,
+        lang,
       });
+      if (seq !== loadSeq.current) return; // a newer load superseded this one
       setItems(items);
       setNextCursor(nextCursor);
     } catch (err) {
       console.error(err);
     }
-    setLoading(false);
+    if (seq === loadSeq.current) setLoading(false);
   }
 
   async function loadMore() {
     if (!nextCursor) return;
+    const seq = ++loadSeq.current;
     try {
       const res = await getNewsList({
         limit: 50,
         category: category || undefined,
         cursor: nextCursor,
+        lang,
       });
+      if (seq !== loadSeq.current) return; // language/category changed mid-flight
       setItems((prev) => [...prev, ...res.items]);
       setNextCursor(res.nextCursor);
     } catch (err) {
@@ -303,7 +314,9 @@ export default function NewsList() {
               {items.map((item) => (
                 <tr key={item.id}>
                   <td className="title-cell">
-                    <a href={`/news/${item.id}`}>{item.titleJa}</a>
+                    <a href={`/news/${item.id}`}>
+                      {item.titleLocalized || item.titleJa}
+                    </a>
                     <a
                       className="external-link"
                       href={`https://hiroba.dqx.jp/sc/news/detail/${item.id}`}
@@ -313,6 +326,11 @@ export default function NewsList() {
                     >
                       ↗
                     </a>
+                    {item.titleLocalized && (
+                      <span className="title-cell__ja" lang="ja">
+                        {item.titleJa}
+                      </span>
+                    )}
                   </td>
                   <td>
                     <span className={`category-badge ${item.category}`}>

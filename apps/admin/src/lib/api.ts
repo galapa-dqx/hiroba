@@ -101,6 +101,8 @@ export async function startArchiveScrape(): Promise<ArchiveScrapeStarted> {
 export type NewsItem = {
   id: string;
   titleJa: string;
+  /** Title in the requested language, or null when not yet translated. */
+  titleLocalized: string | null;
   category: string;
   publishedAt: string; // ISO-8601 UTC instant
   hasBody: boolean;
@@ -111,11 +113,13 @@ export async function getNewsList(options?: {
   category?: string;
   limit?: number;
   cursor?: string;
+  lang?: string;
 }): Promise<{ items: NewsItem[]; hasMore: boolean; nextCursor?: string }> {
   const params = new URLSearchParams();
   if (options?.category) params.set('category', options.category);
   if (options?.limit) params.set('limit', String(options.limit));
   if (options?.cursor) params.set('cursor', options.cursor);
+  if (options?.lang) params.set('lang', options.lang);
   const url = `/api/news${params.toString() ? `?${params}` : ''}`;
   return adminFetch(url);
 }
@@ -167,6 +171,8 @@ export async function deleteTranslation(
 export type TopicItem = {
   id: string;
   titleJa: string;
+  /** Title in the requested language, or null when not yet translated. */
+  titleLocalized: string | null;
   publishedAt: string; // ISO-8601 UTC instant
   hasBody: boolean;
   translated: boolean;
@@ -175,10 +181,12 @@ export type TopicItem = {
 export async function getTopicsList(options?: {
   limit?: number;
   cursor?: string;
+  lang?: string;
 }): Promise<{ items: TopicItem[]; hasMore: boolean; nextCursor?: string }> {
   const params = new URLSearchParams();
   if (options?.limit) params.set('limit', String(options.limit));
   if (options?.cursor) params.set('cursor', options.cursor);
+  if (options?.lang) params.set('lang', options.lang);
   const url = `/api/topics${params.toString() ? `?${params}` : ''}`;
   return adminFetch(url);
 }
@@ -662,7 +670,8 @@ export type EventItem = {
   id: string;
   type: 'multiDay' | 'allDay' | 'span' | 'mark';
   titleJa: string;
-  titleEn: string | null;
+  /** Title in the requested language, or null when not yet translated. */
+  titleLocalized: string | null;
   startTime: string; // ISO-8601 UTC instant
   endTime: string | null; // ISO-8601 UTC instant
   sourceType: string | null;
@@ -674,17 +683,73 @@ export async function getEvents(options?: {
   type?: string;
   search?: string;
   limit?: number;
+  lang?: string;
 }): Promise<{ items: EventItem[] }> {
   const params = new URLSearchParams();
   if (options?.type) params.set('type', options.type);
   if (options?.search) params.set('search', options.search);
   if (options?.limit) params.set('limit', String(options.limit));
+  if (options?.lang) params.set('lang', options.lang);
   const url = `/api/events${params.toString() ? `?${params}` : ''}`;
   return adminFetch(url);
 }
 
 export async function deleteEvent(id: string): Promise<{ success: boolean }> {
   return adminFetch(`/api/events/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+// Reset milestones API (admin-managed recurring game resets → calendar marks)
+
+export type ResetMilestoneEntry = {
+  id: string;
+  titleJa: string;
+  /** Per-language display names incl. "en"; falls back lang → en → titleJa. */
+  titles: Record<string, string>;
+  /** Full iCal string: DTSTART;TZID=Asia/Tokyo:… + RRULE:… */
+  rrule: string;
+  enabled: boolean;
+  sortOrder: number;
+  note: string | null;
+  createdAt: string; // ISO-8601 UTC instant
+  updatedAt: string; // ISO-8601 UTC instant
+};
+
+/** The enabled target languages the editor renders a name field for. */
+export type ResetLanguage = {
+  code: string;
+  label: string;
+  nativeLabel: string;
+};
+
+export async function getResets(): Promise<{
+  resets: ResetMilestoneEntry[];
+  languages: ResetLanguage[];
+}> {
+  return adminFetch('/api/resets');
+}
+
+export async function upsertReset(entry: {
+  id: string;
+  titleJa: string;
+  titles: Record<string, string>;
+  rrule: string;
+  enabled?: boolean;
+  sortOrder?: number;
+  note?: string | null;
+}): Promise<{ success: boolean; id: string }> {
+  return adminFetch('/api/resets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  });
+}
+
+export async function deleteReset(
+  id: string,
+): Promise<{ success: boolean; id: string }> {
+  return adminFetch(`/api/resets/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
 }

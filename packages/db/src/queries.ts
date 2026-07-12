@@ -31,6 +31,11 @@ import {
 } from '@hiroba/shared';
 
 import type { Database } from './client';
+import {
+  buildResetEvents,
+  RESET_SOURCE_TYPE,
+  type ResetTitleMap,
+} from './reset-events';
 import { banners, type Banner } from './schema/banners';
 import {
   events,
@@ -39,12 +44,18 @@ import {
   type NewEvent,
 } from './schema/events';
 import { images, type Image } from './schema/images';
+import { getEnabledLanguages } from './schema/languages';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
 import {
   playguides,
   type NewPlayguide,
   type Playguide,
 } from './schema/playguides';
+import {
+  resetMilestones,
+  type NewResetMilestone,
+  type ResetMilestone,
+} from './schema/reset-milestones';
 import { topics, type NewTopic, type Topic } from './schema/topics';
 import {
   translations,
@@ -817,11 +828,18 @@ export async function getTopics(
  */
 export async function listNewsAdmin(
   db: Database,
-  options: { category?: string; limit?: number; cursor?: string } = {},
+  options: {
+    category?: string;
+    limit?: number;
+    cursor?: string;
+    language?: string;
+  } = {},
 ): Promise<{
   items: Array<{
     id: string;
     titleJa: string;
+    /** Title in `language`, or null when not yet translated (⇒ show titleJa). */
+    titleLocalized: string | null;
     category: string;
     publishedAt: Temporal.Instant;
     hasBody: boolean;
@@ -831,6 +849,7 @@ export async function listNewsAdmin(
   nextCursor?: string;
 }> {
   const limit = Math.min(options.limit ?? 50, 100);
+  const language = options.language ?? 'en';
 
   const conditions = [];
   if (options.category) {
@@ -846,11 +865,21 @@ export async function listNewsAdmin(
     .select({
       id: newsItems.id,
       titleJa: newsItems.titleJa,
+      titleLocalized: translations.value,
       category: newsItems.category,
       publishedAt: newsItems.publishedAt,
       hasBody: sql<number>`(${newsItems.blocksJa} IS NOT NULL)`,
     })
     .from(newsItems)
+    .leftJoin(
+      translations,
+      and(
+        eq(translations.itemType, 'news'),
+        eq(translations.itemId, newsItems.id),
+        eq(translations.language, language),
+        eq(translations.field, 'title'),
+      ),
+    )
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(newsItems.publishedAt))
     .limit(limit + 1)
@@ -881,6 +910,7 @@ export async function listNewsAdmin(
     items: page.map((r) => ({
       id: r.id,
       titleJa: r.titleJa,
+      titleLocalized: r.titleLocalized,
       category: r.category,
       publishedAt: r.publishedAt,
       hasBody: !!r.hasBody,
@@ -899,11 +929,13 @@ export async function listNewsAdmin(
  */
 export async function listTopicsAdmin(
   db: Database,
-  options: { limit?: number; cursor?: string } = {},
+  options: { limit?: number; cursor?: string; language?: string } = {},
 ): Promise<{
   items: Array<{
     id: string;
     titleJa: string;
+    /** Title in `language`, or null when not yet translated (⇒ show titleJa). */
+    titleLocalized: string | null;
     publishedAt: Temporal.Instant;
     hasBody: boolean;
     translated: boolean;
@@ -912,6 +944,7 @@ export async function listTopicsAdmin(
   nextCursor?: string;
 }> {
   const limit = Math.min(options.limit ?? 50, 100);
+  const language = options.language ?? 'en';
 
   const conditions = [];
   if (options.cursor) {
@@ -924,10 +957,20 @@ export async function listTopicsAdmin(
     .select({
       id: topics.id,
       titleJa: topics.titleJa,
+      titleLocalized: translations.value,
       publishedAt: topics.publishedAt,
       hasBody: sql<number>`(${topics.blocksJa} IS NOT NULL)`,
     })
     .from(topics)
+    .leftJoin(
+      translations,
+      and(
+        eq(translations.itemType, 'topic'),
+        eq(translations.itemId, topics.id),
+        eq(translations.language, language),
+        eq(translations.field, 'title'),
+      ),
+    )
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(topics.publishedAt))
     .limit(limit + 1)
@@ -958,6 +1001,7 @@ export async function listTopicsAdmin(
     items: page.map((r) => ({
       id: r.id,
       titleJa: r.titleJa,
+      titleLocalized: r.titleLocalized,
       publishedAt: r.publishedAt,
       hasBody: !!r.hasBody,
       translated: translated.has(r.id),
@@ -1479,6 +1523,223 @@ export async function pruneScheduleEvents(
     return [];
   });
   return ids.length;
+}
+
+// ── Reset milestones ────────────────────────────────────────────────────────
+// Admin-managed recurring resets. The definitions live in `reset_milestones`;
+// `refreshResetEvents` (workflow cron) materializes the next horizon of their
+// occurrences into `events` as `mark` rows via `buildResetEvents`, then swaps
+// them in with `replaceResetEvents`. See reset-events.ts.
+
+/** Every reset definition, in display / title-join order. */
+export async function listResetMilestones(
+  db: Database,
+): Promise<ResetMilestone[]> {
+  return db
+    .select()
+    .from(resetMilestones)
+    .orderBy(asc(resetMilestones.sortOrder), asc(resetMilestones.id))
+    .all();
+}
+
+/** A single reset definition by id, or undefined. */
+export async function getResetMilestone(
+  db: Database,
+  id: string,
+): Promise<ResetMilestone | undefined> {
+  return db
+    .select()
+    .from(resetMilestones)
+    .where(eq(resetMilestones.id, id))
+    .get();
+}
+
+/** Create or update a reset definition (admin editor). */
+export async function upsertResetMilestone(
+  db: Database,
+  row: NewResetMilestone,
+): Promise<void> {
+  await db
+    .insert(resetMilestones)
+    .values(row)
+    .onConflictDoUpdate({
+      target: resetMilestones.id,
+      set: {
+        titleJa: row.titleJa,
+        titles: row.titles,
+        rrule: row.rrule,
+        enabled: row.enabled,
+        sortOrder: row.sortOrder,
+        note: row.note,
+        updatedAt: row.updatedAt,
+      },
+    });
+}
+
+/** Delete a reset definition. Its materialized events clear on the next refresh
+ *  (or immediately, when the admin API re-materializes after the change). */
+export async function deleteResetMilestone(
+  db: Database,
+  id: string,
+): Promise<void> {
+  await db.delete(resetMilestones).where(eq(resetMilestones.id, id));
+}
+
+/**
+ * Swap in a freshly materialized set of reset `mark` events (sourceType='reset')
+ * for the forward window starting at `from`: delete the existing reset rows from
+ * `from` onward (clearing anything a disabled/edited def no longer covers) with
+ * their title translations, then insert the new rows and per-language titles.
+ * Batched to stay under D1's ~100 bound-parameter cap; deterministic ids let a
+ * partial failure self-heal on the next run.
+ */
+export async function replaceResetEvents(
+  db: Database,
+  rows: NewEvent[],
+  titles: ResetTitleMap,
+  from: Temporal.ZonedDateTime,
+  now: Temporal.Instant,
+): Promise<void> {
+  // Clear the window we're about to rewrite (drizzle serializes the bound
+  // ZonedDateTime with the column's own offset:'never' mapping).
+  const stale = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(
+      and(
+        eq(events.sourceType, RESET_SOURCE_TYPE),
+        gte(events.startTime, from),
+      ),
+    )
+    .all();
+  const staleIds = stale.map((r) => r.id);
+  await chunked(staleIds, async (slice) => {
+    await db.delete(events).where(inArray(events.id, slice));
+    await db
+      .delete(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'event'),
+          inArray(translations.itemId, slice),
+        ),
+      );
+    return [];
+  });
+
+  // 8 bound params per event; D1 caps a statement at 100, so 12 rows max.
+  const EVENTS_PER_INSERT = 12;
+  for (let i = 0; i < rows.length; i += EVENTS_PER_INSERT) {
+    const batch = rows.slice(i, i + EVENTS_PER_INSERT);
+    if (batch.length > 0) {
+      await db.insert(events).values(batch).onConflictDoNothing();
+    }
+  }
+
+  // Flatten the per-language titles into translation rows (state='done', so the
+  // CHECK requires value + translatedAt + model — these are admin-authored, not
+  // AI output, so the model marker is the source tag).
+  const titleRows: (typeof translations.$inferInsert)[] = [];
+  for (const row of rows) {
+    const perLang = titles.get(row.id);
+    if (!perLang) continue;
+    for (const [language, value] of Object.entries(perLang)) {
+      titleRows.push({
+        itemType: 'event',
+        itemId: row.id,
+        language,
+        field: 'title',
+        state: 'done',
+        value,
+        translatedAt: now,
+        model: RESET_SOURCE_TYPE,
+        updatedAt: now,
+      });
+    }
+  }
+  // 9 bound params per translation row → 10 rows max under the cap.
+  const TITLES_PER_INSERT = 10;
+  for (let i = 0; i < titleRows.length; i += TITLES_PER_INSERT) {
+    const batch = titleRows.slice(i, i + TITLES_PER_INSERT);
+    if (batch.length > 0) {
+      await db.insert(translations).values(batch).onConflictDoNothing();
+    }
+  }
+}
+
+/**
+ * Prune materialized reset events (sourceType='reset') that have already passed,
+ * with their title translations. Reset rows accrete forever (one mark per day),
+ * so a retention horizon keeps the table bounded. Returns the number deleted.
+ */
+export async function pruneResetEvents(
+  db: Database,
+  cutoff: Temporal.ZonedDateTime,
+): Promise<number> {
+  const stale = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(
+      and(
+        eq(events.sourceType, RESET_SOURCE_TYPE),
+        lt(events.startTime, cutoff),
+      ),
+    )
+    .all();
+  if (stale.length === 0) return 0;
+
+  const ids = stale.map((r) => r.id);
+  await chunked(ids, async (slice) => {
+    await db.delete(events).where(inArray(events.id, slice));
+    await db
+      .delete(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'event'),
+          inArray(translations.itemId, slice),
+        ),
+      );
+    return [];
+  });
+  return ids.length;
+}
+
+/** Default forward window materialized by {@link materializeResetEvents}. */
+export const RESET_HORIZON_DAYS = 120;
+
+/**
+ * Materialize the enabled reset definitions into `events` for a forward window
+ * and swap them in. The window starts at midnight JST *today* (so a reset that
+ * already fired earlier today still shows on today's calendar) and runs
+ * `horizonDays` ahead. Shared by the nightly cron and the admin editor (which
+ * re-materializes on save so edits appear without waiting for the cron).
+ * Returns how many merged marks were written.
+ */
+export async function materializeResetEvents(
+  db: Database,
+  opts: { now?: Temporal.Instant; horizonDays?: number } = {},
+): Promise<{ marks: number }> {
+  const now = opts.now ?? Temporal.Now.instant();
+  const horizonDays = opts.horizonDays ?? RESET_HORIZON_DAYS;
+
+  const from = now
+    .toZonedDateTimeISO('Asia/Tokyo')
+    .toPlainDate()
+    .toZonedDateTime('Asia/Tokyo');
+  const to = from.add({ days: horizonDays });
+
+  const [defs, languages] = await Promise.all([
+    listResetMilestones(db),
+    getEnabledLanguages(db),
+  ]);
+  const { events: rows, titles } = buildResetEvents(
+    defs,
+    from,
+    to,
+    languages.map((l) => l.code),
+    now,
+  );
+  await replaceResetEvents(db, rows, titles, from, now);
+  return { marks: rows.length };
 }
 
 /**

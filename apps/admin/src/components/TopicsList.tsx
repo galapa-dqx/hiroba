@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { formatLocalDate } from '@hiroba/ui/format-date';
 
@@ -14,11 +14,13 @@ import {
   type TopicItem,
 } from '../lib/api';
 import { subscribeJob } from '../lib/job-stream';
+import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /** Matches the server-side cap in lib/trigger-recent.ts. */
 const MAX_RECENT_TRIGGER = 50;
 
 export default function TopicsList() {
+  const lang = usePrimaryLanguage();
   const [items, setItems] = useState<TopicItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
@@ -31,11 +33,17 @@ export default function TopicsList() {
   const [recentCount, setRecentCount] = useState(10);
   const [triggering, setTriggering] = useState(false);
   const [triggerMsg, setTriggerMsg] = useState<string | null>(null);
+  // Monotonic token so a slow in-flight list load (e.g. from an earlier
+  // language) can't clobber the results of a newer one.
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     loadStats();
-    loadItems();
   }, []);
+
+  useEffect(() => {
+    loadItems();
+  }, [lang]);
 
   async function loadStats() {
     try {
@@ -46,21 +54,25 @@ export default function TopicsList() {
   }
 
   async function loadItems() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
-      const { items, nextCursor } = await getTopicsList({ limit: 50 });
+      const { items, nextCursor } = await getTopicsList({ limit: 50, lang });
+      if (seq !== loadSeq.current) return; // a newer load superseded this one
       setItems(items);
       setNextCursor(nextCursor);
     } catch (err) {
       console.error(err);
     }
-    setLoading(false);
+    if (seq === loadSeq.current) setLoading(false);
   }
 
   async function loadMore() {
     if (!nextCursor) return;
+    const seq = ++loadSeq.current;
     try {
-      const res = await getTopicsList({ limit: 50, cursor: nextCursor });
+      const res = await getTopicsList({ limit: 50, cursor: nextCursor, lang });
+      if (seq !== loadSeq.current) return; // language changed mid-flight
       setItems((prev) => [...prev, ...res.items]);
       setNextCursor(res.nextCursor);
     } catch (err) {
@@ -278,7 +290,9 @@ export default function TopicsList() {
               {items.map((item) => (
                 <tr key={item.id}>
                   <td className="title-cell">
-                    <a href={`/topics/${item.id}`}>{item.titleJa}</a>
+                    <a href={`/topics/${item.id}`}>
+                      {item.titleLocalized || item.titleJa}
+                    </a>
                     <a
                       className="external-link"
                       href={`https://hiroba.dqx.jp/sc/topics/detail/${item.id}/`}
@@ -288,6 +302,11 @@ export default function TopicsList() {
                     >
                       ↗
                     </a>
+                    {item.titleLocalized && (
+                      <span className="title-cell__ja" lang="ja">
+                        {item.titleJa}
+                      </span>
+                    )}
                   </td>
                   <td>{formatLocalDate(item.publishedAt)}</td>
                   <td>{item.hasBody ? '✓' : '—'}</td>

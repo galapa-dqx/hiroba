@@ -16,6 +16,8 @@ import {
   getEnabledLanguages,
   getTranslatedItemIds,
   glossary,
+  materializeResetEvents,
+  pruneResetEvents,
   pruneScheduleEvents,
   reconcileEvents,
   replaceScheduleEvents,
@@ -160,7 +162,8 @@ export default Sentry.withSentry(
      * - "0 * * * *" = Hourly refresh: news + topics list discovery, then the
      *   recheck queue (poll due articles for post-publication edits)
      * - "0 15 * * *" = Daily (midnight JST): glossary + playguide crawl
-     * - "10 15 * * *" = Daily: つよさ予報 schedule refresh + retention prune
+     * - "10 15 * * *" = Daily: つよさ予報 schedule refresh + reset-milestone
+     *   materialize, both with retention prune
      * - "20 15 * * *" = Daily: event reconcile sweep
      */
     async scheduled(
@@ -181,6 +184,8 @@ export default Sentry.withSentry(
         case '10 15 * * *':
           await refreshSchedule(db, env, log);
           await pruneOldScheduleEvents(db, log);
+          await refreshResetEvents(db, log);
+          await pruneOldResetEvents(db, log);
           break;
         case '20 15 * * *':
           await reconcileExtractedEvents(db, env, log);
@@ -335,6 +340,43 @@ async function pruneOldScheduleEvents(
     );
   } catch (error) {
     log.error('Failed to prune schedule events:', error);
+  }
+}
+
+/**
+ * Re-materialize the admin-managed reset milestones (daily/weekly/monthly game
+ * resets) into `events` for the forward horizon. Deterministic (RRULE expansion,
+ * no LLM/Workflow) — parse straight to rows. Best-effort: a failure is logged,
+ * never fails the cron.
+ */
+async function refreshResetEvents(db: Database, log: Logger): Promise<void> {
+  try {
+    const { marks } = await materializeResetEvents(db);
+    log.info(`Refreshed reset milestones (${marks} marks)`);
+  } catch (error) {
+    log.error('Failed to refresh reset milestones:', error);
+  }
+}
+
+/** How long a materialized reset milestone stays around after it has passed. */
+const RESET_RETENTION_MONTHS = 1;
+
+/**
+ * Drop reset marks older than the retention horizon — one mark accretes per day
+ * forever, and only the recent past is worth keeping as calendar history.
+ * Best-effort: a failure is logged, never fails the cron.
+ */
+async function pruneOldResetEvents(db: Database, log: Logger): Promise<void> {
+  try {
+    const cutoff = Temporal.Now.zonedDateTimeISO('Asia/Tokyo').subtract({
+      months: RESET_RETENTION_MONTHS,
+    });
+    const pruned = await pruneResetEvents(db, cutoff);
+    log.info(
+      `Pruned ${pruned} reset marks older than ${cutoff.toPlainDate().toString()}`,
+    );
+  } catch (error) {
+    log.error('Failed to prune reset milestones:', error);
   }
 }
 
