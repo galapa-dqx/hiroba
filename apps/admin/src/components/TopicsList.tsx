@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { formatLocalDate } from '@hiroba/ui/format-date';
 
@@ -33,6 +33,9 @@ export default function TopicsList() {
   const [recentCount, setRecentCount] = useState(10);
   const [triggering, setTriggering] = useState(false);
   const [triggerMsg, setTriggerMsg] = useState<string | null>(null);
+  // Monotonic token so a slow in-flight list load (e.g. from an earlier
+  // language) can't clobber the results of a newer one.
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     loadStats();
@@ -51,21 +54,25 @@ export default function TopicsList() {
   }
 
   async function loadItems() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
       const { items, nextCursor } = await getTopicsList({ limit: 50, lang });
+      if (seq !== loadSeq.current) return; // a newer load superseded this one
       setItems(items);
       setNextCursor(nextCursor);
     } catch (err) {
       console.error(err);
     }
-    setLoading(false);
+    if (seq === loadSeq.current) setLoading(false);
   }
 
   async function loadMore() {
     if (!nextCursor) return;
+    const seq = ++loadSeq.current;
     try {
       const res = await getTopicsList({ limit: 50, cursor: nextCursor, lang });
+      if (seq !== loadSeq.current) return; // language changed mid-flight
       setItems((prev) => [...prev, ...res.items]);
       setNextCursor(res.nextCursor);
     } catch (err) {

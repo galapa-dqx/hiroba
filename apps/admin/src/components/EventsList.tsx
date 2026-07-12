@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { formatJst, formatJstDate, formatLocal } from '@hiroba/ui/format-date';
 
@@ -42,12 +42,16 @@ export default function EventsList() {
   const [loading, setLoading] = useState(true);
   const [type, setType] = useState<string>('');
   const [search, setSearch] = useState<string>('');
+  // Monotonic token so a slow in-flight load (e.g. from an earlier language)
+  // can't clobber the results of a newer one.
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     loadItems();
   }, [type, lang]);
 
   async function loadItems() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
       const { items } = await getEvents({
@@ -56,11 +60,12 @@ export default function EventsList() {
         search: search || undefined,
         lang,
       });
+      if (seq !== loadSeq.current) return; // a newer load superseded this one
       setItems(items);
     } catch (err) {
       console.error(err);
     }
-    setLoading(false);
+    if (seq === loadSeq.current) setLoading(false);
   }
 
   async function handleSearch(e: React.FormEvent) {

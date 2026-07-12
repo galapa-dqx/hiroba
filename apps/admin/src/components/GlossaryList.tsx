@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { formatLocalDate } from '@hiroba/ui/format-date';
 
@@ -21,20 +21,28 @@ export default function GlossaryList() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(EMPTY_FORM);
+  // Monotonic token so a slow in-flight load from an earlier language can't
+  // clobber a newer one's entries.
+  const loadSeq = useRef(0);
 
   useEffect(() => {
+    // Drop any half-typed override when the language changes — its text is in
+    // the previous language and must not be saved under the new one.
+    setForm(EMPTY_FORM);
     loadEntries();
   }, [lang]);
 
   async function loadEntries() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
       const { entries } = await getGlossary(lang);
+      if (seq !== loadSeq.current) return; // a newer load superseded this one
       setEntries(entries);
     } catch (err) {
       console.error(err);
     }
-    setLoading(false);
+    if (seq === loadSeq.current) setLoading(false);
   }
 
   async function handleSaveOverride(e: React.FormEvent) {
