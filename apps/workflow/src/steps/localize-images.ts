@@ -15,6 +15,7 @@ import {
   getImagesByKeys,
   getImageTranslations,
   getLocalizedImageModels,
+  MANUAL_IMAGE_MODEL,
   setTranslationStates,
   upsertImageTranslation,
   type Database,
@@ -136,6 +137,7 @@ async function localizeImagesForLanguage(
   apiKey: string,
   rows: Awaited<ReturnType<typeof getImagesByKeys>>,
   target: TargetLanguage,
+  force: boolean,
 ): Promise<LocalizeResult> {
   const language = target.code;
   const ids = rows.map((r) => r.id);
@@ -173,8 +175,15 @@ async function localizeImagesForLanguage(
       }
       return;
     }
-    if (localizedBy.get(row.id) === IMAGE_MODEL) {
-      skipped++; // already localized by the current model
+    // Skip images already settled for this language — either localized by the
+    // current model, or carrying a hand-supplied manual override. An explicit
+    // admin regeneration passes `force` to redo them anyway.
+    const localizedModel = localizedBy.get(row.id);
+    if (
+      !force &&
+      (localizedModel === IMAGE_MODEL || localizedModel === MANUAL_IMAGE_MODEL)
+    ) {
+      skipped++;
       return;
     }
 
@@ -274,7 +283,8 @@ async function localizeImagesForLanguage(
 
 /**
  * Localize every text-bearing image referenced by `blocks`, once per target
- * language. Idempotent per (language, model).
+ * language. Idempotent per (language, model) — pass `force` to regenerate images
+ * already localized (or manually overridden), e.g. an admin-triggered redo.
  */
 export async function localizeImages(
   db: Database,
@@ -283,6 +293,7 @@ export async function localizeImages(
   apiKey: string,
   blocks: Block[],
   targetLanguages: TargetLanguage[],
+  opts: { force?: boolean } = {},
 ): Promise<LocalizeResult> {
   const keys = [
     ...new Set(
@@ -304,6 +315,7 @@ export async function localizeImages(
       apiKey,
       rows,
       target,
+      opts.force ?? false,
     );
     total.localized += result.localized;
     total.skipped += result.skipped;
