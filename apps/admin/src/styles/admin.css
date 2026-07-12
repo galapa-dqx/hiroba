@@ -1718,6 +1718,10 @@ hr.divider {
 }
 
 .img-side__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -1725,6 +1729,17 @@ hr.divider {
   color: var(--ink-soft);
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--rule);
+}
+.img-side__edit {
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--accent-11, var(--gold-edge));
+  text-decoration: none;
+  white-space: nowrap;
+}
+.img-side__edit:hover {
+  text-decoration: underline;
 }
 
 /* framed image on a checkerboard so transparency (the localized PNGs) reads */
@@ -1796,6 +1811,92 @@ hr.divider {
   margin-top: 0.2rem;
 }
 
+/* ---- single-image edit screen ---- */
+.image-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.image-edit__key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+.image-edit__row {
+  margin: 0;
+}
+.image-edit__source-tag {
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.image-edit__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.1rem;
+  background: var(--surface-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md), var(--inset-top);
+}
+.image-edit__pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.image-edit__pairs-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+.image-edit__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+.image-edit__ja {
+  padding: 0.4rem 0.6rem;
+  background: var(--surface-sunken);
+  border-left: 2px solid var(--gold-edge);
+  font-family:
+    'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, var(--font-body);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+.image-edit__pair input {
+  width: 100%;
+}
+.image-edit__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--rule);
+}
+.image-edit__upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+.image-edit__upload input[type='file'] {
+  max-width: 15rem;
+  font-size: 0.82rem;
+}
+.image-edit__status {
+  font-size: 0.86rem;
+  color: var(--green-11, var(--ink-soft));
+}
+
 @media (max-width: 640px) {
   .img-row {
     grid-template-columns: 1fr;
@@ -1803,5 +1904,8 @@ hr.divider {
   .img-side + .img-side {
     border-left: none;
     border-top: 1px solid var(--rule);
+  }
+  .image-edit__upload {
+    margin-left: 0;
   }
 }

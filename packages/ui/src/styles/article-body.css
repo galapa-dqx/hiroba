@@ -222,22 +222,74 @@
   box-shadow: var(--inset-top), var(--shadow-sm);
 }
 
-/* badge → red chip */
+/* badge → colored chip. The base chip builds its gradient + ink from --badge;
+   each variant below only supplies the fill color, sampled from the dominant
+   pixel of the original DQX sprite icon it stands in for (ico_2nd.gif …
+   ico_8th.gif, ico_teian.gif, …) — so a "7th" chip reads magenta, "2nd" blue,
+   and so on, the way the source badges are colour-coded. Unlabelled badges fall
+   back to the "New" red. The font is pinned to the sans-serif body stack (with a
+   self-contained fallback) so a chip never inherits a surrounding serif — e.g.
+   inside a display-font table header. */
 .article-body .rt-badge {
   display: inline-block;
   margin-left: 0.3em;
   padding: 0.08em 0.45em;
+  font-family: var(--font-body, ui-sans-serif, system-ui, sans-serif);
   font-size: 0.72em;
   font-weight: 800;
   letter-spacing: 0.04em;
-  color: oklch(99% 0.01 30);
-  background: linear-gradient(180deg, var(--red-9), var(--red-10));
+  color: var(--badge-ink, oklch(99% 0.01 30));
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--badge, #a40312), white 13%),
+    color-mix(in oklch, var(--badge, #a40312), black 9%)
+  );
   border-radius: var(--radius);
 }
-/* the "Check" mark (TOC entries) → a gilt chip, not the red "New" flag */
+/* Fill colours sampled from the source sprites. White numerals like the
+   originals; only the light gold "6th" flips to dark ink for legibility. */
+.article-body .rt-badge[data-variant='1st'] {
+  --badge: #129b68;
+}
+.article-body .rt-badge[data-variant='2nd'] {
+  --badge: #124c9b;
+}
+.article-body .rt-badge[data-variant='3rd'] {
+  --badge: #c35d1d;
+}
+.article-body .rt-badge[data-variant='4th'] {
+  --badge: #00645c;
+}
+.article-body .rt-badge[data-variant='5th'] {
+  --badge: #3e297d;
+}
+.article-body .rt-badge[data-variant='6th'] {
+  --badge: #b9a33e;
+  --badge-ink: #241d05;
+}
+.article-body .rt-badge[data-variant='7th'] {
+  --badge: #be4894;
+}
+.article-body .rt-badge[data-variant='8th'] {
+  --badge: #647837;
+}
+.article-body .rt-badge[data-variant='teian'] {
+  --badge: #075300;
+}
+.article-body .rt-badge[data-variant='smt'] {
+  --badge: #629b12;
+}
+.article-body .rt-badge[data-variant='3ds'] {
+  --badge: #129b7f;
+}
+.article-body .rt-badge[data-variant='new_s'] {
+  --badge: #e71f19;
+}
+.article-body .rt-badge[data-variant='newsystem'] {
+  --badge: #a40312;
+}
 .article-body .rt-badge[data-variant='checkmark'] {
-  color: oklch(30% 0.05 70);
-  background: linear-gradient(180deg, var(--gold-hi), var(--gold-mid));
+  --badge: #ba5519;
 }
 
 .article-body .rt-icon {

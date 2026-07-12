@@ -28,15 +28,20 @@ import {
   createDb,
   getActiveWorkflowRun,
   getEnabledLanguages,
+  getImageById,
+  getImageTranslations,
+  getImageTranslationStates,
   getNewsItem,
   getPlayguide,
   getTitleTranslations,
   getTopic,
   listWorkflowRuns,
+  MANUAL_IMAGE_MODEL,
   pruneWorkflowRuns,
   recordWorkflowRun,
   updateWorkflowRunStatus,
 } from '@hiroba/db';
+import { imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   describeSnapshot,
   isRunActive,
@@ -48,6 +53,7 @@ import {
   type WorkflowRunStatus,
 } from '@hiroba/shared';
 
+import { localizeImages } from './steps/localize-images';
 import type { Env, ItemType, NewsBackfillWorkflowOutput } from './types';
 
 /** How long settled runs stay in the tracker's listing. */
@@ -142,6 +148,9 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     if (url.pathname === '/regenerate-glossary' && request.method === 'POST') {
       return this.handleRegenerateGlossary(request);
+    }
+    if (url.pathname === '/regenerate-image' && request.method === 'POST') {
+      return this.handleRegenerateImage(request);
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
@@ -694,6 +703,81 @@ export class WorkflowManager extends DurableObject<Env> {
     const instance = await workflow.create({ params: { sourceText } });
     this.activeRegenerations.set(sourceText, instance.id);
     return Response.json({ status: 'started', instanceId: instance.id });
+  }
+
+  /**
+   * Regenerate one image's localized raster for one language with gpt-image-2,
+   * synchronously — the admin edit page awaits the fresh image. Runs the shared
+   * localize step (which reads the current translated spans from D1) with
+   * `force`, so it redoes an image even if it's already localized or manually
+   * overridden. Bounded work: a single image × single language.
+   *
+   * This DO holds the OpenAI key and the Images binding the admin worker lacks,
+   * which is why regeneration is proxied here rather than done in the admin app.
+   */
+  private async handleRegenerateImage(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      imageId?: unknown;
+      language?: unknown;
+    };
+    const imageId =
+      typeof body.imageId === 'number' ? body.imageId : Number(body.imageId);
+    const language = typeof body.language === 'string' ? body.language : '';
+    if (!Number.isInteger(imageId) || !language) {
+      return Response.json(
+        { error: 'imageId (number) and language required' },
+        { status: 400 },
+      );
+    }
+
+    const db = createDb(this.env.DB);
+    const image = await getImageById(db, imageId);
+    if (!image) {
+      return Response.json({ error: 'Image not found' }, { status: 404 });
+    }
+
+    // The label is what the prompt says to translate into; take it from the
+    // whitelist so an admin can't regenerate into a disabled/unknown language.
+    const languages = await getEnabledLanguages(db);
+    const target = languages.find((l) => l.code === language);
+    if (!target) {
+      return Response.json(
+        { error: `Language '${language}' is not enabled` },
+        { status: 400 },
+      );
+    }
+
+    // The shared step operates on a block tree; wrap the image in a minimal node.
+    const blocks: Block[] = [
+      { type: 'image', src: imageUpstreamUrl(image.key) },
+    ];
+    // Force past any existing (or manual) row, and stamp the result manual so —
+    // like an upload — an operator's regeneration survives the nightly refresh.
+    const result = await localizeImages(
+      db,
+      this.env.IMAGES_BUCKET,
+      this.env.IMAGES,
+      this.env.OPENAI_API_KEY,
+      blocks,
+      [{ code: target.code, label: target.label }],
+      { force: true, model: MANUAL_IMAGE_MODEL },
+    );
+
+    // Report the url row's settled state so the client can show the new image
+    // or the failure reason without a second round-trip.
+    const states = await getImageTranslationStates(
+      db,
+      [imageId],
+      language,
+      'url',
+    );
+    const values = await getImageTranslations(db, [imageId], language, 'url');
+    const state = states.get(imageId) ?? null;
+    return Response.json({
+      status: result.localized > 0 ? 'done' : 'failed',
+      state,
+      localizedKey: values.get(imageId) ?? null,
+    });
   }
 
   /** Handle status request. */
