@@ -545,16 +545,24 @@ export type AdminImage = {
   key: string; // imageKey <host>/<path> — the R2 key of the original
   textsJa: string[] | null; // transcribed source spans; null = not transcribed
   hasText: boolean; // has >=1 Japanese span (i.e. a localization candidate)
+  isBanner: boolean; // backs a rotation banner (banners.imageKey = key)
   mirrorState: PhaseState;
   transcribeState: PhaseState;
   updatedAt: string; // ISO-8601 UTC instant
   translation: ImageTranslation;
 };
 
+/** Image source categories the images screen can filter to server-side. */
+export type ImageSourceFilter = 'banner';
+
 export async function getImages(options: {
   lang: string;
   limit?: number;
   cursor?: number;
+  /** Keep only images bearing Japanese text (localization candidates). */
+  onlyText?: boolean;
+  /** Keep only images from this source (currently: rotation banners). */
+  source?: ImageSourceFilter;
 }): Promise<{
   language: string;
   items: AdminImage[];
@@ -564,6 +572,8 @@ export async function getImages(options: {
   const params = new URLSearchParams({ lang: options.lang });
   if (options.limit) params.set('limit', String(options.limit));
   if (options.cursor != null) params.set('cursor', String(options.cursor));
+  if (options.onlyText) params.set('onlyText', 'true');
+  if (options.source) params.set('source', options.source);
   return adminFetch(`/api/images?${params}`);
 }
 

@@ -24,6 +24,18 @@ import {
 
 const PAGE_SIZE = 24;
 
+/**
+ * Image source categories the screen can filter to. Only `banner` is a
+ * first-class join today (banners.imageKey = images.key); topic/playguide
+ * membership lives inside article block trees and isn't tagged yet, so those
+ * aren't offered here. `all` is the unfiltered default.
+ */
+const SOURCE_FILTERS = [
+  { key: 'all', label: 'All sources' },
+  { key: 'banner', label: 'Banners' },
+] as const;
+type SourceFilter = (typeof SOURCE_FILTERS)[number]['key'];
+
 type Step = { key: string; label: string; state: PhaseState };
 
 /** The ordered pipeline steps for an image, with the current language's states. */
@@ -177,6 +189,7 @@ export default function ImagesList() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [onlyText, setOnlyText] = useState(false);
+  const [source, setSource] = useState<SourceFilter>('all');
 
   // A token so a slow in-flight request for an old language can't clobber a
   // newer one's results.
@@ -211,6 +224,8 @@ export default function ImagesList() {
           lang,
           limit: PAGE_SIZE,
           cursor: nextCursor,
+          onlyText,
+          source: source === 'all' ? undefined : source,
         });
         if (token !== reqRef.current) return; // superseded
         setItems((prev) => (first ? res.items : [...prev, ...res.items]));
@@ -226,20 +241,37 @@ export default function ImagesList() {
         }
       }
     },
-    [lang],
+    [lang, onlyText, source],
   );
 
-  // (Re)load from the top whenever the language changes.
+  // (Re)load from the top whenever the language or a filter changes.
   useEffect(() => {
     load(undefined);
   }, [load]);
 
   const langLabel = labels[lang] ?? lang;
-  const shown = onlyText ? items.filter((i) => i.hasText) : items;
+  // Filtering is server-side (see getImages); `items` is already the matching
+  // set for the loaded pages.
+  const shown = items;
 
   return (
     <div className="images-list">
       <div className="filters">
+        <div className="img-source-filter" role="group" aria-label="Source">
+          {SOURCE_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              className={`img-source-filter__btn${
+                source === f.key ? ' is-active' : ''
+              }`}
+              aria-pressed={source === f.key}
+              onClick={() => setSource(f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
         <label>
           <input
             type="checkbox"
@@ -259,9 +291,13 @@ export default function ImagesList() {
         <p className="loading">Loading…</p>
       ) : shown.length === 0 ? (
         <div className="empty-state">
-          {onlyText
-            ? 'No text-bearing images on the loaded pages.'
-            : 'No images stored yet.'}
+          {source === 'banner' && onlyText
+            ? 'No banner images with Japanese text.'
+            : source === 'banner'
+              ? 'No banner images.'
+              : onlyText
+                ? 'No images with Japanese text.'
+                : 'No images stored yet.'}
         </div>
       ) : (
         <div className="img-grid">

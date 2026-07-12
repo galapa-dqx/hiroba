@@ -57,13 +57,21 @@ export const GET: APIRoute = async ({ locals, url }) => {
   const cursorParam = cursorRaw ? Number(cursorRaw) : NaN;
   const cursor = Number.isFinite(cursorParam) ? cursorParam : undefined;
 
+  // Filters applied server-side so pagination walks the matching set, not every
+  // image. `source` is validated against the known set; anything else = no filter.
+  const onlyText = url.searchParams.get('onlyText') === 'true';
+  const source =
+    url.searchParams.get('source') === 'banner' ? 'banner' : undefined;
+
   const { rows, hasMore, nextCursor } = await listImagesForAdmin(db, {
     language,
     limit,
     cursor,
+    onlyText,
+    source,
   });
 
-  const items = rows.map(({ image, text, url: urlRow }) => {
+  const items = rows.map(({ image, text, url: urlRow, isBanner }) => {
     // textsJa is a json<string[]> column — already parsed on read. The `text`
     // translation, by contrast, is a plain TEXT column holding a JSON array.
     const textsJa = image.textsJa ?? null;
@@ -72,6 +80,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
       key: image.key,
       textsJa,
       hasText: !!textsJa && hasJapanese(textsJa),
+      isBanner,
       mirrorState: image.mirrorState,
       transcribeState: image.transcribeState,
       updatedAt: image.updatedAt.toString(),

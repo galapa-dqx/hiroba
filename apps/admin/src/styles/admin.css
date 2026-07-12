@@ -1831,6 +1831,44 @@ hr.divider {
   cursor: pointer;
 }
 
+/* Source segmented control (All sources / Banners / …). */
+.img-source-filter {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-inset, var(--surface-panel));
+}
+.img-source-filter__btn {
+  padding: 0.34rem 0.8rem;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius) - 0.15rem);
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+.img-source-filter__btn:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  color: var(--ink-strong, var(--accent));
+  background: color-mix(in oklch, var(--accent) 8%, transparent);
+  box-shadow: none;
+}
+.img-source-filter__btn.is-active {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 14%, transparent);
+  border-color: var(--accent-ring);
+}
+
 .img-grid {
   display: flex;
   flex-direction: column;

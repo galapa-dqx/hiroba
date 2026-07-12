@@ -31,6 +31,7 @@ import {
   setImageTranscribeState,
   setItemFetchState,
   setTranslationStates,
+  syncBanners,
   updateWorkflowRunStatus,
   upsertImageTranscription,
   upsertImageTranslation,
@@ -1089,6 +1090,144 @@ describe('listImagesForAdmin', () => {
     expect(frRow.url?.value).toBe('l10n/fr/host/localized.png');
     // No French text was translated → no text row yet.
     expect(frRow.text).toBeNull();
+  });
+
+  it('tags images that back a rotation banner via isBanner', async () => {
+    const bannerId = await upsertImageTranscription(ctx.db, {
+      key: 'cache.hiroba.dqx.jp/banner_rotation_20260101_a.png',
+      textsJa: [],
+      model: 'gpt-vision',
+    });
+    const plainId = await upsertImageTranscription(ctx.db, {
+      key: 'cache.hiroba.dqx.jp/dq_resource/topic-only.png',
+      textsJa: [],
+      model: 'gpt-vision',
+    });
+    await syncBanners(ctx.db, [
+      {
+        imageKey: 'cache.hiroba.dqx.jp/banner_rotation_20260101_a.png',
+        linkUrl: null,
+        linkTopicId: null,
+        altJa: 'バナー',
+        sortOrder: 0,
+        publishedAt: null,
+      },
+    ]);
+
+    const { rows } = await listImagesForAdmin(ctx.db, { language: 'en' });
+    expect(rows.find((r) => r.image.id === bannerId)?.isBanner).toBe(true);
+    expect(rows.find((r) => r.image.id === plainId)?.isBanner).toBe(false);
+  });
+
+  it('filters to Japanese-text images server-side with onlyText', async () => {
+    const withJa = await upsertImageTranscription(ctx.db, {
+      key: 'host/has-ja.png',
+      textsJa: ['ぜんぶ', 'ヒーロー'],
+      model: 'gpt-vision',
+    });
+    // Transcribed but no Japanese (roman-only span) — not a localize candidate.
+    await upsertImageTranscription(ctx.db, {
+      key: 'host/roman-only.png',
+      textsJa: ['LEVEL UP'],
+      model: 'gpt-vision',
+    });
+    // Transcribed, empty.
+    await upsertImageTranscription(ctx.db, {
+      key: 'host/empty.png',
+      textsJa: [],
+      model: 'gpt-vision',
+    });
+
+    const { rows } = await listImagesForAdmin(ctx.db, {
+      language: 'en',
+      onlyText: true,
+    });
+    expect(rows.map((r) => r.image.id)).toEqual([withJa]);
+  });
+
+  it('filters to banner images server-side with source=banner', async () => {
+    const bannerId = await upsertImageTranscription(ctx.db, {
+      key: 'cache.hiroba.dqx.jp/rotationbanner/b.png',
+      textsJa: ['バナー文'],
+      model: 'gpt-vision',
+    });
+    await upsertImageTranscription(ctx.db, {
+      key: 'host/not-a-banner.png',
+      textsJa: ['トピック文'],
+      model: 'gpt-vision',
+    });
+    await syncBanners(ctx.db, [
+      {
+        imageKey: 'cache.hiroba.dqx.jp/rotationbanner/b.png',
+        linkUrl: null,
+        linkTopicId: null,
+        altJa: 'バナー',
+        sortOrder: 0,
+        publishedAt: null,
+      },
+    ]);
+
+    const { rows } = await listImagesForAdmin(ctx.db, {
+      language: 'en',
+      source: 'banner',
+    });
+    expect(rows.map((r) => r.image.id)).toEqual([bannerId]);
+    expect(rows[0].isBanner).toBe(true);
+    // onlyText composes with source in the same WHERE clause.
+    const both = await listImagesForAdmin(ctx.db, {
+      language: 'en',
+      source: 'banner',
+      onlyText: true,
+    });
+    expect(both.rows.map((r) => r.image.id)).toEqual([bannerId]);
+  });
+
+  it('paginates over the filtered set, not the whole corpus', async () => {
+    // Interleave text-bearing and text-free images so a naive page would mix
+    // them; the filtered cursor must walk only the text-bearing ones.
+    const textIds: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      textIds.push(
+        await upsertImageTranscription(ctx.db, {
+          key: `host/ja-${i}.png`,
+          textsJa: [`日本語${i}`],
+          model: 'gpt-vision',
+        }),
+      );
+      await upsertImageTranscription(ctx.db, {
+        key: `host/blank-${i}.png`,
+        textsJa: [],
+        model: 'gpt-vision',
+      });
+    }
+
+    const first = await listImagesForAdmin(ctx.db, {
+      language: 'en',
+      onlyText: true,
+      limit: 2,
+    });
+    expect(first.rows).toHaveLength(2);
+    expect(first.hasMore).toBe(true);
+
+    const second = await listImagesForAdmin(ctx.db, {
+      language: 'en',
+      onlyText: true,
+      limit: 2,
+      cursor: first.nextCursor,
+    });
+    const third = await listImagesForAdmin(ctx.db, {
+      language: 'en',
+      onlyText: true,
+      limit: 2,
+      cursor: second.nextCursor,
+    });
+
+    // Five text-bearing images total, newest-first, no text-free row leaking in.
+    const paged = [...first.rows, ...second.rows, ...third.rows].map(
+      (r) => r.image.id,
+    );
+    expect(paged).toEqual([...textIds].reverse());
+    expect(third.hasMore).toBe(false);
   });
 });
 

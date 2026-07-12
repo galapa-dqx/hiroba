@@ -7,6 +7,7 @@ import {
   asc,
   desc,
   eq,
+  exists,
   getTableColumns,
   gt,
   gte,
@@ -2336,25 +2337,69 @@ export type AdminImageRow = {
   image: Image;
   text: Translation | null;
   url: Translation | null;
+  /** True when this image backs a rotation banner (banners.imageKey = key). */
+  isBanner: boolean;
 };
+
+/** Image source categories the admin screen can filter to (banner is the only
+ * one with a first-class join today; topic/playguide live in block trees). */
+export type ImageSourceFilter = 'banner';
+
+/**
+ * A GLOB that matches any hiragana/katakana/kanji character — the SQL twin of
+ * `hasJapanese` (see @hiroba/shared). Because a `texts_ja` value is a JSON array
+ * whose structural characters (`[] "",`) are all ASCII, matching Japanese
+ * anywhere in the raw text is exactly "some span contains Japanese".
+ */
+const JAPANESE_GLOB = '*[぀-ヿ㐀-䶿一-鿿ｦ-ﾟ]*';
 
 /**
  * List stored images newest-first (by surrogate id), each paired with its
  * `text`/`url` translation rows for one language. Cursor-paginated on the id so
  * the admin can lazily page the whole corpus.
+ *
+ * `onlyText` and `source` filter server-side (in the WHERE clause), so paging
+ * and the has-more/next-cursor accounting are computed over the filtered set —
+ * "Load more" walks the matches, not every image.
  */
 export async function listImagesForAdmin(
   db: Database,
-  opts: { language: string; limit?: number; cursor?: number },
+  opts: {
+    language: string;
+    limit?: number;
+    cursor?: number;
+    /** Keep only images bearing Japanese text (localization candidates). */
+    onlyText?: boolean;
+    /** Keep only images from this source (currently: rotation banners). */
+    source?: ImageSourceFilter;
+  },
 ): Promise<{ rows: AdminImageRow[]; hasMore: boolean; nextCursor?: number }> {
   const limit = Math.min(opts.limit ?? 30, 100);
   // Every page is the same `id < cursor` shape; the first page uses a sentinel
   // above every id (ids are autoincrement, so MAX_SAFE_INTEGER matches all).
   const cursor = opts.cursor ?? Number.MAX_SAFE_INTEGER;
+
+  const conditions = [lt(images.id, cursor)];
+  if (opts.onlyText) {
+    // Transcribed (non-null) and carrying at least one Japanese character.
+    conditions.push(isNotNull(images.textsJa));
+    conditions.push(sql`${images.textsJa} GLOB ${JAPANESE_GLOB}`);
+  }
+  if (opts.source === 'banner') {
+    conditions.push(
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(banners)
+          .where(eq(banners.imageKey, images.key)),
+      ),
+    );
+  }
+
   const imgRows = await db
     .select()
     .from(images)
-    .where(lt(images.id, cursor))
+    .where(and(...conditions))
     .orderBy(desc(images.id))
     .limit(limit + 1)
     .all();
@@ -2387,10 +2432,31 @@ export async function listImagesForAdmin(
     (tr.field === 'url' ? urlById : textById).set(Number(tr.itemId), tr);
   }
 
+  // Which of this page's images back a rotation banner (banners.imageKey = key).
+  // Banners are the one image source with a first-class join, so we can tag them
+  // cheaply here; topic/playguide membership lives only inside block trees. When
+  // the page is already filtered to banners, every row is one — skip the query.
+  const keys = page.map((r) => r.key);
+  const bannerKeys =
+    opts.source === 'banner' || keys.length === 0
+      ? new Set(keys)
+      : new Set(
+          (
+            await chunked(keys, (slice) =>
+              db
+                .select({ imageKey: banners.imageKey })
+                .from(banners)
+                .where(inArray(banners.imageKey, slice))
+                .all(),
+            )
+          ).map((r) => r.imageKey),
+        );
+
   const rows = page.map((image) => ({
     image,
     text: textById.get(image.id) ?? null,
     url: urlById.get(image.id) ?? null,
+    isBanner: bannerKeys.has(image.key),
   }));
 
   return {
