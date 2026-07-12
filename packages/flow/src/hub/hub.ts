@@ -760,7 +760,16 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           flow: url.searchParams.get('flow') ?? undefined,
           limit: Number.isInteger(limit) && limit > 0 ? limit : undefined,
         });
-        return Response.json({ runs });
+        // Each entry carries its current snapshot (a local SELECT per run):
+        // the poll is then a complete paint on its own — settled runs get
+        // their segment strip without a stream, and a dropped SSE heals on
+        // the next poll instead of leaving a stale strip.
+        return Response.json({
+          runs: runs.map((run) => ({
+            ...run,
+            snapshot: this.snapshotOf(run.runId),
+          })),
+        });
       }
       if (!url.pathname.endsWith('/sse')) {
         return Response.json({ error: 'not found' }, { status: 404 });

@@ -241,10 +241,18 @@ describe('listRuns', () => {
     );
     expect(response.status).toBe(200);
     const { runs } = (await response.json()) as {
-      runs: Array<{ runId: string; key: string; status: string }>;
+      runs: Array<{
+        runId: string;
+        key: string;
+        status: string;
+        snapshot: Snapshot | null;
+      }>;
     };
     const mine = runs.find((run) => run.runId === res.runId);
     expect(mine).toMatchObject({ key, status: 'complete' });
+    // Every entry embeds its snapshot — the listing alone paints full strips.
+    expect(mine?.snapshot?.status).toBe('complete');
+    expect(mine?.snapshot?.steps.work.current).toBe(3);
 
     // Junk/negative limits fall back to the default instead of reaching
     // SQLite as LIMIT NaN / LIMIT -1 (unbounded).

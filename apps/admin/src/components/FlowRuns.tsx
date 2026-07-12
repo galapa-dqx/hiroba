@@ -131,14 +131,28 @@ function FlowRunCard({ run, snapshot }: { run: RunInfo; snapshot?: Snapshot }) {
   );
 }
 
+/** One /runs listing entry: the run row plus its current snapshot, so the
+ *  poll alone paints full segment strips (settled runs included). */
+type RunListEntry = RunInfo & { snapshot: Snapshot | null };
+
 export default function FlowRuns() {
   const [runs, setRuns] = useState<RunInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const sources = useRef(new Map<string, EventSource>());
 
-  // Poll the run list — cheap (one local SELECT in the hub) and it doubles as
-  // the fallback when an SSE drops.
+  /** Keep the freshest frame per run — seq is monotonic, so a poll result
+   *  never regresses a newer SSE frame (and vice versa). */
+  const mergeSnapshot = (snap: Snapshot): void => {
+    setSnapshots((prev) => {
+      const current = prev[snap.runId];
+      if (current && current.seq >= snap.seq) return prev;
+      return { ...prev, [snap.runId]: snap };
+    });
+  };
+
+  // Poll the run list — each entry embeds its snapshot, so this is a complete
+  // paint on its own; SSE below only makes active runs live between polls.
   useEffect(() => {
     let cancelled = false;
 
@@ -147,9 +161,12 @@ export default function FlowRuns() {
       try {
         const res = await fetch('/api/flow-runs');
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { runs: RunInfo[] };
+        const data = (await res.json()) as { runs: RunListEntry[] };
         if (!cancelled) {
           setRuns(data.runs);
+          for (const run of data.runs) {
+            if (run.snapshot) mergeSnapshot(run.snapshot);
+          }
           setError(null);
         }
       } catch (err) {
@@ -182,8 +199,7 @@ export default function FlowRuns() {
         `/api/flow-runs/stream?runId=${encodeURIComponent(run.runId)}`,
       );
       source.onmessage = (event) => {
-        const snap = JSON.parse(event.data as string) as Snapshot;
-        setSnapshots((prev) => ({ ...prev, [snap.runId]: snap }));
+        mergeSnapshot(JSON.parse(event.data as string) as Snapshot);
       };
       // Terminal close and transport error look the same here; either way we
       // stop streaming and let the poll carry the status from now on.
