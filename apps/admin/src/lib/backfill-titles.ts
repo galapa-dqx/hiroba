@@ -1,23 +1,31 @@
 /**
- * Ask the workflow worker (via the WorkflowManager DO's /backfill-titles route)
- * to run the whole-archive TitleBackfillWorkflow for one language (DQX-13) —
- * the admin "pre-warm" action, so a language can be filled in before it's
- * announced instead of waiting for the first visitor's list view to arm it.
+ * Start the whole-archive TitleBackfillFlow for one language via the FlowHub's
+ * fetch surface (DQX-13) — the admin "pre-warm" action, so a language can be
+ * filled in before it's announced instead of waiting for the first visitor's
+ * list view to arm it.
  *
- * Routes to the per-language `title-backfill:<lang>` DO instance so the DO's
- * dedup sees this trigger alongside the on-view ones (same instance).
+ * The hub dedupes on the flow's language key, so this trigger and the on-view
+ * ones attach to a run already in flight instead of doubling it. `force`
+ * bypasses the list-view trigger's cooldown — an operator asked, so a fresh
+ * run starts even if a page view attempted one moments ago. Fetch rather than
+ * RPC: cross-script DO RPC is unsupported between local dev sessions.
  */
+
+import { TitleBackfillFlow } from '@hiroba/flows';
+
 export async function backfillLanguageTitles(
   namespace: DurableObjectNamespace,
   language: string,
 ): Promise<boolean> {
   try {
-    const stub = namespace.get(
-      namespace.idFromName(`title-backfill:${language}`),
-    );
-    const res = await stub.fetch('http://internal/backfill-titles', {
+    const stub = namespace.get(namespace.idFromName('hub'));
+    const res = await stub.fetch('http://internal/start', {
       method: 'POST',
-      body: JSON.stringify({ language }),
+      body: JSON.stringify({
+        flow: TitleBackfillFlow.name,
+        params: { language },
+        force: true,
+      }),
       headers: { 'Content-Type': 'application/json' },
     });
     if (!res.ok) {

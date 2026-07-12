@@ -14,7 +14,7 @@ import { enqueueTitleTranslation } from '../../../lib/enqueue-titles';
 
 export const POST: APIRoute = async ({ locals }) => {
   const runtime = locals.runtime as {
-    env: { DB: D1Database; WORKFLOW_MANAGER: DurableObjectNamespace };
+    env: { DB: D1Database; FLOW_HUB: DurableObjectNamespace };
   };
   const db = createDb(runtime.env.DB);
 
@@ -29,7 +29,7 @@ export const POST: APIRoute = async ({ locals }) => {
   );
 
   const enqueued = await enqueueTitleTranslation(
-    runtime.env.WORKFLOW_MANAGER,
+    runtime.env.FLOW_HUB,
     'playguide',
     inserted.map((i) => i.id),
   );

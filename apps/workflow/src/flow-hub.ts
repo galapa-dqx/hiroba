@@ -11,11 +11,18 @@ import {
   type FlowHubClass,
   type FlowRegistration,
 } from '@hiroba/flow/hub';
-import { BannerFlow, GlossaryRegenFlow } from '@hiroba/flows';
+import {
+  BannerFlow,
+  GlossaryRegenFlow,
+  TitleBackfillFlow,
+  TitleFlow,
+} from '@hiroba/flows';
 
 const registrations: FlowRegistration[] = [
   { def: BannerFlow, binding: 'BANNER_WORKFLOW' },
   { def: GlossaryRegenFlow, binding: 'GLOSSARY_REGENERATE_WORKFLOW' },
+  { def: TitleFlow, binding: 'TITLE_WORKFLOW' },
+  { def: TitleBackfillFlow, binding: 'TITLE_BACKFILL_WORKFLOW' },
 ];
 
 // Annotated so the exported class type doesn't reference the factory's

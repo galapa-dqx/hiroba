@@ -1,9 +1,9 @@
 /**
  * Pre-warm a language's title archive (DQX-13): POST kicks off the
- * whole-archive TitleBackfillWorkflow for `code` via the WorkflowManager DO,
- * so an admin can fill a language in before announcing it rather than waiting
- * for the first list view to arm it. The DO dedupes, so re-posting while a run
- * is in flight is a harmless no-op.
+ * whole-archive TitleBackfillFlow for `code` via the FlowHub, so an admin can
+ * fill a language in before announcing it rather than waiting for the first
+ * list view to arm it. The hub dedupes on the language key, so re-posting
+ * while a run is in flight attaches to it — a harmless no-op.
  */
 
 import type { APIRoute } from 'astro';
@@ -21,7 +21,7 @@ function json(data: unknown, status = 200): Response {
 
 export const POST: APIRoute = async ({ locals, params }) => {
   const runtime = locals.runtime as {
-    env: { DB: D1Database; WORKFLOW_MANAGER: DurableObjectNamespace };
+    env: { DB: D1Database; FLOW_HUB: DurableObjectNamespace };
   };
   const code = params.code!;
 
@@ -32,10 +32,7 @@ export const POST: APIRoute = async ({ locals, params }) => {
   );
   if (!known) return json({ error: 'Not found' }, 404);
 
-  const started = await backfillLanguageTitles(
-    runtime.env.WORKFLOW_MANAGER,
-    code,
-  );
+  const started = await backfillLanguageTitles(runtime.env.FLOW_HUB, code);
   if (!started) return json({ error: 'Failed to start backfill' }, 502);
   return json({ success: true, code });
 };

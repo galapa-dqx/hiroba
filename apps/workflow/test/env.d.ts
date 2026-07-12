@@ -7,5 +7,7 @@ declare namespace Cloudflare {
     FLOW_HUB: DurableObjectNamespace;
     BANNER_WORKFLOW: Workflow;
     GLOSSARY_REGENERATE_WORKFLOW: Workflow;
+    TITLE_WORKFLOW: Workflow;
+    TITLE_BACKFILL_WORKFLOW: Workflow;
   }
 }
