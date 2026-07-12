@@ -21,6 +21,10 @@ export default function PlayguideList() {
   const [loading, setLoading] = useState(true);
   const [crawling, setCrawling] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // Rows with a pipeline in flight — drives the disabled state. Kept separate
+  // from `workflowStatus` (display text) so an SSE error can re-enable the
+  // button while still surfacing what went wrong.
+  const [busy, setBusy] = useState<Set<string>>(new Set());
   const [workflowStatus, setWorkflowStatus] = useState<Map<string, string>>(
     new Map(),
   );
@@ -40,7 +44,11 @@ export default function PlayguideList() {
       if (seq !== loadSeq.current) return; // a newer load superseded this one
       setItems(items);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : 'Failed to load');
+      // Only surface the error if this is still the newest load — a slow,
+      // superseded fetch failing shouldn't overwrite a fresher success.
+      if (seq === loadSeq.current) {
+        setMessage(err instanceof Error ? err.message : 'Failed to load');
+      }
     }
     if (seq === loadSeq.current) setLoading(false);
   }
@@ -62,7 +70,14 @@ export default function PlayguideList() {
   }
 
   async function onTrigger(slug: string) {
+    const clearBusy = () =>
+      setBusy((prev) => {
+        const next = new Set(prev);
+        next.delete(slug);
+        return next;
+      });
     try {
+      setBusy((prev) => new Set(prev).add(slug));
       await triggerPlayguideWorkflow(slug);
       setWorkflowStatus((prev) => new Map(prev).set(slug, 'Starting...'));
 
@@ -78,15 +93,20 @@ export default function PlayguideList() {
               next.delete(slug);
               return next;
             });
+            clearBusy();
             void load();
           }, 2000);
         },
-        onError: (msg) =>
-          setStatus(msg === 'Connection lost' ? msg : `Error: ${msg}`),
+        onError: (msg) => {
+          // Surface the error but re-enable the button so it can be retried.
+          setStatus(msg === 'Connection lost' ? msg : `Error: ${msg}`);
+          clearBusy();
+        },
       });
     } catch (err) {
       alert('Failed to trigger workflow');
       console.error(err);
+      clearBusy();
     }
   }
 
@@ -154,7 +174,7 @@ export default function PlayguideList() {
                     type="button"
                     onClick={() => onTrigger(item.id)}
                     className="btn-small"
-                    disabled={workflowStatus.has(item.id)}
+                    disabled={busy.has(item.id)}
                   >
                     Run Workflow
                   </button>
