@@ -64,6 +64,7 @@ import {
 
 import type { Block } from '@hiroba/richtext';
 
+import InlineNodeEditor from './InlineNodeEditor';
 import {
   $exportBlocksFromEditor,
   $populateEditorFromBlocks,
@@ -394,6 +395,7 @@ const RtmlEditor = forwardRef<RtmlEditorHandle, RtmlEditorProps>(
             <LinkPlugin />
             <TablePlugin />
             <HorizontalRulePlugin />
+            <InlineNodeEditor />
             {onDirty && (
               <OnChangePlugin
                 ignoreSelectionChange

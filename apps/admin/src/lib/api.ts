@@ -602,6 +602,19 @@ export async function getImageDetail(id: number): Promise<ImageDetail> {
   return adminFetch(`/api/images/${id}`);
 }
 
+/**
+ * Resolve an image's natural key (imageKey) to its surrogate id, so the article
+ * editor can link an inline image to its edit screen. Returns null when the
+ * image isn't in the library yet (404).
+ */
+export async function resolveImageId(key: string): Promise<number | null> {
+  const res = await fetch(`/api/images/resolve?key=${encodeURIComponent(key)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  const data = (await res.json()) as { id: number };
+  return data.id;
+}
+
 /** Save the edited JA→target spans (index-aligned to textsJa) for a language. */
 export async function saveImageTranslation(
   id: number,

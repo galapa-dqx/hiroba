@@ -46,6 +46,7 @@ import {
 import { createContext, useContext, useMemo, useState, type JSX } from 'react';
 
 import {
+  imageKey,
   renderBlocks,
   type Block,
   type BadgeNode as RtmlBadge,
@@ -54,6 +55,8 @@ import {
   type ListNode as RtmlList,
   type TableNode as RtmlTable,
 } from '@hiroba/richtext';
+
+import { resolveImageId } from '../../lib/api';
 
 /* ------------------------------------------------------------------ *
  * PreservedRenderContext — display-only options for preserved-block previews
@@ -315,8 +318,16 @@ export class RtmlButtonNode extends ElementNode {
     return this.getLatest().__href;
   }
 
+  setHref(href: string): void {
+    this.getWritable().__href = href;
+  }
+
   getVariant(): string | undefined {
     return this.getLatest().__variant;
+  }
+
+  setVariant(variant: string | undefined): void {
+    this.getWritable().__variant = variant || undefined;
   }
 
   canBeEmpty(): boolean {
@@ -335,6 +346,10 @@ export class RtmlButtonNode extends ElementNode {
 
   updateDOM(prevNode: RtmlButtonNode, dom: HTMLElement): boolean {
     if (prevNode.__href !== this.__href) dom.title = `→ ${this.__href}`;
+    if (prevNode.__variant !== this.__variant) {
+      if (this.__variant) dom.dataset.variant = this.__variant;
+      else delete dom.dataset.variant;
+    }
     return false;
   }
 
@@ -414,6 +429,10 @@ export class TimeWrapperNode extends ElementNode {
     return this.getLatest().__datetime;
   }
 
+  setDatetime(datetime: string): void {
+    this.getWritable().__datetime = datetime;
+  }
+
   createDOM(): HTMLElement {
     const el = document.createElement('span');
     el.className = 'rtml-wrap rtml-wrap--time';
@@ -491,22 +510,45 @@ export class EventWrapperNode extends ElementNode {
     return this.getLatest().__eventId;
   }
 
+  setEventId(eventId: string): void {
+    this.getWritable().__eventId = eventId;
+  }
+
   getStart(): string {
     return this.getLatest().__start;
+  }
+
+  setStart(start: string): void {
+    this.getWritable().__start = start;
   }
 
   getEnd(): string | undefined {
     return this.getLatest().__end;
   }
 
+  setEnd(end: string | undefined): void {
+    this.getWritable().__end = end || undefined;
+  }
+
+  private title(): string {
+    return `event ${this.__eventId}: ${this.__start}${this.__end ? ` → ${this.__end}` : ''}`;
+  }
+
   createDOM(): HTMLElement {
     const el = document.createElement('span');
     el.className = 'rtml-wrap rtml-wrap--event';
-    el.title = `event ${this.__eventId}: ${this.__start}${this.__end ? ` → ${this.__end}` : ''}`;
+    el.title = this.title();
     return el;
   }
 
-  updateDOM(): boolean {
+  updateDOM(prevNode: EventWrapperNode, dom: HTMLElement): boolean {
+    if (
+      prevNode.__eventId !== this.__eventId ||
+      prevNode.__start !== this.__start ||
+      prevNode.__end !== this.__end
+    ) {
+      dom.title = this.title();
+    }
     return false;
   }
 
@@ -761,6 +803,31 @@ function PreservedBlockView({
   const [jsonOpen, setJsonOpen] = useState(false);
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState<string | null>(null);
+  const [openingImage, setOpeningImage] = useState(false);
+
+  // For image blocks whose src maps to a stored image, offer a jump to that
+  // image's edit screen. Non-mirrorable images (off-site, data: URIs) have no
+  // library row, so no key and no button.
+  const imgKey = block.type === 'image' ? imageKey(block.src) : null;
+
+  async function openImageEditor() {
+    if (!imgKey) return;
+    setOpeningImage(true);
+    try {
+      const id = await resolveImageId(imgKey);
+      if (id == null) {
+        alert(
+          "This image isn't in the image library yet — it's mirrored the first time the workflow runs on this article.",
+        );
+      } else {
+        window.open(`/images/${id}`, '_blank', 'noopener');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Could not look up this image. Check the console.');
+    }
+    setOpeningImage(false);
+  }
 
   const previewHtml = useMemo(() => {
     try {
@@ -828,6 +895,17 @@ function PreservedBlockView({
         <span className="rtml-preserved__type">{humanizeType(block.type)}</span>
         <span className="rtml-preserved__hint">preserved as-is</span>
         <span className="rtml-preserved__actions">
+          {imgKey && (
+            <button
+              type="button"
+              className="rtml-preserved__edit-image"
+              onClick={openImageEditor}
+              disabled={openingImage}
+              title="Open this image's edit page"
+            >
+              {openingImage ? '…' : '✎ Edit image'}
+            </button>
+          )}
           <button type="button" onClick={moveUp} title="Move up">
             ↑
           </button>
