@@ -1148,8 +1148,10 @@ export async function listPlayguidesAdmin(db: Database): Promise<
  * bodies a term change touches. Matches with `instr` (like
  * {@link findMatchingGlossaryEntries}) so no LIKE escaping is needed; only
  * fetched bodies are searched (`blocks_ja IS NOT NULL`). Results are capped at
- * `limit` across all types, and `hasMore` flags when that cap was hit so the
- * caller can warn that more matches exist.
+ * `limit` and `hasMore` flags when that cap was hit so the caller can warn that
+ * more matches exist. The three types are round-robin interleaved before the
+ * cap is applied, so a term appearing in more than `limit` news items can't
+ * starve out matching topics/playguides (which would otherwise never regenerate).
  */
 export async function findArticlesContainingSource(
   db: Database,
@@ -1182,11 +1184,21 @@ export async function findArticlesContainingSource(
     .limit(cap)
     .all();
 
-  const items: Array<{ itemType: ArticleType; id: string }> = [
-    ...newsRows.map((r) => ({ itemType: 'news' as const, id: r.id })),
-    ...topicRows.map((r) => ({ itemType: 'topic' as const, id: r.id })),
-    ...guideRows.map((r) => ({ itemType: 'playguide' as const, id: r.id })),
+  const byType: Array<Array<{ itemType: ArticleType; id: string }>> = [
+    newsRows.map((r) => ({ itemType: 'news' as const, id: r.id })),
+    topicRows.map((r) => ({ itemType: 'topic' as const, id: r.id })),
+    guideRows.map((r) => ({ itemType: 'playguide' as const, id: r.id })),
   ];
+
+  // Round-robin so the cap is shared fairly across types rather than filling up
+  // with one type (news, first in the list) and dropping the rest.
+  const items: Array<{ itemType: ArticleType; id: string }> = [];
+  const longest = Math.max(...byType.map((list) => list.length));
+  for (let i = 0; i < longest; i++) {
+    for (const list of byType) {
+      if (i < list.length) items.push(list[i]);
+    }
+  }
 
   const hasMore = items.length > limit;
   return { items: hasMore ? items.slice(0, limit) : items, hasMore };

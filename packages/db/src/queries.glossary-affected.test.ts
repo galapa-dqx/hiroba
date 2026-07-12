@@ -104,4 +104,35 @@ describe('findArticlesContainingSource', () => {
     expect(items).toHaveLength(2);
     expect(hasMore).toBe(true);
   });
+
+  it('does not let one type starve the others when over the cap', async () => {
+    // Many news matches plus a single playguide match, with a cap of 2. A naive
+    // concat (news, then topics, then guides) would fill the cap with news and
+    // drop the guide entirely; round-robin must keep the guide in the slice.
+    for (let i = 0; i < 5; i++) {
+      await ctx.db.insert(newsItems).values({
+        id: `d${i}`.padEnd(32, '0'),
+        titleJa: 'ニュース',
+        category: 'news',
+        publishedAt: AT,
+        blocksJa: bodyWith(TERM) as never,
+      });
+    }
+    await ctx.db.insert(playguides).values({
+      id: 'guide_starve',
+      titleJa: 'ガイド',
+      sortOrder: 0,
+      blocksJa: bodyWith(TERM) as never,
+    });
+
+    const { items, hasMore } = await findArticlesContainingSource(
+      ctx.db,
+      TERM,
+      2,
+    );
+
+    expect(items).toHaveLength(2);
+    expect(hasMore).toBe(true);
+    expect(items.map((i) => i.itemType)).toContain('playguide');
+  });
 });
