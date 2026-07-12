@@ -6,7 +6,7 @@
  * with a RANDOM key: every batch is disjoint work, so starts never attach.
  */
 
-import { createDb, getEnabledLanguages, resetRunningTitles } from '@hiroba/db';
+import { createDb, resetRunningTitles } from '@hiroba/db';
 import type { Flow } from '@hiroba/flow';
 import { FlowEntrypoint } from '@hiroba/flow/hub';
 import { TitleFlow } from '@hiroba/flows';
@@ -31,19 +31,16 @@ export class TitleWorkflow extends FlowEntrypoint<
   /**
    * A chunk exhausted its retries — reset any of this batch's titles still
    * `running` back to `pending` so nothing is stuck. Only running rows are
-   * touched, so already-translated chunks keep their `done`. Swept across the
-   * whole whitelist (the run's language set is a step return, not a param):
-   * a superset of the languages the run touched, and a no-op for the rest.
+   * touched, so already-translated chunks keep their `done`. The reset is
+   * id-scoped across ALL languages (the run's language set is a step return
+   * the cleanup can't see, and re-reading the whitelist would miss a language
+   * disabled mid-run): a superset of what the run claimed, a no-op elsewhere.
    */
   async onFailure(params: TitleWorkflowParams): Promise<void> {
-    const db = createDb(this.env.DB);
-    for (const language of await getEnabledLanguages(db)) {
-      await resetRunningTitles(
-        db,
-        params.itemType,
-        params.itemIds,
-        language.code,
-      );
-    }
+    await resetRunningTitles(
+      createDb(this.env.DB),
+      params.itemType,
+      params.itemIds,
+    );
   }
 }
