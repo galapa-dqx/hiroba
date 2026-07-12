@@ -109,12 +109,24 @@ export class GlossaryRegenerateWorkflow extends WorkflowEntrypoint<
       const stub = this.env.WORKFLOW_MANAGER.get(
         this.env.WORKFLOW_MANAGER.idFromName(doName),
       );
-      await stub.fetch('http://internal/trigger', {
+      const res = await stub.fetch('http://internal/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ itemId: id, itemType }),
       });
+      // A failed trigger must not be silently counted as done — throw so the
+      // step retries (triggering is idempotent: the DO dedupes an already
+      // running/queued run). If retries are exhausted the workflow errors,
+      // surfacing an incomplete regeneration rather than hiding it.
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(
+          `trigger ${itemType} ${id} failed: ${res.status}${detail ? ` ${detail}` : ''}`,
+        );
+      }
     });
+    // mapWithConcurrency only resolves if every trigger above succeeded, so the
+    // whole batch really was (re-)triggered.
     return { triggered: ids.length };
   }
 }
