@@ -43,6 +43,7 @@ export default function PlayguideList() {
       const { items } = await getPlayguideList({ lang });
       if (seq !== loadSeq.current) return; // a newer load superseded this one
       setItems(items);
+      setMessage(null); // clear any stale error/notice now that data is fresh
     } catch (err) {
       // Only surface the error if this is still the newest load — a slow,
       // superseded fetch failing shouldn't overwrite a fresher success.
@@ -58,10 +59,11 @@ export default function PlayguideList() {
     setMessage(null);
     try {
       const r = await crawlPlayguides();
+      // load() clears `message` on success, so set the summary afterwards.
+      await load();
       setMessage(
         `Crawled ${r.crawled} page(s), ${r.newItems} new (${r.titlesEnqueued} title(s) queued).`,
       );
-      await load();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : 'Crawl failed');
     } finally {
