@@ -1,10 +1,12 @@
 /**
  * Glossary "regenerate affected texts" API — POST { sourceText } to re-run every
- * article whose Japanese body contains the term, so translations pick up an
- * edited override. Delegates to the WorkflowManager DO, which starts (and
- * dedupes per term) the durable GlossaryRegenerateWorkflow; that workflow pages
- * the whole affected set with no cap, so this returns immediately rather than
- * fanning out every trigger inline.
+ * article whose Japanese body contains the term AND refresh the stored `text`
+ * translation of every image whose baked-in Japanese contains it, so both pick
+ * up an edited override. (Localized image rasters are not re-rendered — only the
+ * text we store for generation is updated.) Delegates to the WorkflowManager DO,
+ * which starts (and dedupes per term) the durable GlossaryRegenerateWorkflow;
+ * that workflow pages the whole affected set with no cap, so this returns
+ * immediately rather than fanning out every trigger inline.
  */
 
 import type { APIRoute } from 'astro';

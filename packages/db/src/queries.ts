@@ -1140,23 +1140,40 @@ export async function getPlayguides(
  * Lightweight playguide list for the admin UI (mirrors listTopicsAdmin): a
  * `hasBody` flag plus per-item translation status, no block trees on the wire.
  */
-export async function listPlayguidesAdmin(db: Database): Promise<
+export async function listPlayguidesAdmin(
+  db: Database,
+  options: { language?: string } = {},
+): Promise<
   Array<{
     id: string;
     titleJa: string;
+    /** Title in `language`, or null when not yet translated (⇒ show titleJa). */
+    titleLocalized: string | null;
     sortOrder: number;
     hasBody: boolean;
     translated: boolean;
   }>
 > {
+  const language = options.language ?? 'en';
+
   const rows = await db
     .select({
       id: playguides.id,
       titleJa: playguides.titleJa,
+      titleLocalized: translations.value,
       sortOrder: playguides.sortOrder,
       hasBody: sql<number>`(${playguides.blocksJa} IS NOT NULL)`,
     })
     .from(playguides)
+    .leftJoin(
+      translations,
+      and(
+        eq(translations.itemType, 'playguide'),
+        eq(translations.itemId, playguides.id),
+        eq(translations.language, language),
+        eq(translations.field, 'title'),
+      ),
+    )
     .orderBy(asc(playguides.sortOrder), asc(playguides.id))
     .all();
 
@@ -1181,6 +1198,7 @@ export async function listPlayguidesAdmin(db: Database): Promise<
   return rows.map((r) => ({
     id: r.id,
     titleJa: r.titleJa,
+    titleLocalized: r.titleLocalized,
     sortOrder: r.sortOrder,
     hasBody: !!r.hasBody,
     translated: translated.has(r.id),
@@ -1268,6 +1286,41 @@ export async function findArticlesContainingSourcePage(
     .limit(limit)
     .all();
   return rows.map((r) => r.id);
+}
+
+/**
+ * One page of stored images whose transcribed Japanese (`texts_ja`) contains
+ * `sourceText`, keyset-paginated by `id` so `afterId` (the last id of the
+ * previous page) walks the *entire* affected set. Backs the image half of the
+ * glossary regenerate workflow, which refreshes each match's stored `text`
+ * translation so it picks up an edited override.
+ *
+ * `texts_ja` is a serialized JSON string array, so `instr` matches the term
+ * inside it — the same untyped substring match {@link findArticlesContainingSourcePage}
+ * uses on `blocks_ja` (no LIKE escaping). NULL (not-yet-transcribed) and `[]`
+ * (transcribed, no text) rows can't contain the term and so drop out naturally.
+ * Only `id` + `textsJa` are returned — everything the re-translation needs, and
+ * nothing (like the Temporal `updatedAt`) that would complicate crossing a
+ * durable step boundary.
+ */
+export async function findImagesContainingSourcePage(
+  db: Database,
+  sourceText: string,
+  afterId: number | null,
+  limit: number,
+): Promise<Array<{ id: number; textsJa: string[] | null }>> {
+  return db
+    .select({ id: images.id, textsJa: images.textsJa })
+    .from(images)
+    .where(
+      and(
+        sql`instr(${images.textsJa}, ${sourceText}) > 0`,
+        afterId != null ? gt(images.id, afterId) : undefined,
+      ),
+    )
+    .orderBy(asc(images.id))
+    .limit(limit)
+    .all();
 }
 
 /** Invalidate a playguide's cached block tree (re-fetched on next view / re-run). */

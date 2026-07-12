@@ -154,16 +154,22 @@ export type NewsBackfillWorkflowOutput = {
 /**
  * Parameters for the GlossaryRegenerateWorkflow. Just the Japanese term whose
  * translation changed: the workflow scans D1 for every article whose body
- * contains it and re-runs each one's ArticleWorkflow.
+ * contains it (re-running each one's ArticleWorkflow) and every image whose
+ * baked-in text contains it (refreshing its stored `text` translation).
  */
 export type GlossaryRegenerateWorkflowParams = {
   sourceText: string;
 };
 
-/** Result of the GlossaryRegenerateWorkflow — how many articles it re-triggered. */
+/**
+ * Result of the GlossaryRegenerateWorkflow — how many articles it re-triggered
+ * and how many image `text` translations it refreshed (the localized raster is
+ * left as-is; only the stored text changes).
+ */
 export type GlossaryRegenerateWorkflowOutput = {
   sourceText: string;
   triggered: number;
+  imagesRetranslated: number;
 };
 
 /** Result of the fetch-body step (scrape + parse → blocks_ja). */

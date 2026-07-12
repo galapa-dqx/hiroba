@@ -88,12 +88,16 @@ export default function GlossaryList() {
   }
 
   // Kick off a background workflow that re-runs every article whose body uses
-  // this Japanese term, so existing translations pick up an edited glossary entry.
+  // this Japanese term and re-translates the stored text of every image that
+  // bakes it in, so existing translations pick up an edited glossary entry.
   async function handleRegenerate(sourceText: string) {
     if (
       !confirm(
-        `Regenerate every translated article that uses "${sourceText}"? This ` +
-          `re-runs their workflows in the background — it can take a while.`,
+        `Regenerate every translated article that uses "${sourceText}", and ` +
+          `refresh the stored text translations of images that bake it in? This ` +
+          `re-runs their workflows in the background — it can take a while. ` +
+          `Localized images aren't re-rendered; only the text we store for ` +
+          `generation is updated.`,
       )
     )
       return;
@@ -103,9 +107,10 @@ export default function GlossaryList() {
       alert(
         res.status === 'already_running'
           ? `A regeneration for "${sourceText}" is already running.`
-          : `Started regenerating articles that use "${sourceText}". They re-run ` +
-              `in the background; each affected article appears on the Workflows ` +
-              `page as it is re-triggered.`,
+          : `Started regenerating content that uses "${sourceText}". Articles ` +
+              `re-run in the background — each appears on the Workflows page as ` +
+              `it is re-triggered — and affected images' stored text translations ` +
+              `are refreshed (the localized images themselves aren't re-rendered).`,
       );
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to regenerate');
@@ -229,7 +234,7 @@ export default function GlossaryList() {
                     onClick={() => handleRegenerate(entry.sourceText)}
                     className="btn-small"
                     disabled={regenerating !== null}
-                    title="Re-run the workflow for every fetched article whose body uses this term"
+                    title="Re-run the workflow for every article that uses this term, and refresh the stored text translations of images that bake it in (localized images aren't re-rendered)"
                   >
                     {regenerating === entry.sourceText
                       ? 'Regenerating…'

@@ -75,9 +75,51 @@ export type ImageTextResult = {
   failed: number;
 };
 
+/** The image fields this step reads — id plus the transcribed source spans. */
+type ImageRow = { id: number; textsJa: string[] | null };
+
+/**
+ * Translate one image's transcribed spans into `target` and store the result as
+ * its per-image `text` translation row (the exact input localize bakes back into
+ * the image). Resolves the glossary from the image's own spans so an edited
+ * override lands here. Returns which tally bucket the row fell into.
+ */
+async function translateImageRow(
+  db: Database,
+  client: ReturnType<typeof createGemini>,
+  row: ImageRow,
+  target: TargetLanguage,
+): Promise<'translated' | 'skipped' | 'failed'> {
+  if (!row.textsJa || !hasJapanese(row.textsJa)) return 'skipped';
+
+  const glossary = await findMatchingGlossaryEntries(
+    db,
+    row.textsJa.join('\n'),
+    target.code,
+  );
+  const section =
+    glossary.length > 0
+      ? `\n\nTranslation glossary (use these exact translations):\n${glossary
+          .map((g) => `- ${g.sourceText} → ${g.translatedText}`)
+          .join('\n')}`
+      : '';
+  const out = await translateSpans(client, row.textsJa, target, section);
+  if (!out) return 'failed';
+
+  await upsertImageTranslation(db, {
+    imageId: row.id,
+    language: target.code,
+    field: 'text',
+    value: JSON.stringify(out),
+    model: GEMINI_MODEL,
+  });
+  return 'translated';
+}
+
 /**
  * Translate the Japanese text of every image referenced by `blocks` into each
- * target language, writing per-image `text` translation rows.
+ * target language, writing per-image `text` translation rows. Idempotent: an
+ * image already translated to a language is skipped, so re-runs only fill gaps.
  */
 export async function translateImageTexts(
   db: Database,
@@ -106,38 +148,42 @@ export async function translateImageTexts(
       'text',
     );
     await mapWithConcurrency(rows, CONCURRENCY, async (row) => {
-      if (!row.textsJa || !hasJapanese(row.textsJa)) {
-        result.skipped++;
-        return;
-      }
       if (already.has(row.id)) {
         result.skipped++;
         return;
       }
-      const glossary = await findMatchingGlossaryEntries(
-        db,
-        row.textsJa.join('\n'),
-        target.code,
-      );
-      const section =
-        glossary.length > 0
-          ? `\n\nTranslation glossary (use these exact translations):\n${glossary
-              .map((g) => `- ${g.sourceText} → ${g.translatedText}`)
-              .join('\n')}`
-          : '';
-      const out = await translateSpans(client, row.textsJa, target, section);
-      if (out) {
-        await upsertImageTranslation(db, {
-          imageId: row.id,
-          language: target.code,
-          field: 'text',
-          value: JSON.stringify(out),
-          model: GEMINI_MODEL,
-        });
-        result.translated++;
-      } else {
-        result.failed++;
-      }
+      result[await translateImageRow(db, client, row, target)]++;
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Re-translate specific images' `text` spans into each target language,
+ * unconditionally — no already-translated skip — so an edited glossary override
+ * is picked up. Backs the glossary regenerate flow: callers hand it the images
+ * whose transcribed Japanese contains the changed term.
+ *
+ * Only the `text` field is rewritten. The localized image raster (`url` row) is
+ * deliberately left untouched: an override edit changes the words we *store for*
+ * generation, not the (expensive) picture — a later explicit image regeneration
+ * bakes the fresh text in.
+ */
+export async function retranslateImageTexts(
+  db: Database,
+  apiKey: string,
+  rows: ImageRow[],
+  targetLanguages: TargetLanguage[],
+): Promise<ImageTextResult> {
+  if (rows.length === 0) return { translated: 0, skipped: 0, failed: 0 };
+
+  const client = createGemini(apiKey);
+  const result: ImageTextResult = { translated: 0, skipped: 0, failed: 0 };
+
+  for (const target of targetLanguages) {
+    await mapWithConcurrency(rows, CONCURRENCY, async (row) => {
+      result[await translateImageRow(db, client, row, target)]++;
     });
   }
 

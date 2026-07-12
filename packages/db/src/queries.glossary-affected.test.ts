@@ -1,7 +1,11 @@
 import { Temporal } from 'temporal-polyfill';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { findArticlesContainingSourcePage } from './queries';
+import {
+  findArticlesContainingSourcePage,
+  findImagesContainingSourcePage,
+} from './queries';
+import { images } from './schema/images';
 import { newsItems } from './schema/news-items';
 import { playguides } from './schema/playguides';
 import { topics } from './schema/topics';
@@ -138,5 +142,45 @@ describe('findArticlesContainingSourcePage', () => {
 
     // Every id, once, in ascending order — nothing capped away.
     expect(collected).toEqual([...ids].sort());
+  });
+});
+
+describe('findImagesContainingSourcePage', () => {
+  const imageWith = (key: string, textsJa: string[] | null) =>
+    ctx.db.insert(images).values({ key, textsJa, updatedAt: AT });
+
+  it('matches only images whose transcribed spans contain the term', async () => {
+    await imageWith('host/hit.png', [`${TERM}の看板`, 'その他']);
+    await imageWith('host/miss.png', ['無関係な文字']);
+    await imageWith('host/untranscribed.png', null); // instr(NULL) is NULL → excluded
+    await imageWith('host/empty.png', []); // "[]" can't contain the term
+
+    const rows = await findImagesContainingSourcePage(ctx.db, TERM, null, 100);
+    expect(rows).toEqual([{ id: 1, textsJa: [`${TERM}の看板`, 'その他'] }]);
+  });
+
+  it('keyset-paginates through every affected image without dropping any', async () => {
+    // 5 matching images; ids autoincrement 1…5. Paging in batches of 2 with the
+    // last id as the cursor must return every id exactly once, in id order.
+    for (let i = 0; i < 5; i++) {
+      await imageWith(`host/img${i}.png`, [`${TERM}${i}`]);
+    }
+
+    const collected: number[] = [];
+    let cursor: number | null = null;
+    for (;;) {
+      const page = await findImagesContainingSourcePage(
+        ctx.db,
+        TERM,
+        cursor,
+        2,
+      );
+      if (page.length === 0) break;
+      collected.push(...page.map((r) => r.id));
+      cursor = page[page.length - 1].id;
+      if (page.length < 2) break;
+    }
+
+    expect(collected).toEqual([1, 2, 3, 4, 5]);
   });
 });
