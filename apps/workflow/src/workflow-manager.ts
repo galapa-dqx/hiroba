@@ -670,9 +670,42 @@ export class WorkflowManager extends DurableObject<Env> {
   }
 
   /**
+   * Whether a workflow instance is still in flight, tolerant of a transient
+   * engine blip. Retries the status lookup a few times so a one-off failure
+   * doesn't read as "gone" (which would let a duplicate run start), and treats
+   * every active state — including `paused` — as live via `isRunActive`. A
+   * persistently unresolvable instance is treated as gone so a fresh run can
+   * start. Mirrors ensureArticleWorkflow's dedup robustness for the singleton
+   * (per-term / per-language / …) workflows.
+   */
+  private async isWorkflowActive(
+    workflow: {
+      get(
+        id: string,
+      ): Promise<{ status(): Promise<{ status: WorkflowRunStatus }> }>;
+    },
+    instanceId: string,
+    attempts = 3,
+  ): Promise<boolean> {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        const status = await (await workflow.get(instanceId)).status();
+        return isRunActive(status.status);
+      } catch {
+        if (attempt < attempts - 1) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 200 * (attempt + 1)),
+          );
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
    * Fire the GlossaryRegenerateWorkflow for a changed glossary term, deduping a
-   * run that's already queued/running for the same term. Callers address this DO
-   * by the `glossary-regenerate:<term>` instance name so every trigger for a term
+   * run that's already in flight for the same term. Callers address this DO by
+   * the `glossary-regenerate:<term>` instance name so every trigger for a term
    * lands here and `activeRegenerations` is authoritative. The workflow itself
    * scans D1 for the affected articles, so only the term travels in the payload.
    */
@@ -686,18 +719,8 @@ export class WorkflowManager extends DurableObject<Env> {
 
     const workflow = this.env.GLOSSARY_REGENERATE_WORKFLOW;
     const existing = this.activeRegenerations.get(sourceText);
-    if (existing) {
-      try {
-        const status = await (await workflow.get(existing)).status();
-        if (status.status === 'running' || status.status === 'queued') {
-          return Response.json({
-            status: 'already_running',
-            instanceId: existing,
-          });
-        }
-      } catch {
-        // The engine no longer knows the instance — fall through, start fresh.
-      }
+    if (existing && (await this.isWorkflowActive(workflow, existing))) {
+      return Response.json({ status: 'already_running', instanceId: existing });
     }
 
     const instance = await workflow.create({ params: { sourceText } });
