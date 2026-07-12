@@ -726,6 +726,13 @@ textarea::placeholder {
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }
+/* The Japanese source shown beneath a localized title. */
+.title-cell__ja {
+  display: block;
+  margin-top: 0.15em;
+  font-size: 0.8125rem;
+  color: var(--ink-faint);
+}
 .actions-cell {
   white-space: nowrap;
 }

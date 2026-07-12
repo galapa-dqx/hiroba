@@ -15,6 +15,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
   const limit = parseInt(url.searchParams.get('limit') || '100');
   const type = url.searchParams.get('type') || undefined;
   const search = url.searchParams.get('search') || undefined;
+  const language = url.searchParams.get('lang') || 'en';
 
   let query = db
     .select()
@@ -42,7 +43,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
           .where(
             and(
               eq(translations.itemType, 'event'),
-              eq(translations.language, 'en'),
+              eq(translations.language, language),
               eq(translations.field, 'title'),
             ),
           )
@@ -62,7 +63,7 @@ export const GET: APIRoute = async ({ locals, url }) => {
     startTime: item.startTime.toInstant().toString(),
     endTime: item.endTime?.toInstant().toString() ?? null,
     createdAt: item.createdAt.toString(),
-    titleEn: translationMap.get(item.id) || null,
+    titleLocalized: translationMap.get(item.id) || null,
   }));
 
   return new Response(JSON.stringify({ items: itemsWithTranslations }), {

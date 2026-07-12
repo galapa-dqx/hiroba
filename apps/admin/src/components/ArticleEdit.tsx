@@ -14,6 +14,7 @@ import {
   type ArticleDetail,
   type ArticleKind,
 } from '../lib/api';
+import { getPrimaryLanguage } from '../lib/primary-language';
 import RtmlEditor, { type RtmlEditorHandle } from './editor/RtmlEditor';
 import RunCard from './RunCard';
 
@@ -38,8 +39,11 @@ function hirobaUrl(kind: ArticleKind, id: string): string {
 export default function ArticleEdit({ kind, id }: Props) {
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // Active tab: SOURCE_TAB or an enabled language code.
+  // Active tab: SOURCE_TAB or an enabled language code. Defaults to the sidebar's
+  // primary target language once the article loads (if that language is enabled);
+  // `didInitTab` keeps that a one-time default so it never fights a manual switch.
   const [tab, setTab] = useState<string>(SOURCE_TAB);
+  const didInitTab = useRef(false);
 
   // Title text + dirty flag, keyed by tab (SOURCE_TAB and each language code).
   const [titles, setTitles] = useState<Record<string, string>>({});
@@ -98,6 +102,16 @@ export default function ArticleEdit({ kind, id }: Props) {
   useEffect(() => {
     loadArticle()
       .then((a) => {
+        // Open on the primary target language's tab when it's one of this
+        // article's enabled languages — otherwise stay on the source tab.
+        if (!didInitTab.current) {
+          didInitTab.current = true;
+          const primary = getPrimaryLanguage();
+          if (a.languages.some((l) => l.code === primary)) {
+            setTab(primary);
+          }
+        }
+
         // If the pipeline is already running for this article (e.g. triggered
         // from the list page), pick it up and track it.
         const anyUntranslated = a.languages.some(

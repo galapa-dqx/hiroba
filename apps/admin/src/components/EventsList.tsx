@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { formatJst, formatJstDate, formatLocal } from '@hiroba/ui/format-date';
 
 import { deleteEvent, getEvents, type EventItem } from '../lib/api';
+import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   multiDay: 'Multi-day',
@@ -36,28 +37,35 @@ function sourceDetailUrl(sourceType: string | null, sourceId: string): string {
 }
 
 export default function EventsList() {
+  const lang = usePrimaryLanguage();
   const [items, setItems] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [type, setType] = useState<string>('');
   const [search, setSearch] = useState<string>('');
+  // Monotonic token so a slow in-flight load (e.g. from an earlier language)
+  // can't clobber the results of a newer one.
+  const loadSeq = useRef(0);
 
   useEffect(() => {
     loadItems();
-  }, [type]);
+  }, [type, lang]);
 
   async function loadItems() {
+    const seq = ++loadSeq.current;
     setLoading(true);
     try {
       const { items } = await getEvents({
         limit: 100,
         type: type || undefined,
         search: search || undefined,
+        lang,
       });
+      if (seq !== loadSeq.current) return; // a newer load superseded this one
       setItems(items);
     } catch (err) {
       console.error(err);
     }
-    setLoading(false);
+    if (seq === loadSeq.current) setLoading(false);
   }
 
   async function handleSearch(e: React.FormEvent) {
@@ -112,7 +120,7 @@ export default function EventsList() {
           <thead>
             <tr>
               <th>Title (JA)</th>
-              <th>Title (EN)</th>
+              <th>Title ({lang.toUpperCase()})</th>
               <th>Type</th>
               <th>Start</th>
               <th>End</th>
@@ -125,7 +133,7 @@ export default function EventsList() {
               <tr key={item.id}>
                 <td className="title-cell">{item.titleJa}</td>
                 <td className="title-cell">
-                  {item.titleEn || <span className="muted">—</span>}
+                  {item.titleLocalized || <span className="muted">—</span>}
                 </td>
                 <td>
                   <span className={`type-badge ${item.type}`}>
