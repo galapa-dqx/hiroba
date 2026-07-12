@@ -168,7 +168,11 @@ const empty =
 				const title = event.titleEn ?? event.titleJa;
 				const Label = href ? "a" : "span";
 				return (
-					<li class="agenda-tl__mark" style={`--top:${frac * 100}%`}>
+					<li
+						class="agenda-tl__mark"
+						data-source={event.sourceType === "reset" ? "reset" : undefined}
+						style={`--top:${frac * 100}%`}
+					>
 						<Label
 							class="agenda-tl__mark-label"
 							href={href}
@@ -589,6 +593,15 @@ const empty =
 	.agenda-tl__mark-label time {
 		color: var(--ink-faint);
 		font-variant-numeric: tabular-nums;
+	}
+	/* Reset milestones (game server cronjobs) — a gilt accent so they read as
+	   recurring system events, apart from one-off article milestones. */
+	.agenda-tl__mark[data-source="reset"]::before {
+		border-top-color: color-mix(in oklch, var(--gold-edge), transparent 45%);
+	}
+	.agenda-tl__mark[data-source="reset"] .agenda-tl__mark-label {
+		border-color: var(--gold-edge);
+		border-left-width: 3px;
 	}
 
 	/* Local-midnight turnover: a dotted line across the track; its date label
