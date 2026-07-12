@@ -6,5 +6,6 @@ declare namespace Cloudflare {
   interface Env {
     FLOW_HUB: DurableObjectNamespace;
     BANNER_WORKFLOW: Workflow;
+    GLOSSARY_REGENERATE_WORKFLOW: Workflow;
   }
 }
