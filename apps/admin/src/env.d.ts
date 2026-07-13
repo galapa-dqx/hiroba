@@ -4,7 +4,9 @@
 type RuntimeEnv = {
   DB: D1Database;
   IMAGES_BUCKET: R2Bucket;
-  WORKFLOW_MANAGER: DurableObjectNamespace;
+  /** Service binding to the workflow worker's plain routes (DQX-26):
+   *  /sse, /flow/runs, /regenerate-image. */
+  WORKFLOW: Fetcher;
   /** FlowHub DO (flow framework control plane) — single 'hub' instance. */
   FLOW_HUB: DurableObjectNamespace;
 };

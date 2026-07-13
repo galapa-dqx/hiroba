@@ -1,10 +1,7 @@
 /**
  * Web-side interface to the article pipelines: fire-and-forget triggers via
  * the FlowHub (which owns dedup and the re-trigger cooldown), and the SSE
- * progress proxy to the WorkflowManager DO — the one place that still knows
- * the DO naming convention: a news item's DO is named by its bare id; topics
- * and playguides are namespaced `<type>:<id>` so they can't collide with a
- * news item (or each other) of the same id.
+ * progress proxy to the workflow worker's plain domain SSE route (DQX-26).
  */
 
 import type { ItemType } from '@hiroba/db';
@@ -13,12 +10,6 @@ import { ArticleFlow, PlayguideFlow, TitleBackfillFlow } from '@hiroba/flows';
 type ArticleType = Extract<ItemType, 'news' | 'topic' | 'playguide'>;
 
 type Runtime = App.Locals['runtime'];
-
-function workflowStub(runtime: Runtime, itemType: ArticleType, id: string) {
-  const name = itemType === 'news' ? id : `${itemType}:${id}`;
-  const doId = runtime.env.WORKFLOW_MANAGER.idFromName(name);
-  return runtime.env.WORKFLOW_MANAGER.get(doId);
-}
 
 /**
  * Minimum gap between page-driven pipeline re-triggers for one article. A
@@ -127,16 +118,16 @@ export function maybeTriggerTitleBackfill(
   }
 }
 
-/** Proxy the DO's SSE progress stream for an article (the api sse routes). */
+/** Proxy the workflow worker's SSE progress stream for an article (the api
+ *  sse routes). */
 export async function proxyWorkflowSse(
   runtime: Runtime,
   itemType: ArticleType,
   id: string,
   language?: string,
 ): Promise<Response> {
-  const stub = workflowStub(runtime, itemType, id);
   const langParam = language ? `&language=${encodeURIComponent(language)}` : '';
-  const res = await stub.fetch(
+  const res = await runtime.env.WORKFLOW.fetch(
     `http://internal/sse?itemId=${id}&itemType=${itemType}${langParam}`,
   );
 

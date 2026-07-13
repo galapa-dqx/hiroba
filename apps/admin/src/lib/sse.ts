@@ -1,11 +1,9 @@
 /**
- * Shared SSE proxy for the admin API. An admin stream endpoint fronts either a
- * WorkflowManager DO instance (per-article pipeline streams) or the FlowHub's
- * per-run snapshot stream: name the instance, hand off an internal path, and
- * re-emit the DO's event stream with SSE headers.
+ * Shared SSE proxy for the admin API. An admin stream endpoint fronts either
+ * the workflow worker's domain SSE route (per-article pipeline streams,
+ * DQX-26) or the FlowHub's per-run snapshot stream: hand off an internal
+ * path and re-emit the event stream with SSE headers.
  */
-
-type SseEnv = { WORKFLOW_MANAGER: DurableObjectNamespace };
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -14,18 +12,14 @@ const SSE_HEADERS = {
 } as const;
 
 /**
- * Proxy an SSE stream from the WorkflowManager DO instance `doName`, calling its
- * internal `path` (e.g. `/sse?itemId=…&itemType=news`).
+ * Proxy the workflow worker's domain SSE stream over the WORKFLOW service
+ * binding, calling its plain `path` (e.g. `/sse?itemId=…&itemType=news`).
  */
-export async function proxyDoSse(
-  env: SseEnv,
-  doName: string,
+export async function proxyWorkflowSse(
+  env: { WORKFLOW: Fetcher },
   path: string,
 ): Promise<Response> {
-  const stub = env.WORKFLOW_MANAGER.get(
-    env.WORKFLOW_MANAGER.idFromName(doName),
-  );
-  const res = await stub.fetch(`http://internal${path}`);
+  const res = await env.WORKFLOW.fetch(`http://internal${path}`);
   return new Response(res.body, { status: res.status, headers: SSE_HEADERS });
 }
 

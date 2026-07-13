@@ -1,21 +1,16 @@
 /**
- * SSE endpoint for a playguide's pipeline progress. The DO is namespaced
- * `playguide:` so it doesn't collide with a news/topic DO of the same id
- * (proxies the DO).
+ * SSE endpoint for a playguide's pipeline progress — proxies the workflow
+ * worker's domain SSE route.
  */
 
 import type { APIRoute } from 'astro';
 
-import { proxyDoSse } from '../../../../lib/sse';
+import { proxyWorkflowSse } from '../../../../lib/sse';
 
 export const GET: APIRoute = ({ locals, params }) => {
-  const runtime = locals.runtime as {
-    env: { WORKFLOW_MANAGER: DurableObjectNamespace };
-  };
   const slug = params.slug!;
-  return proxyDoSse(
-    runtime.env,
-    `playguide:${slug}`,
+  return proxyWorkflowSse(
+    locals.runtime.env,
     `/sse?itemId=${slug}&itemType=playguide`,
   );
 };

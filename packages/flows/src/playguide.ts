@@ -13,7 +13,7 @@ import { articleImagework, articleIntake, articleOutput } from './fragments';
  * Keyed by the guide's slug: every trigger surface (admin re-run, web first
  * view, recheck heal) routes through the hub, so a run already in flight for
  * the slug is attached to, never doubled — this replaces the old
- * `playguide:<slug>` WorkflowManager DO instance as the dedup point.
+ * `playguide:<slug>` coordinator DO instance as the dedup point.
  */
 export const PlayguideFlow = defineFlow({
   name: 'playguide',

@@ -4,7 +4,9 @@
  * Contains:
  * - FlowHub DO: the flow framework's control plane (every pipeline runs on it
  *   since DQX-25 — triggers go through hub.start)
- * - WorkflowManager DO: domain SSE streams + the admin run tracker
+ * - Plain domain routes (DQX-26): the per-item SSE progress streams, the
+ *   admin tracker's enriched run listing, and synchronous single-image
+ *   regeneration
  * - The FlowEntrypoint workflow shells (ArticleWorkflow, PlayguideWorkflow, …)
  * - Cron handlers: hourly news + topics refresh, daily glossary refresh
  */
@@ -30,12 +32,7 @@ import {
   type ListItem,
 } from '@hiroba/db';
 import { getFlowHub } from '@hiroba/flow/hub';
-import {
-  ArticleFlow,
-  BannerFlow,
-  PlayguideFlow,
-  TitleFlow,
-} from '@hiroba/flows';
+import { BannerFlow, TitleFlow } from '@hiroba/flows';
 import { imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   crawlPlayguides,
@@ -46,8 +43,12 @@ import {
 } from '@hiroba/scraper';
 import { CATEGORIES } from '@hiroba/shared';
 
+import { domainSSE } from './domain-sse';
+import { listFlowRuns } from './flow-runs';
+import { flowStart } from './item-flows';
 import { createLogger, type Logger } from './logger';
 import { processRechecks } from './recheck';
+import { regenerateImage } from './regenerate-image';
 import { createEventAdjudicator } from './steps/adjudicate-events';
 import { buildScheduleEvents } from './steps/build-schedule-events';
 import { mirrorImages } from './steps/mirror-images';
@@ -58,7 +59,6 @@ import type { Env, ItemType } from './types';
 
 // Export the Durable Object and Workflow classes
 export { FlowHub } from './flow-hub';
-export { WorkflowManager } from './workflow-manager';
 export { ArticleWorkflow } from './article-workflow';
 export { TitleWorkflow } from './title-workflow';
 export { TitleBackfillWorkflow } from './title-backfill-workflow';
@@ -76,8 +76,10 @@ export { PlayguideWorkflow } from './playguide-workflow';
  * Genuine self-healing still happens (just not on every hit); admin, cron, and
  * the watching SSE stream bypass this with `force`. Enforced by the hub
  * (`cooldownMs`); the web app mirrors the value in its own trigger path.
+ * (Not exported: workerd treats every entry-module export as a potential
+ * entrypoint and refuses to start over a bare const.)
  */
-export const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 export default Sentry.withSentry(
   (env: Env) => ({
@@ -87,8 +89,8 @@ export default Sentry.withSentry(
   }),
   {
     /**
-     * Handle HTTP requests.
-     * Routes requests to the appropriate WorkflowManager DO.
+     * Handle HTTP requests. Internal-only (workers_dev = false) — admin/web
+     * reach these routes over their WORKFLOW service binding.
      */
     async fetch(request: Request, env: Env): Promise<Response> {
       const url = new URL(request.url);
@@ -98,27 +100,28 @@ export default Sentry.withSentry(
         return Response.json({ status: 'ok' });
       }
 
-      // Flow-hub passthroughs (DQX-19): thin fronts over the single 'hub' DO
-      // instance. Like the rest of this router they're internal-only
-      // (workers_dev = false) — admin/web hold their own FLOW_HUB binding and
-      // talk to the DO directly; these routes serve local dev and any future
-      // service-binding caller.
+      // The admin tracker's listing: hub runs (with segment snapshots)
+      // enriched with per-item domain detail for the article/playguide flows.
       if (url.pathname === '/flow/runs') {
-        const flow = url.searchParams.get('flow') ?? undefined;
-        // Guarded parse: a junk/negative limit falls back to the default
-        // (LIMIT NaN errors; SQLite treats LIMIT -1 as unbounded).
-        const limit = Number(url.searchParams.get('limit'));
-        const runs = await getFlowHub(env).listRuns({
-          flow,
-          limit: Number.isInteger(limit) && limit > 0 ? limit : undefined,
-        });
-        return Response.json({ runs });
+        return listFlowRuns(env, url);
       }
 
       // SSE stream for one run (?runId=… or ?flow=…&key=…) — the hub's fetch
       // handler owns the protocol; pass the query through untouched.
       if (url.pathname === '/flow/sse') {
         return getFlowHub(env).fetch(request.url);
+      }
+
+      // Domain SSE stream: pipeline snapshots for one (item, language) pair,
+      // computed from D1 and self-healing via hub.start (DQX-26).
+      if (url.pathname === '/sse') {
+        return domainSSE(env, url);
+      }
+
+      // Synchronous single-image regeneration for the admin edit page — this
+      // worker holds the OpenAI key and Images binding the admin lacks.
+      if (url.pathname === '/regenerate-image' && request.method === 'POST') {
+        return regenerateImage(env, request);
       }
 
       if (url.pathname === '/flow/start' && request.method === 'POST') {
@@ -137,28 +140,6 @@ export default Sentry.withSentry(
           { cooldownMs: body.cooldownMs, force: body.force },
         );
         return Response.json(result);
-      }
-
-      // Route /workflow/* requests to the WorkflowManager DO
-      if (url.pathname.startsWith('/workflow/')) {
-        const itemId = url.pathname.split('/')[2];
-        if (!itemId) {
-          return Response.json(
-            { error: 'itemId required in path' },
-            { status: 400 },
-          );
-        }
-
-        // Get DO stub for this item
-        const doId = env.WORKFLOW_MANAGER.idFromName(itemId);
-        const stub = env.WORKFLOW_MANAGER.get(doId);
-
-        // Forward the request to the DO
-        const doUrl = new URL(request.url);
-        doUrl.pathname = url.pathname.replace(`/workflow/${itemId}`, '');
-        if (!doUrl.pathname) doUrl.pathname = '/';
-
-        return stub.fetch(doUrl.toString(), request);
       }
 
       // Trigger workflow for a specific item (news by default, or topics/playguides)
@@ -185,10 +166,7 @@ export default Sentry.withSentry(
         // never doubled. The caller's `force` bypasses the page-view
         // re-trigger cooldown, and `probe` verifies a stale-looking active
         // run against the engine before attaching.
-        const start =
-          itemType === 'playguide'
-            ? { flow: PlayguideFlow.name, params: { slug: itemId } }
-            : { flow: ArticleFlow.name, params: { itemId, itemType } };
+        const start = flowStart(itemType, itemId);
         const result = await getFlowHub(env).start(start.flow, start.params, {
           force: body.force ?? false,
           cooldownMs: RETRIGGER_COOLDOWN_MS,
@@ -218,7 +196,8 @@ export default Sentry.withSentry(
             '/health',
             '/trigger',
             '/reconcile',
-            '/workflow/:itemId/*',
+            '/sse',
+            '/regenerate-image',
             '/flow/start',
             '/flow/runs',
             '/flow/sse',

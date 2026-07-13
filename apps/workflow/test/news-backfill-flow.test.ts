@@ -3,7 +3,7 @@
  * FlowEntrypoint shell. Page BODIES are mocked through the pool-workers
  * introspector (they'd fetch hiroba.dqx.jp and write D1), so what's under
  * test is what the port changed: the scope key at the hub (`category ??
- * 'all'`, replacing the `scrape:news:<category|all>` WorkflowManager DO-name
+ * 'all'`, replacing the old `scrape:news:<category|all>` coordinator-DO-name
  * convention) and the drain pool driving real engine steps to a hub-visible
  * completion.
  *

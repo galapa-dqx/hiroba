@@ -10,7 +10,7 @@ import { defineFlow, step, units } from '@hiroba/flow';
  *
  * Keyed by the term: re-triggering a term whose regeneration is still running
  * attaches to the run in flight instead of starting a duplicate. This replaces
- * the old per-term WorkflowManager DO (`regen:<term>` storage key +
+ * the old per-term coordinator DO (`regen:<term>` storage key +
  * blockConcurrencyWhile) as the dedup point.
  */
 export const GlossaryRegenFlow = defineFlow({

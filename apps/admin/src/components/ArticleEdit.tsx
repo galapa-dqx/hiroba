@@ -1,22 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { isActiveRunStatus as isRunActive } from '@hiroba/flow';
 import { imageKey, rewriteImageSrc, type Block } from '@hiroba/richtext';
-import { isRunActive, type WorkflowRunEntry } from '@hiroba/shared';
 import CategoryDot from '@hiroba/ui/CategoryDot';
 import { formatLocalDate } from '@hiroba/ui/format-date';
 
 import {
   getArticle,
-  getWorkflowRuns,
+  getFlowRuns,
   triggerArticleWorkflow,
   updateArticleSource,
   updateArticleTranslation,
   type ArticleDetail,
   type ArticleKind,
+  type FlowRunEntry,
 } from '../lib/api';
 import { getPrimaryLanguage } from '../lib/primary-language';
 import RtmlEditor, { type RtmlEditorHandle } from './editor/RtmlEditor';
-import RunCard from './RunCard';
+import FlowRunCard from './FlowRunCard';
 
 const RUN_POLL_MS = 2500;
 
@@ -67,10 +68,10 @@ export default function ArticleEdit({ kind, id }: Props) {
   }
 
   // Workflow tracking (for the empty states' "Run Workflow" button).
-  const [run, setRun] = useState<WorkflowRunEntry | null>(null);
+  const [run, setRun] = useState<FlowRunEntry | null>(null);
   const [trackingRun, setTrackingRun] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
-  // Accept settled runs only if they started after our trigger — the registry
+  // Accept settled runs only if they started after our trigger — the hub
   // keeps yesterday's settled runs, which must not end tracking instantly.
   const minStartMs = useRef<number | null>(null);
 
@@ -118,12 +119,12 @@ export default function ArticleEdit({ kind, id }: Props) {
           (l) => !a.translations[l.code]?.blocks,
         );
         if (!a.blocksJa || anyUntranslated) {
-          getWorkflowRuns()
+          getFlowRuns()
             .then(({ runs }) => {
               const active = runs.find(
                 (r) =>
-                  r.itemType === kind &&
-                  r.itemId === id &&
+                  r.item?.itemType === kind &&
+                  r.item.itemId === id &&
                   isRunActive(r.status),
               );
               if (active) {
@@ -161,18 +162,18 @@ export default function ArticleEdit({ kind, id }: Props) {
     async function poll() {
       if (document.hidden) return;
       try {
-        const { runs } = await getWorkflowRuns();
+        const { runs } = await getFlowRuns();
         if (cancelled) return;
         const mine = runs
-          .filter((r) => r.itemType === kind && r.itemId === id)
+          .filter((r) => r.item?.itemType === kind && r.item.itemId === id)
           .filter(
             (r) =>
               isRunActive(r.status) ||
               minStartMs.current === null ||
-              Date.parse(r.startedAt) >= minStartMs.current,
+              r.createdAt >= minStartMs.current,
           )
-          .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
-        if (!mine) return; // registry may lag right after the trigger
+          .sort((a, b) => b.createdAt - a.createdAt)[0];
+        if (!mine) return; // the listing may lag right after the trigger
         setRun(mine);
         if (!isRunActive(mine.status)) {
           setTrackingRun(false);
@@ -299,7 +300,7 @@ export default function ArticleEdit({ kind, id }: Props) {
   // the card visible (diagnostics) with the button offered as a retry.
   const emptyState = (message: string) => (
     <>
-      {run && <RunCard run={run} />}
+      {run && <FlowRunCard run={run} snapshot={run.snapshot ?? undefined} />}
       {trackingRun && !run && (
         <p className="article-edit__empty">Starting workflow…</p>
       )}

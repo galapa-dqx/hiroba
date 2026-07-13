@@ -19,13 +19,9 @@
   },
   "durable_objects": {
     "bindings": [
-      {
-        "name": "WORKFLOW_MANAGER",
-        "class_name": "WorkflowManager",
-        "script_name": "hiroba-workflow",
-      },
       // The flow framework's control plane (DQX-19) — one 'hub' instance;
-      // the list-view title-backfill trigger starts flows through it.
+      // the article-pipeline and title-backfill triggers start flows
+      // through it.
       {
         "name": "FLOW_HUB",
         "class_name": "FlowHub",
@@ -33,4 +29,12 @@
       },
     ],
   },
+  // The workflow worker's plain domain SSE route (DQX-26) — the article
+  // progress streams proxy through this.
+  "services": [
+    {
+      "binding": "WORKFLOW",
+      "service": "hiroba-workflow",
+    },
+  ],
 }

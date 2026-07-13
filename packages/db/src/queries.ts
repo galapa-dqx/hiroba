@@ -24,11 +24,9 @@ import { Temporal } from 'temporal-polyfill';
 
 import type { Block } from '@hiroba/richtext';
 import {
-  ACTIVE_RUN_STATUSES,
   getNextCheckTime,
   type Category,
   type PhaseState,
-  type WorkflowRunStatus,
 } from '@hiroba/shared';
 
 import type { Database } from './client';
@@ -64,7 +62,6 @@ import {
   type Translation,
   type TranslationField,
 } from './schema/translations';
-import { workflowRuns, type WorkflowRun } from './schema/workflow-runs';
 
 /**
  * D1 caps bound parameters at ~100 per statement, so any query that fans a
@@ -2477,112 +2474,6 @@ export async function listImagesForAdmin(
     hasMore,
     nextCursor: hasMore ? page[page.length - 1].id : undefined,
   };
-}
-
-/* ------------------------------------------------------------------ *
- * Workflow run registry (admin tracker)
- * ------------------------------------------------------------------ */
-
-/**
- * Record a newly-created workflow instance. Inserted as `running` — the
- * engine may still report `queued`, which the next reconcile pass corrects.
- */
-export async function recordWorkflowRun(
-  db: Database,
-  params: { instanceId: string; itemType: ArticleType; itemId: string },
-): Promise<void> {
-  const now = Temporal.Now.instant();
-  await db
-    .insert(workflowRuns)
-    .values({
-      instanceId: params.instanceId,
-      itemType: params.itemType,
-      itemId: params.itemId,
-      status: 'running',
-      startedAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoNothing();
-}
-
-/**
- * The newest still-active run for an item, or null. This is the dedup source
- * of truth for the WorkflowManager DO: unlike its in-memory map, it survives
- * DO eviction, so a trigger arriving at a cold DO can find (and reuse) a run
- * already in flight instead of starting a duplicate. The partial unique index
- * on active `(item_type, item_id)` keeps this to at most one row, but we order
- * and limit defensively.
- */
-export async function getActiveWorkflowRun(
-  db: Database,
-  itemType: ArticleType,
-  itemId: string,
-): Promise<WorkflowRun | null> {
-  const row = await db
-    .select()
-    .from(workflowRuns)
-    .where(
-      and(
-        eq(workflowRuns.itemType, itemType),
-        eq(workflowRuns.itemId, itemId),
-        inArray(workflowRuns.status, [...ACTIVE_RUN_STATUSES]),
-      ),
-    )
-    .orderBy(desc(workflowRuns.startedAt))
-    .limit(1)
-    .get();
-  return row ?? null;
-}
-
-/** Reconcile a run row with the status the Workflows engine reported. */
-export async function updateWorkflowRunStatus(
-  db: Database,
-  instanceId: string,
-  status: WorkflowRunStatus,
-  error?: string,
-): Promise<void> {
-  await db
-    .update(workflowRuns)
-    .set({ status, error: error ?? null, updatedAt: Temporal.Now.instant() })
-    .where(eq(workflowRuns.instanceId, instanceId));
-}
-
-/**
- * List runs for the admin tracker, newest first: every run still active by
- * its last-seen status, plus settled runs whose status changed on or after
- * `settledSince` (so recently-finished runs stay visible for a while).
- */
-export async function listWorkflowRuns(
-  db: Database,
-  options: { settledSince?: Temporal.Instant; limit?: number } = {},
-): Promise<WorkflowRun[]> {
-  const limit = Math.min(options.limit ?? 25, 100);
-  const active = inArray(workflowRuns.status, [...ACTIVE_RUN_STATUSES]);
-  const where = options.settledSince
-    ? or(active, gte(workflowRuns.updatedAt, options.settledSince))
-    : active;
-  return db
-    .select()
-    .from(workflowRuns)
-    .where(where)
-    .orderBy(desc(workflowRuns.startedAt))
-    .limit(limit)
-    .all();
-}
-
-/** Delete settled runs last touched before `before` — the registry's GC. */
-export async function pruneWorkflowRuns(
-  db: Database,
-  before: Temporal.Instant,
-): Promise<void> {
-  await db
-    .delete(workflowRuns)
-    .where(
-      and(
-        notInArray(workflowRuns.status, [...ACTIVE_RUN_STATUSES]),
-        lt(workflowRuns.updatedAt, before),
-      ),
-    );
 }
 
 /**
