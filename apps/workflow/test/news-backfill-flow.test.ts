@@ -89,11 +89,21 @@ describe('NewsBackfillFlow on the hub', () => {
   it('dedupes per scope: same scope attaches, another scope runs beside it', async () => {
     const introspector = await introspectWorkflow(env.NEWS_BACKFILL_WORKFLOW);
     try {
-      // Empty archives everywhere — every page is a stop marker, so both the
-      // scoped run and the all-categories run settle immediately.
+      // The contended scope gets real drain work (several data pages, each a
+      // stored engine step with its own hub round-trips) so the first run
+      // cannot settle in the gap between the two start() calls — an
+      // all-stops run is quick enough to make the attach assertion racy.
+      const UPDATE_PAGES = Array.from({ length: 6 }, () => ({
+        scraped: 1,
+        newItems: 0,
+      }));
       await introspector.modifyAll(async (m) => {
         for (const category of CATEGORIES) {
-          await mockCategoryPages(m, category, []);
+          await mockCategoryPages(
+            m,
+            category,
+            category === 'update' ? UPDATE_PAGES : [],
+          );
         }
       });
 
@@ -121,7 +131,9 @@ describe('NewsBackfillFlow on the hub', () => {
         (run) => run?.status === 'complete',
       );
       expect(allRun?.key).toBe('all');
-      expect(allRun?.output).toEqual({ pages: 0, scraped: 0, newItems: 0 });
+      // The 'all' run drains the same mocks: update's six data pages, empty
+      // archives elsewhere.
+      expect(allRun?.output).toEqual({ pages: 6, scraped: 6, newItems: 0 });
 
       await waitFor(
         () => hub().getRun(first.runId),

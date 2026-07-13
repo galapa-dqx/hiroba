@@ -38,6 +38,50 @@ function describeScrape(snapshot: Snapshot): string {
   return `Scraping ${running}${count ? ` — ${count} page(s)` : ''}`;
 }
 
+/**
+ * The live backfill progress line, isolated in its own component so per-page
+ * snapshot ticks re-render only this span — not the whole news list and its
+ * items table — for the multi-minute life of a run. Owning the subscription
+ * in an effect also ties the stream to the component: navigation away
+ * unmounts this and closes it (subscribeFlowRun otherwise keeps reconnecting
+ * by design).
+ */
+function BackfillProgress({
+  runId,
+  onSettled,
+}: {
+  runId: string;
+  /** Called exactly once with the final status line; `ok` gates refreshes. */
+  onSettled: (message: string, ok: boolean) => void;
+}) {
+  const [label, setLabel] = useState('Starting archive scrape…');
+  // Latest-callback ref so the effect subscribes once per runId while the
+  // parent stays free to re-render with fresh closures.
+  const settled = useRef(onSettled);
+  settled.current = onSettled;
+
+  useEffect(
+    () =>
+      subscribeFlowRun(runId, {
+        onSnapshot: (snapshot) => setLabel(describeScrape(snapshot)),
+        onDone: (output) => {
+          const out = output as NewsBackfillOutput | undefined;
+          settled.current(
+            out
+              ? `Backfill complete — ${out.newItems} new item(s) across ${out.pages} page(s).`
+              : 'Backfill complete.',
+            true,
+          );
+        },
+        onError: (message) =>
+          settled.current(`Backfill failed — ${message}.`, false),
+      }),
+    [runId],
+  );
+
+  return <span className="workflow-status">{label}</span>;
+}
+
 export default function NewsList() {
   const lang = usePrimaryLanguage();
   const [items, setItems] = useState<NewsItem[]>([]);
@@ -47,6 +91,8 @@ export default function NewsList() {
   const [stats, setStats] = useState<ArticleTypeStats | null>(null);
   const [scraping, setScraping] = useState(false);
   const [scrapeProgress, setScrapeProgress] = useState<string | null>(null);
+  /** Hub run the backfill progress line is following (null = none active). */
+  const [backfillRunId, setBackfillRunId] = useState<string | null>(null);
   const [workflowStatus, setWorkflowStatus] = useState<Map<string, string>>(
     new Map(),
   );
@@ -134,7 +180,8 @@ export default function NewsList() {
 
     // The whole archive is too many pages for one request (subrequest limit),
     // so this runs as a hub flow (NewsBackfillFlow, keyed by scope — starting
-    // an in-flight scope attaches to it); follow its live snapshot stream.
+    // an in-flight scope attaches to it). Mounting <BackfillProgress> owns
+    // the snapshot stream from here.
     setScraping(true);
     setScrapeProgress('Starting archive scrape…');
     try {
@@ -146,28 +193,20 @@ export default function NewsList() {
         setScraping(false);
         return;
       }
-      subscribeFlowRun(runId, {
-        onSnapshot: (snapshot) => setScrapeProgress(describeScrape(snapshot)),
-        onDone: (output) => {
-          const out = output as NewsBackfillOutput | undefined;
-          setScrapeProgress(
-            out
-              ? `Backfill complete — ${out.newItems} new item(s) across ${out.pages} page(s).`
-              : 'Backfill complete.',
-          );
-          setScraping(false);
-          void Promise.all([loadStats(), loadItems()]);
-        },
-        onError: (message) => {
-          setScrapeProgress(`Backfill failed — ${message}.`);
-          setScraping(false);
-        },
-      });
+      setScrapeProgress(null);
+      setBackfillRunId(runId);
     } catch (err) {
       setScrapeProgress('Backfill failed. Check console.');
       setScraping(false);
       console.error(err);
     }
+  }
+
+  function handleBackfillSettled(message: string, ok: boolean) {
+    setBackfillRunId(null);
+    setScrapeProgress(message);
+    setScraping(false);
+    if (ok) void Promise.all([loadStats(), loadItems()]);
   }
 
   async function handleInvalidateBody(id: string) {
@@ -296,8 +335,15 @@ export default function NewsList() {
             <option value="maintenance">Maintenance</option>
           </select>
         </label>
-        {scrapeProgress && (
-          <span className="workflow-status">{scrapeProgress}</span>
+        {backfillRunId ? (
+          <BackfillProgress
+            runId={backfillRunId}
+            onSettled={handleBackfillSettled}
+          />
+        ) : (
+          scrapeProgress && (
+            <span className="workflow-status">{scrapeProgress}</span>
+          )
         )}
       </div>
 

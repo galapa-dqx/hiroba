@@ -26,7 +26,13 @@ export const NewsBackfillFlow = defineFlow({
  * derive from one shape — admin can't import the workflow app's types.
  */
 export type NewsBackfillOutput = {
+  /** List pages that carried items. */
   pages: number;
+  /** List ROWS scanned — a raw work counter, not a distinct-item count: when
+   *  the newest-first archive shifts mid-run, the same item can appear on two
+   *  scanned pages and is counted each time. */
   scraped: number;
+  /** Items actually inserted. Distinct by construction — the upsert's
+   *  conflict resolution decides, atomically, regardless of page overlap. */
   newItems: number;
 };

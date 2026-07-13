@@ -82,6 +82,10 @@ export async function runNewsBackfillFlow(
       { concurrency: NEWS_BACKFILL_CONCURRENCY },
     );
 
+    // `scraped` sums raw rows per page — an archive shift mid-run can scan an
+    // item twice (see NewsBackfillOutput). Deduping it would mean shipping
+    // page item-ids through step memos for a cosmetic counter; `newItems` is
+    // the meaningful figure and the upsert keeps it distinct atomically.
     pages += results.length;
     for (const result of results) {
       scraped += result.scraped;
