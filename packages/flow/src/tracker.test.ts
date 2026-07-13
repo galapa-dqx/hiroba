@@ -10,9 +10,13 @@ import { defineFlow, phase, step, units } from './define';
 import { runFlowInline } from './inline';
 import { segmentView } from './snapshot';
 import {
+  createFlow,
+  DEFAULT_STEP_CONFIG,
   DRAIN_STOP,
   FlowJoinError,
   joinRequest,
+  type EngineStep,
+  type EngineStepConfig,
   type JoinPort,
 } from './tracker';
 
@@ -569,5 +573,153 @@ describe('joins', () => {
       undefined,
     );
     expect(String(run.error)).toMatch(/requires a JoinPort/);
+  });
+});
+
+describe('review-finding regressions', () => {
+  const mapper = defineFlow({
+    name: 'mapper-regress',
+    key: () => 'k',
+    steps: { write: units() },
+  });
+
+  it('map stops dispatching NEW units once one has failed', async () => {
+    const executed: string[] = [];
+    const run = await runFlowInline(
+      mapper,
+      (f) =>
+        f.map(
+          'write',
+          async () => ['a', 'b', 'c', 'd'],
+          async (item) => {
+            executed.push(item);
+            if (item === 'b') throw new Error('b exploded');
+            // 'a' outlives b's rejection so its lane observes the failure
+            // before pulling the next item.
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return item;
+          },
+          { concurrency: 2, id: (item) => item },
+        ),
+      undefined,
+    );
+    expect(String(run.error)).toMatch(/b exploded/);
+    expect(run.snapshot.steps.write.state).toBe('failed');
+    // In-flight 'a' finishes (memoization contract), but neither lane
+    // dispatches 'c' or 'd' after the failure.
+    expect(executed.sort()).toEqual(['a', 'b']);
+  });
+
+  it('rejects the reserved unit id "list" before any unit runs', async () => {
+    const run = await runFlowInline(
+      mapper,
+      (f) =>
+        f.map(
+          'write',
+          async () => ['ok', 'list'],
+          async (item) => item,
+          { concurrency: 1, id: (item) => item },
+        ),
+      undefined,
+    );
+    expect(String(run.error)).toMatch(/reserved unit id "list"/);
+    expect(run.snapshot.steps.write.state).toBe('failed');
+    // Exactly one write/list engine step: the list step itself, no unit.
+    const listSteps = run.trace.filter((t) => t.name === 'write/list');
+    expect(listSteps).toHaveLength(1);
+  });
+
+  const phased = defineFlow({
+    name: 'phased-regress',
+    key: () => 'k',
+    steps: { work: phase() },
+  });
+
+  it('PhaseStep.waitForEvent resolves the payload, not the engine wrapper', async () => {
+    const run = await runFlowInline(
+      phased,
+      (f) =>
+        f.phase('work', async (s) => {
+          const got = await s.waitForEvent<{ ok: boolean }>('resume', {
+            type: 'go',
+          });
+          return got.ok;
+        }),
+      undefined,
+      { events: { go: { ok: true } } },
+    );
+    expect(run.error).toBeUndefined();
+    expect(run.output).toBe(true);
+  });
+
+  const cyclic = defineFlow({
+    name: 'cyclic-regress',
+    key: () => 'k',
+    steps: { fetch: step() },
+  });
+
+  it('inline rejects circular step returns like the real engine', async () => {
+    const run = await runFlowInline(
+      cyclic,
+      (f) =>
+        f.step('fetch', async () => {
+          const a: Record<string, unknown> = { items: [1] };
+          a.self = a;
+          return a;
+        }),
+      undefined,
+    );
+    expect(String(run.error)).toMatch(/circular reference/);
+  });
+
+  it('inline still allows shared (DAG) references in step returns', async () => {
+    const run = await runFlowInline(
+      cyclic,
+      (f) =>
+        f.step('fetch', async () => {
+          const shared = { n: 1 };
+          return { a: shared, b: shared };
+        }),
+      undefined,
+    );
+    expect(run.error).toBeUndefined();
+    expect(run.output).toEqual({ a: { n: 1 }, b: { n: 1 } });
+  });
+});
+
+describe('per-step config', () => {
+  const linear2 = defineFlow({
+    name: 'config-regress',
+    key: () => 'k',
+    steps: { fetch: step() },
+  });
+
+  it('merges partial overrides OVER the bounded defaults', async () => {
+    const captured: unknown[] = [];
+    const engine: EngineStep = {
+      do: async <T>(
+        name: string,
+        configOrFn: unknown,
+        maybeFn?: () => Promise<T>,
+      ): Promise<T> => {
+        const fn = (maybeFn ?? configOrFn) as () => Promise<T>;
+        if (maybeFn) captured.push(configOrFn);
+        return fn();
+      },
+      sleep: async () => {},
+      waitForEvent: async () => ({
+        type: 'noop',
+        payload: null,
+        timestamp: new Date(0),
+      }),
+    };
+    const f = createFlow(linear2, engine, { report: () => {} }, 'run-1');
+    await f.step('fetch', async () => 1, { timeout: '30 seconds' });
+    // The override tightens the timeout WITHOUT reverting retries to the
+    // platform's 5-attempt default.
+    expect(captured[0]).toEqual({
+      ...DEFAULT_STEP_CONFIG,
+      timeout: '30 seconds',
+    } satisfies EngineStepConfig);
   });
 });
