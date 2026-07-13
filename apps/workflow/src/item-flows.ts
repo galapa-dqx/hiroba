@@ -19,9 +19,6 @@ export function parseItemType(value: string | null | undefined): ItemType {
     : 'news';
 }
 
-/** Topics and playguides carry text-bearing images; news does not. */
-export const hasImages = (itemType: ItemType): boolean => itemType !== 'news';
-
 /** The hub start arguments for one item's pipeline — playguides run their own
  *  flow keyed by slug; news/topics run the ArticleFlow keyed by type+id.
  *  (The mapping itself lives in @hiroba/flows so web/admin share it.) */

@@ -48,6 +48,11 @@ describe('itemRunHealth', () => {
       ),
     ).toBe('degraded');
     expect(
+      itemRunHealth(
+        run('complete', { ...CLEAN_OUTPUT, transcribe: { failed: 1 } }),
+      ),
+    ).toBe('degraded');
+    expect(
       itemRunHealth(run('complete', { fetchBody: { success: false } })),
     ).toBe('fetch-failed');
     expect(

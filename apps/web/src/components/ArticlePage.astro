@@ -154,6 +154,8 @@ const alternates = [
 				id="processing-notice"
 				data-sse-url={follow ? sseUrl : undefined}
 				data-stale-run={follow ? view.staleRunId : undefined}
+				data-item-type={itemType}
+				data-item-id={itemId}
 				data-i18n={JSON.stringify(calloutStrings)}
 				role="status"
 			>
@@ -247,6 +249,20 @@ const alternates = [
 			if (statusEl) statusEl.textContent = message;
 		};
 
+		// Re-arm the pipeline from the client — the SSR trigger is
+		// fire-and-forget and can be lost, so the stale-run wait would
+		// otherwise spin forever on a run that nothing is replacing.
+		const retrigger = () => {
+			void fetch("/api/flow/trigger", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					itemType: notice.dataset.itemType,
+					itemId: notice.dataset.itemId,
+				}),
+			}).catch(() => {});
+		};
+
 		const follow = () =>
 			followRun(
 				sseUrl,
@@ -255,10 +271,11 @@ const alternates = [
 						if (statusEl) statusEl.textContent = describeItemRun(snapshot, i18n);
 					},
 					onSettled: (snapshot) => {
-						// The stale run's replay: keep waiting for the forced run to
-						// take over the flow-key stream (each retry reconnects, so a
-						// newer run's frames arrive as soon as it exists).
+						// The stale run's replay: re-arm the pipeline and keep waiting
+						// for the new run to take over the flow-key stream (each retry
+						// reconnects, so its frames arrive as soon as it exists).
 						if (staleRunId && snapshot.runId === staleRunId) {
+							retrigger();
 							setTimeout(follow, 5000);
 							return;
 						}

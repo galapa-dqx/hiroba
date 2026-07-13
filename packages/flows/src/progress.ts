@@ -144,6 +144,7 @@ type ItemRunOutput = {
   fetchBody?: { success?: boolean };
   translate?: { success?: boolean };
   mirror?: { failed?: number };
+  transcribe?: { failed?: number };
   localize?: { failed?: number };
 };
 
@@ -160,9 +161,10 @@ export function itemRunHealth(run: ItemRunLike): ItemRunHealth {
   const output = (run.output ?? {}) as ItemRunOutput;
   if (output.fetchBody?.success === false) return 'fetch-failed';
   if (output.translate?.success === false) return 'translate-failed';
-  // Either per-image step failing degrades: a failed ingest (mirror) leaves
-  // the image unserved just like a failed localize.
+  // Any per-image step failing degrades: a failed mirror, transcription, or
+  // localize all leave some of the article's images unserved.
   if ((output.mirror?.failed ?? 0) > 0) return 'degraded';
+  if ((output.transcribe?.failed ?? 0) > 0) return 'degraded';
   if ((output.localize?.failed ?? 0) > 0) return 'degraded';
   return 'complete';
 }

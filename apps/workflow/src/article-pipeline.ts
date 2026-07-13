@@ -317,11 +317,12 @@ export async function imageAndOutputPipeline(
   // for domain failures, so this means real trouble) counts into the same
   // `failed` buckets a failed image always filled: degrade, don't block.
   const mirror: MirrorResult = { mirrored: 0, skipped: 0, failed: 0 };
-  let imagesTranscribed = 0;
+  const transcribe: TranscribeResult = { imagesTranscribed: 0, failed: 0 };
   for (const outcome of ingested) {
     if (outcome.status === 'complete' && outcome.output) {
       mirror[outcome.output.mirror]++;
-      if (outcome.output.transcribed) imagesTranscribed++;
+      if (outcome.output.transcribed) transcribe.imagesTranscribed++;
+      if (outcome.output.transcribeFailed) transcribe.failed++;
     } else {
       mirror.failed++;
     }
@@ -335,5 +336,5 @@ export async function imageAndOutputPipeline(
     }
   }
 
-  return { mirror, transcribe: { imagesTranscribed }, translate, localize };
+  return { mirror, transcribe, translate, localize };
 }
