@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
+import { renderCount, type Snapshot } from '@hiroba/flow';
 import CategoryDot from '@hiroba/ui/CategoryDot';
 import { formatLocalDate } from '@hiroba/ui/format-date';
 
@@ -15,11 +16,26 @@ import {
   type ArticleTypeStats,
   type NewsItem,
 } from '../lib/api';
+import { subscribeFlowRun } from '../lib/flow-stream';
 import { subscribeJob } from '../lib/job-stream';
 import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /** Matches the server-side cap in lib/trigger-recent.ts. */
 const MAX_RECENT_TRIGGER = 50;
+
+/**
+ * One line for the archive scrape run: the category segment being drained plus
+ * its pages counter — `N…` while indeterminate (the archive's size is unknown
+ * until the empty page), which is all a drain ever shows.
+ */
+function describeScrape(snapshot: Snapshot): string {
+  const running = snapshot.order.find(
+    (key) => snapshot.steps[key].state === 'running',
+  );
+  if (!running) return 'Scraping…';
+  const count = renderCount(snapshot.steps[running]);
+  return `Scraping ${running}${count ? ` — ${count} page(s)` : ''}`;
+}
 
 export default function NewsList() {
   const lang = usePrimaryLanguage();
@@ -107,23 +123,32 @@ export default function NewsList() {
   }
 
   async function handleBackfill() {
+    const scope = category || undefined;
     if (
       !confirm(
-        'Scrape every listing page of every category? New titles are translated automatically; article bodies still fetch lazily.',
+        `Scrape every listing page of ${scope ? `the “${scope}” category` : 'every category'}? New titles are translated automatically; article bodies still fetch lazily.`,
       )
     )
       return;
 
-    // The whole archive is too many pages for one request (subrequest limit), so
-    // this runs as a background workflow; follow its live progress over SSE.
+    // The whole archive is too many pages for one request (subrequest limit),
+    // so this runs as a hub flow (NewsBackfillFlow, keyed by scope — starting
+    // an in-flight scope attaches to it); follow its live snapshot stream.
     setScraping(true);
     setScrapeProgress('Starting archive scrape…');
     try {
-      await startArchiveScrape();
-      subscribeJob('/api/scrape/stream', {
-        onProgress: (p) => setScrapeProgress(p.label),
-        onDone: (summary) => {
-          setScrapeProgress(`Backfill complete — ${summary ?? 'done'}.`);
+      const { runId } = await startArchiveScrape(scope);
+      subscribeFlowRun(runId, {
+        onSnapshot: (snapshot) => setScrapeProgress(describeScrape(snapshot)),
+        onDone: (output) => {
+          const out = output as
+            | { pages: number; scraped: number; newItems: number }
+            | undefined;
+          setScrapeProgress(
+            out
+              ? `Backfill complete — ${out.newItems} new item(s) across ${out.pages} page(s).`
+              : 'Backfill complete.',
+          );
           setScraping(false);
           void Promise.all([loadStats(), loadItems()]);
         },

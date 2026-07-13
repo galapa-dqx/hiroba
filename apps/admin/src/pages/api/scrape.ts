@@ -1,54 +1,64 @@
 import type { APIRoute } from 'astro';
 
 import { createDb } from '@hiroba/db';
+import type { StartResult } from '@hiroba/flow/hub';
+import { NewsBackfillFlow } from '@hiroba/flows';
 import type { Category } from '@hiroba/shared';
 
 import { triggerScrape } from '../../lib/db-operations';
 import { enqueueTitleTranslation } from '../../lib/enqueue-titles';
-import { newsScrapeStreamKey } from '../../lib/sse';
 
 export const POST: APIRoute = async ({ locals, request }) => {
-  const runtime = locals.runtime as {
-    env: { DB: D1Database; WORKFLOW_MANAGER: DurableObjectNamespace };
-  };
+  const env = locals.runtime.env;
 
   const url = new URL(request.url);
   const full = url.searchParams.get('full') === 'true';
   const category = url.searchParams.get('category') as Category | undefined;
 
-  // Whole-archive scrape → hand off to the NewsBackfillWorkflow, which pages the
-  // archive one durable step at a time. A single request can't: the free plan
-  // caps subrequests at 50, and a full backfill makes hundreds (that's the 500).
-  // Returns immediately; the client streams progress from /api/scrape/stream.
+  // Whole-archive scrape → start NewsBackfillFlow via the FlowHub, which drains
+  // the archive one durable page-unit at a time. A single request can't: the
+  // free plan caps subrequests at 50, and a full backfill makes hundreds
+  // (that's the 500). The hub dedupes on the scope key (`category ?? 'all'`),
+  // so re-triggering a scope still in flight attaches to the running scrape.
+  // Returns immediately; the client streams the run's hub SSE snapshots from
+  // /api/flow-runs/stream?runId=….
   if (full) {
-    const streamKey = newsScrapeStreamKey(category);
-    const stub = runtime.env.WORKFLOW_MANAGER.get(
-      runtime.env.WORKFLOW_MANAGER.idFromName(streamKey),
-    );
-    const res = await stub.fetch('http://internal/scrape-news', {
+    const ns = env.FLOW_HUB;
+    const stub = ns.get(ns.idFromName('hub'));
+    const res = await stub.fetch('http://internal/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category, streamKey }),
+      body: JSON.stringify({
+        flow: NewsBackfillFlow.name,
+        params: category ? { category } : {},
+      }),
     });
-    const started = (await res.json()) as {
-      status: string;
-      instanceId: string;
-    };
+    if (!res.ok) {
+      return Response.json(
+        { error: 'Failed to start archive scrape' },
+        { status: 502 },
+      );
+    }
+    const result = (await res.json()) as StartResult;
+    if (result.throttled) {
+      // Unreachable without a cooldown, but the wire type carries it.
+      return Response.json({ error: 'throttled' }, { status: 429 });
+    }
     return Response.json({
       success: true,
       mode: 'workflow',
-      streamKey,
-      ...started,
+      status: result.created ? 'started' : 'already_running',
+      runId: result.runId,
     });
   }
 
   // Incremental refresh (first page per category) is only a handful of
   // subrequests — run it inline and enqueue title translation for the newly
   // discovered items, mirroring the hourly cron.
-  const db = createDb(runtime.env.DB);
+  const db = createDb(env.DB);
   const { newItemIds, ...result } = await triggerScrape(db, { full, category });
   const enqueued = await enqueueTitleTranslation(
-    runtime.env.WORKFLOW_MANAGER,
+    env.WORKFLOW_MANAGER,
     'news',
     newItemIds,
   );

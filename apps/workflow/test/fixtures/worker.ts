@@ -7,6 +7,7 @@
 export { FlowHub } from '../../src/flow-hub';
 export { BannerWorkflow } from '../../src/banner-workflow';
 export { GlossaryRegenerateWorkflow } from '../../src/glossary-regenerate-workflow';
+export { NewsBackfillWorkflow } from '../../src/news-backfill-workflow';
 
 export default {
   fetch: (): Response => new Response('workflow test fixture'),

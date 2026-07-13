@@ -22,6 +22,11 @@
       "binding": "GLOSSARY_REGENERATE_WORKFLOW",
       "class_name": "GlossaryRegenerateWorkflow",
     },
+    {
+      "name": "news-backfill-workflow",
+      "binding": "NEWS_BACKFILL_WORKFLOW",
+      "class_name": "NewsBackfillWorkflow",
+    },
   ],
   "d1_databases": [
     {

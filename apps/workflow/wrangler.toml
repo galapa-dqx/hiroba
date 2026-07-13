@@ -104,10 +104,12 @@ name = "title-backfill-workflow"
 binding = "TITLE_BACKFILL_WORKFLOW"
 class_name = "TitleBackfillWorkflow"
 
-# Cloudflare Workflow for the whole-archive news list scrape (DQX-14): pages
-# every category one durable step at a time so it isn't bound by a single
-# request's subrequest limit. Triggered from the admin "Backfill All"; streams
-# per-page progress back through the WorkflowManager DO.
+# NewsBackfillFlow (DQX-23): whole-archive news list scrape. Drains every
+# requested category's archive one durable page-unit at a time so it isn't
+# bound by a single request's subrequest limit. Started only via the FlowHub
+# (hub.start('news-backfill'), keyed by `category ?? 'all'` so concurrent
+# triggers attach) from the admin "Backfill All"; the admin follows the hub's
+# per-run SSE snapshots.
 [[workflows]]
 name = "news-backfill-workflow"
 binding = "NEWS_BACKFILL_WORKFLOW"
