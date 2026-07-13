@@ -175,7 +175,7 @@ describe('playguide flow — the split pipeline', () => {
       slug: SLUG,
       fetchBody: { success: true, blockCount: 2 },
       mirror: { mirrored: 2, skipped: 0, failed: 0 },
-      transcribe: { imagesTranscribed: 1 },
+      transcribe: { imagesTranscribed: 1, failed: 0 },
       translate: { success: true, fieldsTranslated: 6 },
       localize: { localized: 2, skipped: 0, failed: 0 },
     });
@@ -373,7 +373,7 @@ describe('playguide flow — the split pipeline', () => {
     expect(result.snapshot.status).toBe('complete');
     expect(result.output).toMatchObject({
       mirror: { mirrored: 0, skipped: 0, failed: 2 },
-      transcribe: { imagesTranscribed: 0 },
+      transcribe: { imagesTranscribed: 0, failed: 0 },
       localize: { localized: 0, skipped: 0, failed: 2 },
     });
   });

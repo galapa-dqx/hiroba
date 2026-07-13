@@ -68,7 +68,7 @@ export async function runArticleFlow(
       extractEvents: { count: 0, eventIds: [] },
       tagEvents: { tagged: false, timeTags: 0, eventTags: 0, retried: false },
       mirror: { mirrored: 0, skipped: 0, failed: 0 },
-      transcribe: { imagesTranscribed: 0 },
+      transcribe: { imagesTranscribed: 0, failed: 0 },
       translate: { success: false, fieldsTranslated: 0 },
       localize: { localized: 0, skipped: 0, failed: 0 },
     };

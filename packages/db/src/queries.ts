@@ -88,7 +88,7 @@ export type ArticleType = 'news' | 'topic' | 'playguide';
 
 /**
  * The source table for a body-bearing item type. All three share the columns the
- * pipeline touches (id, titleJa, blocksJa, fetchState, body* tracking); callers
+ * pipeline touches (id, titleJa, blocksJa, body* tracking); callers
  * that reach for a type-specific column (news `category`, dated `publishedAt`)
  * branch explicitly instead of going through here.
  */
@@ -101,9 +101,8 @@ function articleTable(itemType: ArticleType) {
 }
 
 /**
- * D1 caps bound parameters at 100 per query, and drizzle binds 5 per row here
- * (the 4 ListItem columns plus the `fetch_state` column default, which
- * travels as a parameter) — 16 rows = 80 keeps headroom under the cap.
+ * D1 caps bound parameters at 100 per query; 16 rows of a handful of bound
+ * ListItem columns keeps comfortable headroom under the cap.
  */
 const UPSERT_LIST_CHUNK = 16;
 
@@ -502,14 +501,12 @@ export async function saveChangedBody(
     bodyFetchedAt: Temporal.Instant;
     bodyCheckedAt: Temporal.Instant;
     bodyChangedAt: Temporal.Instant;
-    fetchState: PhaseState;
     titleJa?: string;
   } = {
     blocksJa: params.blocks,
     bodyFetchedAt: at,
     bodyCheckedAt: at,
     bodyChangedAt: at,
-    fetchState: 'done',
   };
   if (params.titleJa) set.titleJa = params.titleJa;
   const result = await db
@@ -716,7 +713,6 @@ export async function upsertTopic(
   if (topic.blocksJa !== undefined) set.blocksJa = topic.blocksJa;
   if (topic.bodyFetchedAt !== undefined)
     set.bodyFetchedAt = topic.bodyFetchedAt;
-  if (topic.fetchState !== undefined) set.fetchState = topic.fetchState;
   if (topic.bodyCheckedAt !== undefined)
     set.bodyCheckedAt = topic.bodyCheckedAt;
   if (topic.bodyChangedAt !== undefined)
@@ -1119,7 +1115,6 @@ export async function upsertPlayguide(
   if (pg.sortOrder !== undefined) set.sortOrder = pg.sortOrder;
   if (pg.blocksJa !== undefined) set.blocksJa = pg.blocksJa;
   if (pg.bodyFetchedAt !== undefined) set.bodyFetchedAt = pg.bodyFetchedAt;
-  if (pg.fetchState !== undefined) set.fetchState = pg.fetchState;
   if (pg.bodyCheckedAt !== undefined) set.bodyCheckedAt = pg.bodyCheckedAt;
   if (pg.bodyChangedAt !== undefined) set.bodyChangedAt = pg.bodyChangedAt;
 
@@ -1985,17 +1980,6 @@ export async function upsertTopicTranslation(
  * Pipeline state transitions
  * ------------------------------------------------------------------ */
 
-/** Set the article fetch state on a news item or topic. */
-export async function setItemFetchState(
-  db: Database,
-  itemType: ArticleType,
-  id: string,
-  state: PhaseState,
-): Promise<void> {
-  const table = articleTable(itemType);
-  await db.update(table).set({ fetchState: state }).where(eq(table.id, id));
-}
-
 /**
  * Set the state on translation rows without touching their value — creating
  * the rows if this is the first time a step touches them. A re-run therefore
@@ -2126,11 +2110,11 @@ export async function resetRunningTitlesForLanguage(
 }
 
 /**
- * Terminal cleanup when a workflow dies: everything for this item still
- * marked in-flight (or never picked up) becomes `failed`, so SSE clients and
- * later triggers see a settled pipeline instead of an eternal `running`.
- * Scoped to the item's own rows — shared image rows are owned by whichever
- * workflow is actually touching them.
+ * Terminal cleanup when a workflow dies: this item's translation rows still
+ * marked in-flight become `failed`, so the admin panels and later re-runs see
+ * a settled state instead of an eternal `running`. Scoped to the item's own
+ * rows — shared image rows are owned by whichever workflow is actually
+ * touching them.
  */
 export async function failPipelineStates(
   db: Database,
@@ -2140,11 +2124,6 @@ export async function failPipelineStates(
   error: string,
 ): Promise<void> {
   const now = Temporal.Now.instant();
-  const table = articleTable(itemType);
-  await db
-    .update(table)
-    .set({ fetchState: 'failed' })
-    .where(and(eq(table.id, itemId), eq(table.fetchState, 'running')));
   await db
     .update(translations)
     .set({ state: 'failed', error, updatedAt: now })

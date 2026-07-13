@@ -1,17 +1,16 @@
 /**
  * The admin tracker's run listing (DQX-26): the hub's runs (each with its
- * segment snapshot) enriched with per-item domain detail for the
- * article/playguide flows — the translated title, the item's D1 pipeline
- * snapshot, and per-image pipeline states. Generic flows (titles, backfills,
- * banners, glossary) pass through untouched; the panel renders them from the
- * hub data alone.
+ * segment snapshot) enriched with per-item identity for the article/playguide
+ * flows — which item the run is about and its titles. Progress itself is all
+ * hub data (segment snapshots; per-image work shows up as the image child
+ * runs since DQX-27 — the D1 snapshot enrichment retired with DQX-28).
+ * Generic flows (titles, backfills, banners, glossary) pass through
+ * untouched; the panel renders them from the hub data alone.
  */
 
 import { Temporal } from 'temporal-polyfill';
 
 import {
-  computeImageDetail,
-  computeSnapshot,
   createDb,
   getNewsItem,
   getPlayguide,
@@ -22,12 +21,7 @@ import type { Snapshot } from '@hiroba/flow';
 import { getFlowHub, isActiveStatus, type RunInfo } from '@hiroba/flow/hub';
 import type { FlowRunItem } from '@hiroba/shared';
 
-import {
-  ARTICLE_ITEM_TYPES,
-  hasImages,
-  hubRunItem,
-  isItemFlow,
-} from './item-flows';
+import { ARTICLE_ITEM_TYPES, hubRunItem, isItemFlow } from './item-flows';
 import type { Env, ItemType } from './types';
 
 /** How long settled runs stay in the tracker's listing (the hub itself
@@ -98,18 +92,11 @@ export async function listFlowRuns(env: Env, url: URL): Promise<Response> {
   const items = new Map<string, FlowRunItem>();
   for (const { runId, itemType, itemId } of itemRuns) {
     const item = await itemFor(itemType, itemId);
-    const pipeline = await computeSnapshot(db, itemType, itemId, 'en');
-    const images =
-      hasImages(itemType) && item
-        ? await computeImageDetail(db, item.blocksJa, 'en')
-        : [];
     items.set(runId, {
       itemType,
       itemId,
       titleJa: item?.titleJa ?? null,
       titleEn: titleEn.get(`${itemType}:${itemId}`) ?? null,
-      pipeline,
-      images,
     });
   }
 

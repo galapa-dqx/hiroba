@@ -73,7 +73,7 @@ describe('image child flows on the hub — joined, shared, settled', () => {
         // then the retry answers from the mock and the child settles.
         await m.forceStepTimeout({ name: 'mirror' }, 1);
         await m.mockStepResult({ name: 'mirror' }, 'mirrored');
-        await m.mockStepResult({ name: 'transcribe' }, true);
+        await m.mockStepResult({ name: 'transcribe' }, 'transcribed');
       });
       await localizes.modifyAll(async (m) => {
         await m.mockStepResult({ name: 'generate' }, 'localized');
@@ -95,7 +95,7 @@ describe('image child flows on the hub — joined, shared, settled', () => {
       // notification, and settle with the child outputs aggregated.
       const expectTail = {
         mirror: { mirrored: 1, skipped: 0, failed: 0 },
-        transcribe: { imagesTranscribed: 1 },
+        transcribe: { imagesTranscribed: 1, failed: 0 },
         localize: { localized: 1, skipped: 0, failed: 0 },
       };
       for (const runId of [first.runId, second.runId]) {
@@ -119,6 +119,7 @@ describe('image child flows on the hub — joined, shared, settled', () => {
         imageKey,
         mirror: 'mirrored',
         transcribed: true,
+        transcribeFailed: false,
       });
 
       // The localize children ran keyed per (image, language). The parents
@@ -176,7 +177,7 @@ describe('image child flows on the hub — joined, shared, settled', () => {
       );
       expect(run?.output).toMatchObject({
         mirror: { mirrored: 0, skipped: 0, failed: 1 },
-        transcribe: { imagesTranscribed: 0 },
+        transcribe: { imagesTranscribed: 0, failed: 0 },
         // The generate child settled complete with a failed OUTCOME — the
         // other degrade shape, counted the same way.
         localize: { localized: 0, skipped: 0, failed: 1 },

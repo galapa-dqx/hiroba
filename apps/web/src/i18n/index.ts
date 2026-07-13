@@ -11,11 +11,8 @@
  * register it here. `<code>` is the same value as the `languages.code` used in
  * the URL prefix.
  */
-import {
-  DEFAULT_STATUS_STRINGS,
-  type Category,
-  type StatusStrings,
-} from '@hiroba/shared';
+import type { ItemRunStrings } from '@hiroba/flows';
+import type { Category } from '@hiroba/shared';
 
 import { en } from './en';
 
@@ -64,24 +61,17 @@ export function dateLocale(lang: string): string {
 }
 
 /**
- * Localized pipeline-status templates for {@link describeSnapshot}. The count
- * tokens ({count}/{total}/{failed}) are left intact for the formatter to fill.
+ * Localized pipeline-status templates for `describeItemRun` (@hiroba/flows).
+ * The {progress} token is left intact for the formatter to fill.
  */
-export function statusStrings(lang: string): StatusStrings {
-  const tr = useTranslations(lang);
+export function itemRunStrings(lang: string): ItemRunStrings {
+  const lu = (key: MessageKey) => lookup(lang, key);
   return {
-    fetchFailed: tr('status.fetchFailed'),
-    fetching: tr('status.fetching'),
-    downloadingImages: tr('status.downloadingImages'),
-    readingImageText: tr('status.readingImageText'),
-    translationFailed: tr('status.translationFailed'),
-    translating: tr('status.translating'),
-    translatingImages: tr('status.translatingImages'),
-    imagesFailedOne: tr('status.imagesFailedOne'),
-    imagesFailedOther: tr('status.imagesFailedOther'),
-    finishing: tr('status.finishing'),
+    fetching: lu('status.fetching'),
+    extractingEvents: lu('status.extractingEvents'),
+    processingImages: lu('status.processingImages'),
+    translating: lu('status.translating'),
+    translatingImages: lu('status.translatingImages'),
+    finishing: lu('status.finishing'),
   };
 }
-
-// Re-exported so callers building the default set don't need @hiroba/shared.
-export { DEFAULT_STATUS_STRINGS };

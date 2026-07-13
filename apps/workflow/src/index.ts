@@ -43,7 +43,6 @@ import {
 } from '@hiroba/scraper';
 import { CATEGORIES } from '@hiroba/shared';
 
-import { domainSSE } from './domain-sse';
 import { listFlowRuns } from './flow-runs';
 import { flowStart } from './item-flows';
 import { createLogger, type Logger } from './logger';
@@ -113,12 +112,6 @@ export default Sentry.withSentry(
       // handler owns the protocol; pass the query through untouched.
       if (url.pathname === '/flow/sse') {
         return getFlowHub(env).fetch(request.url);
-      }
-
-      // Domain SSE stream: pipeline snapshots for one (item, language) pair,
-      // computed from D1 and self-healing via hub.start (DQX-26).
-      if (url.pathname === '/sse') {
-        return domainSSE(env, url);
       }
 
       // Synchronous single-image regeneration for the admin edit page — this
@@ -205,7 +198,6 @@ export default Sentry.withSentry(
             '/health',
             '/trigger',
             '/reconcile',
-            '/sse',
             '/regenerate-image',
             '/flow/start',
             '/flow/runs',

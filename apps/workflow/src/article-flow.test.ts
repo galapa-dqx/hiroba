@@ -204,7 +204,7 @@ describe('article flow — news + topics on the shared fragments', () => {
       extractEvents: { count: 2, eventIds: EVENT_IDS },
       tagEvents: { tagged: true, timeTags: 2, eventTags: 1, retried: false },
       mirror: { mirrored: 1, skipped: 0, failed: 0 },
-      transcribe: { imagesTranscribed: 1 },
+      transcribe: { imagesTranscribed: 1, failed: 0 },
       translate: { success: true, fieldsTranslated: 6 },
       localize: { localized: 2, skipped: 0, failed: 0 },
     });
@@ -311,7 +311,7 @@ describe('article flow — news + topics on the shared fragments', () => {
     expect(result.output).toMatchObject({
       itemType: 'news',
       mirror: { mirrored: 0, skipped: 0, failed: 0 },
-      transcribe: { imagesTranscribed: 0 },
+      transcribe: { imagesTranscribed: 0, failed: 0 },
       localize: { localized: 0, skipped: 0, failed: 0 },
     });
     // No children were ever joined — an image-free article costs zero runs.

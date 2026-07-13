@@ -100,7 +100,7 @@ describe('PlayguideFlow on the hub — keyed per slug', () => {
         slug: 'guide01',
         fetchBody: { success: true, blockCount: 3 },
         mirror: { mirrored: 1, skipped: 0, failed: 0 },
-        transcribe: { imagesTranscribed: 1 },
+        transcribe: { imagesTranscribed: 1, failed: 0 },
         translate: { success: true, fieldsTranslated: 2 },
         localize: { localized: 1, skipped: 0, failed: 0 },
       });

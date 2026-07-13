@@ -3,9 +3,8 @@
  * and paints each active run's segment strip live from the hub's per-run SSE
  * snapshots. Generic by construction: it renders whatever the flow definition
  * declares (order + steps), so every flow appears here with zero panel
- * changes; the article/playguide runs additionally carry per-item domain
- * enrichment (title, D1 pipeline snapshot, image detail) rendered by the
- * shared FlowRunCard.
+ * changes; the article/playguide runs additionally carry per-item identity
+ * (the translated title) rendered by the shared FlowRunCard.
  */
 
 import { useEffect, useRef, useState } from 'react';

@@ -114,23 +114,28 @@ async function transcribeOne(
   }
 }
 
+/** How one image's transcription attempt ended: freshly transcribed, skipped
+ *  because a previous run already did it, or failed (row marked failed). */
+export type TranscribeOutcome = 'transcribed' | 'skipped' | 'failed';
+
 /**
  * Transcribe one image key's baked-in text into the `images` table (the
  * per-unit worker behind `transcribeImages`, exported for the flow framework's
  * per-image `map` units). Skips a key already transcribed. Never throws for a
- * bad image — the row is marked failed and `false` returned, because one bad
- * image degrades the article, never blocks it. Returns whether the image was
- * newly transcribed this call.
+ * bad image — the row is marked failed and `'failed'` returned, because one
+ * bad image degrades the article, never blocks it.
  */
 export async function transcribeOneImage(
   db: Database,
   key: string,
   apiKey: string,
   bucket: R2Bucket,
-): Promise<boolean> {
+): Promise<TranscribeOutcome> {
   const [existing] = await getImagesByKeys(db, [key]);
-  if (existing?.transcribeState === 'done') return false;
-  return transcribeKey(db, createGemini(apiKey), bucket, key);
+  if (existing?.transcribeState === 'done') return 'skipped';
+  return (await transcribeKey(db, createGemini(apiKey), bucket, key))
+    ? 'transcribed'
+    : 'failed';
 }
 
 /** Transcribe a single key, no done-check (both entry points share this). */

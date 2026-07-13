@@ -14,7 +14,6 @@ import {
   getPlayguide,
   getTopic,
   newsItems,
-  setItemFetchState,
   syncArticleImages,
   upsertPlayguide,
   upsertTopic,
@@ -64,18 +63,15 @@ export async function fetchAndSaveNewsBody(
     return { success: false, blockCount: 0 };
   }
 
-  // If the block tree already exists, skip fetching (and make sure the state
-  // agrees — a re-run after a mid-pipeline failure lands here). Still resync
-  // the article_images index from the existing blocks: rows that predate the
-  // index self-heal on any pipeline re-run this way, matching topics and
-  // playguides, whose unconditional upserts resync every run.
+  // If the block tree already exists, skip fetching — a re-run after a
+  // mid-pipeline failure lands here. Still resync the article_images index
+  // from the existing blocks: rows that predate the index self-heal on any
+  // pipeline re-run this way, matching topics and playguides, whose
+  // unconditional upserts resync every run.
   if (item.blocksJa !== null) {
-    await setItemFetchState(db, 'news', itemId, 'done');
     await syncArticleImages(db, 'news', itemId, item.blocksJa);
     return { success: true, blockCount: item.blocksJa.length };
   }
-
-  await setItemFetchState(db, 'news', itemId, 'running');
 
   try {
     // Fetch + parse the detail page into a block tree.
@@ -89,7 +85,6 @@ export async function fetchAndSaveNewsBody(
         blocksJa: blocks,
         bodyFetchedAt: now,
         bodyCheckedAt: now,
-        fetchState: blocks.length > 0 ? 'done' : 'failed',
       })
       .where(eq(newsItems.id, itemId))
       .returning({ id: newsItems.id });
@@ -102,7 +97,6 @@ export async function fetchAndSaveNewsBody(
     return { success: blocks.length > 0, blockCount: blocks.length };
   } catch (error) {
     console.error(`Failed to fetch body for ${itemId}:`, error);
-    await setItemFetchState(db, 'news', itemId, 'failed');
     return { success: false, blockCount: 0 };
   }
 }
@@ -116,8 +110,6 @@ export async function fetchAndSaveTopicBody(
   db: Database,
   itemId: string,
 ): Promise<FetchBodyResult> {
-  // No-op for a topic not yet in D1 — the upsert below settles the state.
-  await setItemFetchState(db, 'topic', itemId, 'running');
   const { titleJa, blocks } = await fetchTopicBody(itemId);
   const existing = await getTopic(db, itemId);
   const now = Temporal.Now.instant();
@@ -129,7 +121,6 @@ export async function fetchAndSaveTopicBody(
     bodyFetchedAt: now,
     // The fetch counts as the first recheck poll.
     bodyCheckedAt: now,
-    fetchState: blocks.length > 0 ? 'done' : 'failed',
   });
   return { success: blocks.length > 0, blockCount: blocks.length };
 }
@@ -145,7 +136,6 @@ export async function fetchAndSavePlayguideBody(
   db: Database,
   itemId: string,
 ): Promise<FetchBodyResult> {
-  await setItemFetchState(db, 'playguide', itemId, 'running');
   const { titleJa, specificTitle, blocks } = await fetchPlayguideBody(itemId);
   const existing = await getPlayguide(db, itemId);
   const now = Temporal.Now.instant();
@@ -156,7 +146,6 @@ export async function fetchAndSavePlayguideBody(
     bodyFetchedAt: now,
     // The fetch counts as the first recheck poll.
     bodyCheckedAt: now,
-    fetchState: blocks.length > 0 ? 'done' : 'failed',
   });
   return { success: blocks.length > 0, blockCount: blocks.length };
 }

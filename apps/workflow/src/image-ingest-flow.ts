@@ -52,14 +52,19 @@ export async function runImageIngestFlow(
 
   if (!transcribe) {
     f.skip('transcribe', 'not a transcription candidate');
-    return { imageKey, mirror, transcribed: false };
+    return { imageKey, mirror, transcribed: false, transcribeFailed: false };
   }
 
   // Transcribe even when the mirror failed — the loader falls back to a
   // direct CDN fetch, same as the in-flow units did.
-  const transcribed = await f.step('transcribe', () =>
+  const outcome = await f.step('transcribe', () =>
     transcribeOneImage(db, imageKey, env.GEMINI_API_KEY, env.IMAGES_BUCKET),
   );
 
-  return { imageKey, mirror, transcribed };
+  return {
+    imageKey,
+    mirror,
+    transcribed: outcome === 'transcribed',
+    transcribeFailed: outcome === 'failed',
+  };
 }

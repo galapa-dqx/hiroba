@@ -24,7 +24,6 @@ import {
 } from 'drizzle-orm/sqlite-core';
 
 import type { Block } from '@hiroba/richtext';
-import type { PhaseState } from '@hiroba/shared';
 
 import { instant } from '../types/instant';
 import { json } from '../types/json';
@@ -47,11 +46,6 @@ export const playguides = sqliteTable(
 
     // Body fetch tracking
     bodyFetchedAt: instant('body_fetched_at'), // epoch ms (Temporal.Instant)
-    fetchState: text('fetch_state')
-      .$type<PhaseState>()
-      .notNull()
-      .default('pending'),
-
     // Recheck tracking (see @hiroba/shared freshness): when the source page was
     // last polled for edits, and when polled content last differed.
     bodyCheckedAt: instant('body_checked_at'),

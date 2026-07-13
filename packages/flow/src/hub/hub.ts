@@ -845,6 +845,25 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           })),
         });
       }
+      // /run resolves ONE run — by runId, or the latest for a (flow, key) —
+      // and ships it with its snapshot: the web render gate's single-call
+      // read ("is a run active / how did the last one settle"). Reading runs
+      // the lazy reconciler via getRun, so a silently-dead run answers
+      // settled instead of active. A missing run is `run: null`, not a 404 —
+      // "no run exists" is a normal answer for long-settled items.
+      if (url.pathname.endsWith('/run')) {
+        const runId =
+          url.searchParams.get('runId') ??
+          this.latestRunId(
+            url.searchParams.get('flow') ?? undefined,
+            url.searchParams.get('key') ?? undefined,
+          );
+        const run = runId ? await this.getRun(runId) : null;
+        return Response.json({
+          run,
+          snapshot: run ? this.snapshotOf(run.runId) : null,
+        });
+      }
       // /start mirrors start() for fetch-only callers (the admin's trigger
       // routes) — same reason as /runs above. Errors surface as a 500 with
       // the message rather than a rejected stub.fetch.

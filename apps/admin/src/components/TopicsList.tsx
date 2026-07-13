@@ -13,13 +13,14 @@ import {
   type ArticleTypeStats,
   type TopicItem,
 } from '../lib/api';
-import { subscribeJob } from '../lib/job-stream';
+import { useItemRunStreams } from '../lib/use-item-run';
 import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /** Matches the server-side cap in lib/trigger-recent.ts. */
 const MAX_RECENT_TRIGGER = 50;
 
 export default function TopicsList() {
+  const followItemRun = useItemRunStreams();
   const lang = usePrimaryLanguage();
   const [items, setItems] = useState<TopicItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -159,8 +160,8 @@ export default function TopicsList() {
 
       const setStatus = (line: string) =>
         setWorkflowStatus((prev) => new Map(prev).set(id, line));
-      subscribeJob(`/api/topics/${id}/sse`, {
-        onProgress: (p) => setStatus(p.label),
+      followItemRun('topic', id, {
+        onProgress: setStatus,
         onDone: () => {
           setStatus('Done!');
           setTimeout(() => {
