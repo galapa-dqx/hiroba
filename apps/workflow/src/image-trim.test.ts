@@ -240,6 +240,16 @@ describe('restoreMargins', () => {
     expect(padded.data[(2 * 40 + 20) * 4 + 3]).toBe(0); // right margin transparent
   });
 
+  it('scales each axis independently when content growth is uneven', () => {
+    // content 8×2 came back 16×5 (sx 2, sy 2.5 — aspect drift fitAspect kept):
+    // horizontal margins scale by 2, vertical by 2.5.
+    const content = { x: 2, y: 1, width: 8, height: 2 };
+    const localized = whiteRaster(16, 5);
+    const padded = restoreMargins(localized, { width: 20, height: 4 }, content);
+    // L 2×2=4, R 10×2=20 → width 40; T 1×2.5→3, B 1×2.5→3 → height 11
+    expect([padded.width, padded.height]).toEqual([40, 11]);
+  });
+
   it('promotes RGB input to RGBA with opaque content', () => {
     const rgb: Raster = {
       data: new Uint8Array(2 * 2 * 3).fill(9),

@@ -202,23 +202,25 @@ export function originalGeometry(bytes: Uint8Array): OriginalGeometry | null {
 
 /**
  * Re-insert the original's transparent edge margins around a localized raster:
- * the raster is the visible content, so scale each original margin by the
- * content growth factor and pad with fully transparent pixels. The result's
- * canvas aspect matches the original's, with the artwork in the same relative
- * position. Expects a 3- or 4-channel raster; always returns RGBA.
+ * the raster is the visible content, so scale each original margin by that
+ * axis's content growth factor and pad with fully transparent pixels. Per-axis
+ * scales (not one average) so margins stay proportional even when the model's
+ * output drifted within ASPECT_TOLERANCE and the axes grew unevenly. The
+ * result's canvas geometry matches the original's, with the artwork in the
+ * same relative position. Expects a 3- or 4-channel raster; always returns
+ * RGBA.
  */
 export function restoreMargins(
   r: Raster,
   canvas: { width: number; height: number },
   content: Box,
 ): Raster {
-  const scale = (r.width / content.width + r.height / content.height) / 2;
-  const left = Math.round(content.x * scale);
-  const top = Math.round(content.y * scale);
-  const right = Math.round((canvas.width - content.x - content.width) * scale);
-  const bottom = Math.round(
-    (canvas.height - content.y - content.height) * scale,
-  );
+  const sx = r.width / content.width;
+  const sy = r.height / content.height;
+  const left = Math.round(content.x * sx);
+  const top = Math.round(content.y * sy);
+  const right = Math.round((canvas.width - content.x - content.width) * sx);
+  const bottom = Math.round((canvas.height - content.y - content.height) * sy);
   const width = r.width + left + right;
   const height = r.height + top + bottom;
   const out = new Uint8Array(width * height * 4); // zeroed → fully transparent
