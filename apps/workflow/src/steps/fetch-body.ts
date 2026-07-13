@@ -83,7 +83,7 @@ export async function fetchAndSaveNewsBody(
     const now = Temporal.Now.instant();
 
     // Save to D1. The fetch counts as the first recheck poll.
-    await db
+    const result = await db
       .update(newsItems)
       .set({
         blocksJa: blocks,
@@ -91,8 +91,13 @@ export async function fetchAndSaveNewsBody(
         bodyCheckedAt: now,
         fetchState: blocks.length > 0 ? 'done' : 'failed',
       })
-      .where(eq(newsItems.id, itemId));
-    await syncArticleImages(db, 'news', itemId, blocks);
+      .where(eq(newsItems.id, itemId))
+      .returning({ id: newsItems.id });
+    // Guarded like every blocks_ja writer: sync only when a row matched, so
+    // no ghost index rows even if the item vanished since the check above.
+    if (result.length > 0) {
+      await syncArticleImages(db, 'news', itemId, blocks);
+    }
 
     return { success: blocks.length > 0, blockCount: blocks.length };
   } catch (error) {
