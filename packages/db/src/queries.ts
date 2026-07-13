@@ -2246,7 +2246,8 @@ export async function upsertImageTranscription(
  * Replace an article's rows in the article_images reverse index from its block
  * tree. Called by every blocks_ja writer so the index can't drift. Only
  * block-level images are indexed (the localizable ones — see the schema doc);
- * delete-then-insert, since the per-article set is tiny.
+ * delete-then-insert as one atomic D1 batch, so a failure partway can't leave
+ * the index emptied or half-written while blocks_ja still references the keys.
  *
  * The invalidate helpers (blocksJa → null pending refetch) deliberately do NOT
  * clear the index: the article still conceptually embeds those images, so a
@@ -2267,7 +2268,7 @@ export async function syncArticleImages(
         .filter((k): k is string => !!k),
     ),
   ];
-  await db
+  const del = db
     .delete(articleImages)
     .where(
       and(
@@ -2275,16 +2276,20 @@ export async function syncArticleImages(
         eq(articleImages.itemId, itemId),
       ),
     );
-  // Insert in slices to respect D1's per-query bind-parameter cap.
+  // Inserts sliced to respect D1's per-query bind-parameter cap.
+  const inserts = [];
   for (let i = 0; i < keys.length; i += 30) {
-    await db.insert(articleImages).values(
-      keys.slice(i, i + 30).map((key) => ({
-        itemType,
-        itemId,
-        imageKey: key,
-      })),
+    inserts.push(
+      db.insert(articleImages).values(
+        keys.slice(i, i + 30).map((key) => ({
+          itemType,
+          itemId,
+          imageKey: key,
+        })),
+      ),
     );
   }
+  await db.batch([del, ...inserts]);
 }
 
 /**
