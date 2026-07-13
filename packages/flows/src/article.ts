@@ -10,7 +10,7 @@ import { articleImagework, articleIntake, articleOutput } from './fragments';
  * their trackers to the shared body helpers in apps/workflow.
  *
  * Keyed `${itemType}:${itemId}` — the one-run-per-item dedup that used to live
- * in the per-item WorkflowManager DO name (news = bare id, topic = prefixed).
+ * in the old per-item coordinator DO's name (news = bare id, topic = prefixed).
  * Every trigger surface (web first view, admin re-run, recheck heal, glossary
  * regen fan-out, self-healing SSE) routes through the hub, so a run already in
  * flight for the item is attached to, never doubled.

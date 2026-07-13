@@ -3,8 +3,8 @@
  * FlowEntrypoint shell. Step/unit BODIES are mocked through the pool-workers
  * introspector (they'd hit D1, R2, and three different LLM APIs), so what's
  * under test is what the split changed: the slug KEY carrying the
- * one-run-per-guide dedup that used to live in the `playguide:<slug>`
- * WorkflowManager DO name, and the fragment-composed step shape reaching the
+ * one-run-per-guide dedup that used to live in the old `playguide:<slug>`
+ * coordinator DO's name, and the fragment-composed step shape reaching the
  * hub in declaration order with no event segments.
  */
 

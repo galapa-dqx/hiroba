@@ -29,7 +29,6 @@ const TABLES = [
   'news_items',
   'topics',
   'translations',
-  'workflow_runs',
 ];
 
 /** Read every migration, in filename order, split into individual statements. */

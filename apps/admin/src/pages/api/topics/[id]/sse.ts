@@ -1,20 +1,16 @@
 /**
- * SSE endpoint for a topic's pipeline progress. The DO is namespaced `topic:`
- * so it doesn't collide with the news DO of the same id (proxies the DO).
+ * SSE endpoint for a topic's pipeline progress — proxies the workflow
+ * worker's domain SSE route.
  */
 
 import type { APIRoute } from 'astro';
 
-import { proxyDoSse } from '../../../../lib/sse';
+import { proxyWorkflowSse } from '../../../../lib/sse';
 
 export const GET: APIRoute = ({ locals, params }) => {
-  const runtime = locals.runtime as {
-    env: { WORKFLOW_MANAGER: DurableObjectNamespace };
-  };
   const id = params.id!;
-  return proxyDoSse(
-    runtime.env,
-    `topic:${id}`,
+  return proxyWorkflowSse(
+    locals.runtime.env,
     `/sse?itemId=${id}&itemType=topic`,
   );
 };

@@ -13,5 +13,4 @@ export * from './languages';
 export * from './events';
 export * from './reset-milestones';
 export * from './images';
-export * from './workflow-runs';
 export * from './banners';

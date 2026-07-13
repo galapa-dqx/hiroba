@@ -1,5 +1,6 @@
 // =============================================================================
-// progress-v3.ts — progress-tracking layer for the WorkflowManager
+// progress-v3.ts — progress-tracking layer for the (since-dissolved) workflow
+// coordinator DO
 //
 // Changes from v2:
 //   • No registry. Each workflow is a standalone value: `workflow({ name, steps })`.

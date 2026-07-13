@@ -9,7 +9,7 @@ import { CATEGORIES, type Category } from '@hiroba/shared';
  * to a single category stores a skip on the other three.
  *
  * Keyed by the requested scope (`category ?? 'all'`), replacing the old
- * `scrape:news:<category|all>` WorkflowManager DO-name convention as the dedup
+ * `scrape:news:<category|all>` coordinator-DO-name convention as the dedup
  * point: re-triggering a scope still in flight attaches to the running scrape.
  */
 export const NewsBackfillFlow = defineFlow({

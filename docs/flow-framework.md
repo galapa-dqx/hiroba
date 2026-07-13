@@ -89,13 +89,13 @@ segment being red** — otherwise a recovered run flashes a spuriously dead bar.
 
 Parallel **infrastructure**, serial per-workflow cutover — never double-run one
 workflow on both systems. Each port PR: class → framework, trigger →
-`hub.start`, consumers → hub endpoints, delete the old `WorkflowManager`
+`hub.start`, consumers → hub endpoints, delete the old coordinator-DO
 handler. **`steps/` modules never change** — ports touch orchestration only.
 
 Order (each PR proves one new capability): foundations dark — framework core,
 hub, dark mount (DQX-17–19) → Banner → Glossary → Titles → News-backfill
-(DQX-20–23) → Playguide split → Article → dissolve WorkflowManager
-(DQX-24–26). Parked until the hub has production mileage: image child flows via
+(DQX-20–23) → Playguide split → Article → dissolve the coordinator DO
+(DQX-24–26, all landed). Parked until the hub has production mileage: image child flows via
 `joinSettled`, then retiring `computeSnapshot` (DQX-27/28).
 
 Operational note: in-flight instances error when step names change on deploy.

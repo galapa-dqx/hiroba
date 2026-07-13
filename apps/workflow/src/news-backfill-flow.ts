@@ -13,7 +13,7 @@
  * TitleBackfillWorkflow (DQX-13); article bodies fetch lazily on first view.
  *
  * This replaces the DQX-14 raw WorkflowEntrypoint: the per-page `report()`
- * POST to the WorkflowManager DO is gone — units report through the tracker
+ * POST to the old coordinator DO is gone — units report through the tracker
  * and the admin follows the hub's per-run SSE snapshots instead.
  *
  * Platform-free on purpose (no cloudflare:workers import): the FlowEntrypoint
