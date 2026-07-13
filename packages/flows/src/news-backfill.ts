@@ -1,5 +1,5 @@
-import { defineFlow, units } from '@hiroba/flow';
-import type { Category } from '@hiroba/shared';
+import { defineFlow, unitsForEach } from '@hiroba/flow';
+import { CATEGORIES, type Category } from '@hiroba/shared';
 
 /**
  * Whole-archive news list scrape: page every requested category's archive
@@ -15,12 +15,18 @@ import type { Category } from '@hiroba/shared';
 export const NewsBackfillFlow = defineFlow({
   name: 'news-backfill',
   key: (params: { category?: Category }) => params.category ?? 'all',
-  // One segment per Category — the body's `f.drain(cat, …)` over CATEGORIES
-  // typechecks only while these keys mirror that union exactly.
-  steps: {
-    news: units(),
-    event: units(),
-    update: units(),
-    maintenance: units(),
-  },
+  // One segment per Category, derived from the list itself so the declared
+  // shape can't drift from the domain in either direction.
+  steps: unitsForEach(CATEGORIES),
 });
+
+/**
+ * The run's terminal output. Declared beside the definition so producer
+ * (apps/workflow's flow body) and consumers (the admin's completion toast)
+ * derive from one shape — admin can't import the workflow app's types.
+ */
+export type NewsBackfillOutput = {
+  pages: number;
+  scraped: number;
+  newItems: number;
+};

@@ -4,13 +4,18 @@
  * Everything here must be structured-clonable: it travels over DO RPC.
  */
 
-import type { Report, RunStatus, Snapshot } from '../snapshot';
+import {
+  isActiveRunStatus,
+  type Report,
+  type RunStatus,
+  type Snapshot,
+} from '../snapshot';
 
 /** `unknown` = the engine no longer knows the instance (reconciler verdict). */
 export type HubRunStatus = RunStatus | 'unknown';
 
-export const isActiveStatus = (s: HubRunStatus): boolean =>
-  s === 'queued' || s === 'running';
+/** Alias of the core predicate under its historical hub-side name. */
+export const isActiveStatus: (s: HubRunStatus) => boolean = isActiveRunStatus;
 
 export type StartOptions = {
   /** Minimum ms between start attempts for one (flow, key) while NO run is
@@ -19,6 +24,13 @@ export type StartOptions = {
   cooldownMs?: number;
   /** Bypass the cooldown (admin/cron/self-healing streams). */
   force?: boolean;
+  /** Probe the engine before attaching to an active run, even one fresher
+   *  than the lazy reconciler's window — a run that died without its terminal
+   *  report otherwise holds the dedup slot for up to RECONCILE_AFTER_MS and
+   *  the caller attaches to a corpse. For interactive triggers where the user
+   *  is watching (one engine status() per attach); leave off for
+   *  high-frequency fire-and-forget paths. */
+  probe?: boolean;
 };
 
 export type StartResult =

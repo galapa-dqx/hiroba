@@ -15,6 +15,7 @@ export {
   defineFlow,
   step,
   units,
+  unitsForEach,
   phase,
   type AnyFlowDef,
   type FlowDef,
@@ -26,6 +27,8 @@ export {
 
 export {
   createRunState,
+  isActiveRunStatus,
+  isTerminalRunStatus,
   renderCount,
   seedSnapshot,
   segmentView,

@@ -58,9 +58,13 @@ const TOTAL_ITEMS = DATA_PAGES.flat().length;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Real pagination behavior, including the hazard the clamp guard exists
-  // for: an out-of-range page is CLAMPED to the last real page (same items
-  // again), never served empty — only `totalPages` gives the overrun away.
+  // Real (post-fix) parser contract, including the hazard the clamp guard
+  // exists for: an out-of-range page is CLAMPED to the last real page (same
+  // items again), never served empty — only `totalPages` gives the overrun
+  // away. extractTotalPages counts the unlinked current-page marker, so the
+  // genuine last page reports its own number and only clamped overruns
+  // report less than the requested page (pinned by the scraper's own
+  // pagination-shape tests against live-captured DOM).
   vi.mocked(fetchNewsListPage).mockImplementation(async (category, page) => {
     const pages = ARCHIVE[category];
     if (pages.length === 0) return { items: [], totalPages: 1 };

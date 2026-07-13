@@ -2,6 +2,7 @@
  * Type definitions for the workflow worker.
  */
 
+import type { NewsBackfillOutput } from '@hiroba/flows';
 import type { Category } from '@hiroba/shared';
 
 import type { LocalizeResult } from './steps/localize-images';
@@ -168,12 +169,10 @@ export type NewsBackfillWorkflowParams = {
   category?: Category;
 };
 
-/** Result of the NewsBackfillWorkflow — how much of the archive it scraped. */
-export type NewsBackfillWorkflowOutput = {
-  pages: number;
-  scraped: number;
-  newItems: number;
-};
+/** Result of the NewsBackfillWorkflow — how much of the archive it scraped.
+ *  Declared beside the flow definition so the admin's completion toast and
+ *  this producer derive from one shape. */
+export type NewsBackfillWorkflowOutput = NewsBackfillOutput;
 
 /**
  * Parameters for the GlossaryRegenerateWorkflow. Just the Japanese term whose

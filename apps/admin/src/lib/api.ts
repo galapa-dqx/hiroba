@@ -81,12 +81,15 @@ export async function triggerScrape(): Promise<ScrapeResult> {
 
 /** Acknowledgement that the whole-archive scrape flow was (re)started. */
 export type ArchiveScrapeStarted = {
-  success: boolean;
-  mode: 'workflow';
-  /** `already_running` = the hub attached to a scrape of the same scope. */
-  status: 'started' | 'already_running';
-  /** Hub run id — query param for GET /api/flow-runs/stream to follow along. */
-  runId: string;
+  success?: boolean;
+  mode?: 'workflow';
+  /** `already_running` = the hub attached to a scrape of the same scope;
+   *  `throttled` is carried by the wire type but unreachable without a
+   *  cooldown on this flow. */
+  status: 'started' | 'already_running' | 'throttled';
+  /** Hub run id — query param for GET /api/flow-runs/stream to follow along.
+   *  Absent only when throttled. */
+  runId?: string;
 };
 
 /**

@@ -57,6 +57,12 @@ const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
  *  hibernations (batch translate) don't report for hours — the probe just
  *  confirms liveness and bumps updated_at so it re-checks at this cadence. */
 const RECONCILE_AFTER_MS = 5 * 60 * 1000;
+/** Per-SSE-listener coalescing window. Reports can arrive many times a
+ *  second (a drain fires a unit report per page), and every frame is a FULL
+ *  snapshot the client repaints from — so intermediate frames within the
+ *  window collapse to the latest via a trailing-edge flush. Terminal frames
+ *  bypass the window entirely: settling must never wait on a timer. */
+const SSE_MIN_FRAME_GAP_MS = 500;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS runs (
@@ -200,13 +206,14 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       const reg = this.reg(flow);
       const key = reg.def.key(params);
 
-      // Attach-or-fall-through. A fresh active row attaches directly; a STALE
-      // one gets the same lazy reconcile every read path runs — attaching to
-      // a corpse would both hand the caller a dead run and block the dedup
-      // slot forever. reconcile() awaits (engine probe), so after it the
-      // world may have changed and the loop re-checks from the top; the
-      // final no-active-row SELECT and the INSERT below share one
-      // synchronous block, which is what keeps the claim atomic.
+      // Attach-or-fall-through. A fresh active row attaches directly (unless
+      // the caller asked to `probe`); a STALE one gets the same lazy
+      // reconcile every read path runs — attaching to a corpse would both
+      // hand the caller a dead run and block the dedup slot forever.
+      // reconcile() awaits (engine probe), so after it the world may have
+      // changed and the loop re-checks from the top; the final no-active-row
+      // SELECT and the INSERT below share one synchronous block, which is
+      // what keeps the claim atomic.
       for (let guard = 0; guard < 5; guard++) {
         const active = this.sql
           .exec(
@@ -219,10 +226,10 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           .toArray()[0];
         if (!active) break;
         const run = this.rowToRun(active);
-        if (Date.now() - run.updatedAt < RECONCILE_AFTER_MS) {
+        if (!opts.probe && Date.now() - run.updatedAt < RECONCILE_AFTER_MS) {
           return { runId: run.runId, created: false, status: run.status };
         }
-        const fresh = await this.reconcile(run);
+        const fresh = await this.reconcile(run, { force: opts.probe });
         if (isActiveStatus(fresh.status)) {
           return { runId: fresh.runId, created: false, status: fresh.status };
         }
@@ -544,8 +551,15 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
     // lazy reconciler — the exception path for producers that died silently
     // -------------------------------------------------------------------------
 
-    private async reconcile(run: RunInfo): Promise<RunInfo> {
-      if (Date.now() - run.updatedAt < RECONCILE_AFTER_MS) return run;
+    private async reconcile(
+      run: RunInfo,
+      opts: { force?: boolean } = {},
+    ): Promise<RunInfo> {
+      // `force` bypasses the staleness gate — start({probe}) wants the engine
+      // probed even for a fresh-looking row.
+      if (!opts.force && Date.now() - run.updatedAt < RECONCILE_AFTER_MS) {
+        return run;
+      }
       let next: HubRunStatus;
       let error: string | null = run.error;
       let output: string | null = null;
@@ -780,6 +794,7 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           params?: unknown;
           cooldownMs?: number;
           force?: boolean;
+          probe?: boolean;
         };
         if (!body.flow) {
           return Response.json({ error: 'flow required' }, { status: 400 });
@@ -788,6 +803,7 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           const result = await this.start(body.flow, body.params ?? null, {
             cooldownMs: body.cooldownMs,
             force: body.force,
+            probe: body.probe,
           });
           return Response.json(result);
         } catch (err) {
@@ -820,17 +836,50 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
         start: (controller) => {
           let lastSeq = -1;
           let closed = false;
+          // Trailing-edge coalescing: snapshots are absolute, so dropping
+          // intermediates loses nothing as long as the LATEST frame always
+          // lands. `pending` holds it; the timer flushes it.
+          let lastSentAt = 0;
+          let pending: Snapshot | null = null;
+          let timer: ReturnType<typeof setTimeout> | null = null;
+          const emit = (s: Snapshot) => {
+            lastSentAt = Date.now();
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify(s)}\n\n`),
+            );
+          };
           listener = {
             send: (s: Snapshot) => {
               if (closed || s.seq <= lastSeq) return;
               lastSeq = s.seq;
-              controller.enqueue(
-                encoder.encode(`data: ${JSON.stringify(s)}\n\n`),
-              );
+              const isTerminalFrame =
+                s.status === 'complete' || s.status === 'failed';
+              const wait = SSE_MIN_FRAME_GAP_MS - (Date.now() - lastSentAt);
+              if (isTerminalFrame || wait <= 0) {
+                // A newer frame supersedes anything still queued.
+                if (timer !== null) {
+                  clearTimeout(timer);
+                  timer = null;
+                  pending = null;
+                }
+                emit(s);
+                return;
+              }
+              pending = s;
+              if (timer === null) {
+                timer = setTimeout(() => {
+                  timer = null;
+                  if (closed || !pending) return;
+                  const queued = pending;
+                  pending = null;
+                  emit(queued);
+                }, wait);
+              }
             },
             close: () => {
               if (closed) return;
               closed = true;
+              if (timer !== null) clearTimeout(timer);
               try {
                 controller.close();
               } catch {

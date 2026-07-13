@@ -3,46 +3,60 @@ import type { APIRoute } from 'astro';
 import { createDb } from '@hiroba/db';
 import type { StartResult } from '@hiroba/flow/hub';
 import { NewsBackfillFlow } from '@hiroba/flows';
-import type { Category } from '@hiroba/shared';
+import { CATEGORIES, type Category } from '@hiroba/shared';
 
 import { triggerScrape } from '../../lib/db-operations';
 import { enqueueTitleTranslation } from '../../lib/enqueue-titles';
+import { startErrorMessage, startFlowViaHub } from '../../lib/start-flow';
 
 export const POST: APIRoute = async ({ locals, request }) => {
   const env = locals.runtime.env;
 
   const url = new URL(request.url);
   const full = url.searchParams.get('full') === 'true';
-  const category = url.searchParams.get('category') as Category | undefined;
+
+  // Validated, not cast: the value becomes both the hub dedup key and the
+  // flow params — junk would otherwise settle a green `{pages: 0}` run under
+  // a junk key instead of failing loudly.
+  const categoryParam = url.searchParams.get('category');
+  if (
+    categoryParam !== null &&
+    !(CATEGORIES as readonly string[]).includes(categoryParam)
+  ) {
+    return Response.json(
+      { error: `invalid category: ${categoryParam}` },
+      { status: 400 },
+    );
+  }
+  const category = (categoryParam as Category | null) ?? undefined;
 
   // Whole-archive scrape → start NewsBackfillFlow via the FlowHub, which drains
   // the archive one durable page-unit at a time. A single request can't: the
   // free plan caps subrequests at 50, and a full backfill makes hundreds
-  // (that's the 500). The hub dedupes on the scope key (`category ?? 'all'`),
-  // so re-triggering a scope still in flight attaches to the running scrape.
+  // (that's the 500). The hub dedupes on the scope key (`category ?? 'all'`);
+  // `probe` makes the attach verify the run with the engine first, so a
+  // silently-dead run is replaced immediately instead of after the lazy
+  // reconciler's window — this button has a human watching it.
   // Returns immediately; the client streams the run's hub SSE snapshots from
   // /api/flow-runs/stream?runId=….
   if (full) {
-    const ns = env.FLOW_HUB;
-    const stub = ns.get(ns.idFromName('hub'));
-    const res = await stub.fetch('http://internal/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        flow: NewsBackfillFlow.name,
-        params: category ? { category } : {},
-      }),
-    });
-    if (!res.ok) {
+    let result: StartResult;
+    try {
+      result = await startFlowViaHub(
+        env.FLOW_HUB,
+        NewsBackfillFlow.name,
+        category ? { category } : {},
+        { probe: true },
+      );
+    } catch (err) {
       return Response.json(
-        { error: 'Failed to start archive scrape' },
+        { error: `Failed to start archive scrape: ${startErrorMessage(err)}` },
         { status: 502 },
       );
     }
-    const result = (await res.json()) as StartResult;
     if (result.throttled) {
       // Unreachable without a cooldown, but the wire type carries it.
-      return Response.json({ error: 'throttled' }, { status: 429 });
+      return Response.json({ status: 'throttled' });
     }
     return Response.json({
       success: true,

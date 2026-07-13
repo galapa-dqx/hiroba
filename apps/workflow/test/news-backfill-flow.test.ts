@@ -16,35 +16,12 @@
 import { env, introspectWorkflow } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
-import type { FlowHubApi } from '@hiroba/flow/hub';
-
-function hub(): FlowHubApi {
-  const ns = env.FLOW_HUB;
-  return ns.get(ns.idFromName('hub')) as unknown as FlowHubApi;
-}
+import { hub, waitFor } from './helpers';
 
 const CATEGORIES = ['news', 'event', 'update', 'maintenance'] as const;
 
 /** Generous overrun headroom — dispatch may probe a few pages past the stop. */
 const MAX_MOCKED_PAGE = 10;
-
-async function waitFor<T>(
-  fn: () => Promise<T>,
-  pred: (value: T) => boolean,
-  ms = 15_000,
-): Promise<T> {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await fn();
-    if (pred(value)) return value;
-    if (Date.now() > deadline) {
-      throw new Error(
-        `waitFor timed out; last value: ${JSON.stringify(value)}`,
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
 
 /** Mock one category's drain: data pages first, stop markers ever after. */
 async function mockCategoryPages(

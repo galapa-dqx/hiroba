@@ -21,14 +21,8 @@ import { env, introspectWorkflow } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
 import type { Snapshot } from '@hiroba/flow';
-import type { FlowHubApi } from '@hiroba/flow/hub';
 
-function hub(): FlowHubApi & {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-} {
-  const ns = env.FLOW_HUB;
-  return ns.get(ns.idFromName('hub')) as unknown as ReturnType<typeof hub>;
-}
+import { hub, waitFor } from './helpers';
 
 const ORDER = [
   'scrape',
@@ -38,24 +32,6 @@ const ORDER = [
   'translate',
   'localize',
 ] as const;
-
-async function waitFor<T>(
-  fn: () => Promise<T>,
-  pred: (value: T) => boolean,
-  ms = 15_000,
-): Promise<T> {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await fn();
-    if (pred(value)) return value;
-    if (Date.now() > deadline) {
-      throw new Error(
-        `waitFor timed out; last value: ${JSON.stringify(value)}`,
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
 
 describe('BannerFlow on the hub', () => {
   it('runs the six-step happy path to complete with the output at the hub', async () => {

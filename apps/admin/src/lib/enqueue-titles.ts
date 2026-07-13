@@ -10,6 +10,8 @@
 
 import { TitleFlow } from '@hiroba/flows';
 
+import { startFlowViaHub } from './start-flow';
+
 export async function enqueueTitleTranslation(
   namespace: DurableObjectNamespace,
   itemType: 'news' | 'topic' | 'playguide',
@@ -17,21 +19,8 @@ export async function enqueueTitleTranslation(
 ): Promise<boolean> {
   if (itemIds.length === 0) return true;
   try {
-    const stub = namespace.get(namespace.idFromName('hub'));
-    const res = await stub.fetch('http://internal/start', {
-      method: 'POST',
-      body: JSON.stringify({
-        flow: TitleFlow.name,
-        params: { itemType, itemIds },
-      }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) {
-      console.error(
-        `Failed to enqueue ${itemType} title translation: ${res.status}`,
-      );
-    }
-    return res.ok;
+    await startFlowViaHub(namespace, TitleFlow.name, { itemType, itemIds });
+    return true;
   } catch (error) {
     console.error(`Failed to enqueue ${itemType} title translation:`, error);
     return false;

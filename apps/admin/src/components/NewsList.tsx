@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { renderCount, type Snapshot } from '@hiroba/flow';
+import type { NewsBackfillOutput } from '@hiroba/flows';
 import CategoryDot from '@hiroba/ui/CategoryDot';
 import { formatLocalDate } from '@hiroba/ui/format-date';
 
@@ -138,12 +139,17 @@ export default function NewsList() {
     setScrapeProgress('Starting archive scrape…');
     try {
       const { runId } = await startArchiveScrape(scope);
+      if (!runId) {
+        // 'throttled' — carried by the wire type, unreachable without a
+        // cooldown on this flow.
+        setScrapeProgress('Backfill throttled — try again shortly.');
+        setScraping(false);
+        return;
+      }
       subscribeFlowRun(runId, {
         onSnapshot: (snapshot) => setScrapeProgress(describeScrape(snapshot)),
         onDone: (output) => {
-          const out = output as
-            | { pages: number; scraped: number; newItems: number }
-            | undefined;
+          const out = output as NewsBackfillOutput | undefined;
           setScrapeProgress(
             out
               ? `Backfill complete — ${out.newItems} new item(s) across ${out.pages} page(s).`

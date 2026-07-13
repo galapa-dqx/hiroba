@@ -22,6 +22,21 @@ import type { AnyFlowDef, StepsShape } from './define';
 
 export type RunStatus = 'queued' | 'running' | 'complete' | 'failed';
 
+/**
+ * The single source of run-terminality, platform-free so clients can import
+ * it (the hub's own `isActiveStatus` and the admin consumers all branch off
+ * this instead of re-listing members). Accepts the hub's widened status too:
+ * 'unknown' (reconciler verdict — the engine no longer knows the instance)
+ * is terminal. When RunStatus grows a member, this is the one place that
+ * decides which side it lands on.
+ */
+export const isActiveRunStatus = (status: RunStatus | 'unknown'): boolean =>
+  status === 'queued' || status === 'running';
+
+/** Complement of `isActiveRunStatus` — true once a run can no longer move. */
+export const isTerminalRunStatus = (status: RunStatus | 'unknown'): boolean =>
+  !isActiveRunStatus(status);
+
 /** `skipped` is the STORED skip — the run decided not to run this step
  *  (`f.skip`). The other skip ("never got the chance because an earlier step
  *  failed") is view-derived from `pending` + failedIndex; see `segmentView`. */
