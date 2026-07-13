@@ -65,9 +65,13 @@ export async function fetchAndSaveNewsBody(
   }
 
   // If the block tree already exists, skip fetching (and make sure the state
-  // agrees — a re-run after a mid-pipeline failure lands here).
+  // agrees — a re-run after a mid-pipeline failure lands here). Still resync
+  // the article_images index from the existing blocks: rows that predate the
+  // index self-heal on any pipeline re-run this way, matching topics and
+  // playguides, whose unconditional upserts resync every run.
   if (item.blocksJa !== null) {
     await setItemFetchState(db, 'news', itemId, 'done');
+    await syncArticleImages(db, 'news', itemId, item.blocksJa);
     return { success: true, blockCount: item.blocksJa.length };
   }
 

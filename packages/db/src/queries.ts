@@ -739,8 +739,16 @@ export async function updateTopicBlocks(
   id: string,
   blocks: Block[],
 ): Promise<void> {
-  await db.update(topics).set({ blocksJa: blocks }).where(eq(topics.id, id));
-  await syncArticleImages(db, 'topic', id, blocks);
+  const result = await db
+    .update(topics)
+    .set({ blocksJa: blocks })
+    .where(eq(topics.id, id))
+    .returning({ id: topics.id });
+  // Sync only when a row matched, so a write against a nonexistent id can't
+  // plant ghost index rows (same guard as saveChangedBody).
+  if (result.length > 0) {
+    await syncArticleImages(db, 'topic', id, blocks);
+  }
 }
 
 /**
@@ -753,11 +761,14 @@ export async function updateNewsBlocks(
   id: string,
   blocks: Block[],
 ): Promise<void> {
-  await db
+  const result = await db
     .update(newsItems)
     .set({ blocksJa: blocks })
-    .where(eq(newsItems.id, id));
-  await syncArticleImages(db, 'news', id, blocks);
+    .where(eq(newsItems.id, id))
+    .returning({ id: newsItems.id });
+  if (result.length > 0) {
+    await syncArticleImages(db, 'news', id, blocks);
+  }
 }
 
 /**
@@ -1140,11 +1151,14 @@ export async function updatePlayguideBlocks(
   id: string,
   blocks: Block[],
 ): Promise<void> {
-  await db
+  const result = await db
     .update(playguides)
     .set({ blocksJa: blocks })
-    .where(eq(playguides.id, id));
-  await syncArticleImages(db, 'playguide', id, blocks);
+    .where(eq(playguides.id, id))
+    .returning({ id: playguides.id });
+  if (result.length > 0) {
+    await syncArticleImages(db, 'playguide', id, blocks);
+  }
 }
 
 /** A playguide plus its resolved current-language title (null ⇒ show titleJa). */

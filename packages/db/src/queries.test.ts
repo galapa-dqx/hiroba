@@ -32,6 +32,7 @@ import {
   setTranslationStates,
   syncBanners,
   updateNewsBlocks,
+  updatePlayguideBlocks,
   updateTopicBlocks,
   upsertImageTranscription,
   upsertImageTranslation,
@@ -1635,5 +1636,13 @@ describe('article_images reverse index', () => {
     expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([
       { itemType: 'news', itemId: hex(5) },
     ]);
+  });
+
+  it('block updates against nonexistent ids plant no ghost rows', async () => {
+    const blocks = [{ type: 'image' as const, src: SRC_A }];
+    await updateNewsBlocks(ctx.db, hex(90), blocks);
+    await updateTopicBlocks(ctx.db, hex(91), blocks);
+    await updatePlayguideBlocks(ctx.db, 'no-such-guide', blocks);
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
   });
 });
