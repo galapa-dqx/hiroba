@@ -339,7 +339,7 @@ describe('resetRunningTitles', () => {
       model: 'm',
     });
 
-    await resetRunningTitles(ctx.db, 'news', [hex(1), hex(2)], 'en');
+    await resetRunningTitles(ctx.db, 'news', [hex(1), hex(2)]);
 
     const running = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
       'title',
@@ -351,6 +351,33 @@ describe('resetRunningTitles', () => {
     expect(done.get('title')).toBe('done'); // not clobbered
   });
 
+  it('sweeps every language, including ones since disabled', async () => {
+    // A run can die after a whitelist edit — the cleanup must not depend on
+    // the CURRENT enabled set, so it clears running rows in any language.
+    for (const language of ['en', 'ko']) {
+      await setTranslationStates(ctx.db, {
+        itemType: 'news',
+        itemId: hex(1),
+        language,
+        fields: ['title'],
+        state: 'running',
+      });
+    }
+
+    await resetRunningTitles(ctx.db, 'news', [hex(1)]);
+
+    for (const language of ['en', 'ko']) {
+      const states = await getTranslationStates(
+        ctx.db,
+        'news',
+        hex(1),
+        language,
+        ['title'],
+      );
+      expect(states.get('title')).toBe('pending');
+    }
+  });
+
   it('does not touch the content field', async () => {
     await setTranslationStates(ctx.db, {
       itemType: 'news',
@@ -359,7 +386,7 @@ describe('resetRunningTitles', () => {
       fields: ['content'],
       state: 'running',
     });
-    await resetRunningTitles(ctx.db, 'news', [hex(1)], 'en');
+    await resetRunningTitles(ctx.db, 'news', [hex(1)]);
     const states = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
       'content',
     ]);

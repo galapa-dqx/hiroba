@@ -58,7 +58,7 @@ export const POST: APIRoute = async ({ locals, request }) => {
   const db = createDb(env.DB);
   const { newItemIds, ...result } = await triggerScrape(db, { full, category });
   const enqueued = await enqueueTitleTranslation(
-    env.WORKFLOW_MANAGER,
+    env.FLOW_HUB,
     'news',
     newItemIds,
   );

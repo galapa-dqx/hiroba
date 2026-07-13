@@ -24,6 +24,13 @@
         "class_name": "WorkflowManager",
         "script_name": "hiroba-workflow",
       },
+      // The flow framework's control plane (DQX-19) — one 'hub' instance;
+      // the list-view title-backfill trigger starts flows through it.
+      {
+        "name": "FLOW_HUB",
+        "class_name": "FlowHub",
+        "script_name": "hiroba-workflow",
+      },
     ],
   },
 }

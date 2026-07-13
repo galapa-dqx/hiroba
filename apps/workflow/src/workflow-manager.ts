@@ -90,13 +90,6 @@ const hasImages = (itemType: ItemType): boolean => itemType !== 'news';
 export class WorkflowManager extends DurableObject<Env> {
   /** Track active workflow instances by item ID. */
   private activeWorkflows = new Map<string, Active>();
-  /**
-   * The in-flight title backfill per language (DQX-13). Callers route every
-   * backfill trigger for a language to this DO under the well-known
-   * `title-backfill:<lang>` instance name, so one instance sees them all and
-   * this map is the single dedup point — mirrors activeWorkflows.
-   */
-  private activeBackfills = new Map<string, string>();
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
@@ -114,12 +107,6 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     if (url.pathname === '/runs') {
       return this.handleRuns();
-    }
-    if (url.pathname === '/enqueue-titles' && request.method === 'POST') {
-      return this.handleEnqueueTitles(request);
-    }
-    if (url.pathname === '/backfill-titles' && request.method === 'POST') {
-      return this.handleBackfillTitles(request);
     }
     if (url.pathname === '/regenerate-image' && request.method === 'POST') {
       return this.handleRegenerateImage(request);
@@ -430,78 +417,6 @@ export class WorkflowManager extends DurableObject<Env> {
       }
       return active;
     });
-  }
-
-  /**
-   * Enqueue the durable TitleWorkflow for a set of newly-discovered items.
-   * Lets the admin's scrape endpoints (which only hold this DO binding) kick
-   * off the same eager title translation the hourly cron does. Global state
-   * only, so any instance can serve it — callers use the well-known
-   * 'registry' instance.
-   */
-  private async handleEnqueueTitles(request: Request): Promise<Response> {
-    const body = (await request.json()) as {
-      itemType?: ItemType;
-      itemIds?: unknown;
-    };
-    const itemType: ItemType = parseItemType(body.itemType);
-    const itemIds = Array.isArray(body.itemIds)
-      ? body.itemIds.filter((id): id is string => typeof id === 'string')
-      : [];
-
-    if (itemIds.length === 0) {
-      return Response.json({ status: 'empty', enqueued: 0 });
-    }
-
-    const languages = await getEnabledLanguages(createDb(this.env.DB));
-    const instance = await this.env.TITLE_WORKFLOW.create({
-      params: { itemType, itemIds, languages: languages.map((l) => l.code) },
-    });
-    return Response.json({
-      status: 'enqueued',
-      enqueued: itemIds.length,
-      instanceId: instance.id,
-    });
-  }
-
-  /**
-   * Fire the whole-archive TitleBackfillWorkflow for one language (DQX-13),
-   * deduping concurrent runs: if a backfill for this language is already
-   * running or queued, the trigger is a no-op. Callers address this DO by the
-   * `title-backfill:<lang>` instance name so every trigger for a language lands
-   * here and activeBackfills is authoritative.
-   *
-   * Fire-and-forget from the caller's side (list-view triggers, admin
-   * pre-warm), so it stays cheap and idempotent — over-triggering never starts
-   * a second run.
-   */
-  private async handleBackfillTitles(request: Request): Promise<Response> {
-    const body = (await request.json()) as { language?: unknown };
-    const language = typeof body.language === 'string' ? body.language : '';
-    if (!language) {
-      return Response.json({ error: 'language required' }, { status: 400 });
-    }
-
-    const workflow = this.env.TITLE_BACKFILL_WORKFLOW;
-    const existing = this.activeBackfills.get(language);
-    if (existing) {
-      try {
-        const status = await (await workflow.get(existing)).status();
-        if (status.status === 'running' || status.status === 'queued') {
-          return Response.json({
-            status: 'already_running',
-            instanceId: existing,
-          });
-        }
-      } catch {
-        // The engine no longer knows the instance (evicted/expired) — fall
-        // through and start a fresh run.
-      }
-    }
-
-    const instance = await workflow.create({ params: { language } });
-    this.activeBackfills.set(language, instance.id);
-    return Response.json({ status: 'started', instanceId: instance.id });
   }
 
   /**

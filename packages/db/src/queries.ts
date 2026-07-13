@@ -2014,14 +2014,17 @@ export async function getTranslationStates(
 /**
  * Reset any title-translation rows still `running` back to `pending` for a set
  * of items — the title workflow's terminal-failure cleanup, so a chunk that
- * exhausted its retries doesn't leave titles stuck `running`. Only touches
- * `running` rows, so it never clobbers a sibling chunk's `done`.
+ * exhausted its retries doesn't leave titles stuck `running`. Deliberately NOT
+ * scoped to a language: the failed run's language set is a step return the
+ * cleanup can't see, and a whitelist re-read would miss a language disabled
+ * mid-run — id-scoped-across-all-languages clears everything the run could
+ * have claimed. Only touches `running` rows, so it never clobbers a sibling
+ * chunk's `done`.
  */
 export async function resetRunningTitles(
   db: Database,
   itemType: ArticleType,
   itemIds: string[],
-  language: string,
 ): Promise<void> {
   if (itemIds.length === 0) return;
   const now = Temporal.Now.instant();
@@ -2032,7 +2035,6 @@ export async function resetRunningTitles(
       .where(
         and(
           eq(translations.itemType, itemType),
-          eq(translations.language, language),
           eq(translations.field, 'title'),
           eq(translations.state, 'running'),
           inArray(translations.itemId, itemIds.slice(i, i + IN_CHUNK)),

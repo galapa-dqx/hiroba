@@ -23,6 +23,16 @@
       "class_name": "GlossaryRegenerateWorkflow",
     },
     {
+      "name": "title-workflow",
+      "binding": "TITLE_WORKFLOW",
+      "class_name": "TitleWorkflow",
+    },
+    {
+      "name": "title-backfill-workflow",
+      "binding": "TITLE_BACKFILL_WORKFLOW",
+      "class_name": "TitleBackfillWorkflow",
+    },
+    {
       "name": "news-backfill-workflow",
       "binding": "NEWS_BACKFILL_WORKFLOW",
       "class_name": "NewsBackfillWorkflow",

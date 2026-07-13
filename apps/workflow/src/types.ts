@@ -56,9 +56,15 @@ export type Env = {
   FLOW_HUB: DurableObjectNamespace;
   /** The unified news+topics pipeline (item type carried in the params). */
   ARTICLE_WORKFLOW: WorkflowBinding<ArticleWorkflowParams>;
-  /** Eager title translation at discovery (DQX-11). */
+  /** Eager title translation at discovery (TitleFlow, DQX-11). Instances are
+   *  created only by the FlowHub — triggers go through hub.start('title'),
+   *  randomly keyed (every discovery batch is disjoint work; starts never
+   *  attach). */
   TITLE_WORKFLOW: WorkflowBinding<TitleWorkflowParams>;
-  /** Whole-archive title backfill for one language (DQX-13). */
+  /** Whole-archive title backfill for one language (TitleBackfillFlow,
+   *  DQX-13). Instances are created only by the FlowHub — triggers go through
+   *  hub.start('title-backfill'), keyed per language so concurrent triggers
+   *  attach. */
   TITLE_BACKFILL_WORKFLOW: WorkflowBinding<TitleBackfillWorkflowParams>;
   /** Whole-archive news list scrape (NewsBackfillFlow, DQX-23): drains every
    *  requested category's archive one durable page-unit at a time. Instances
@@ -119,14 +125,13 @@ export type BannerWorkflowOutput = {
 };
 
 /**
- * Parameters passed to the TitleWorkflow. Carries only ids (titles are read
- * fresh inside the workflow) and the languages to translate into. Discovery
- * passes a run's new ids; the DQX-13 backfill will pass an untranslated slice.
+ * Parameters passed to the TitleWorkflow: one discovery batch's ids. Titles
+ * are read fresh inside the flow, and the target languages come from the
+ * enabled-language whitelist (read as a flow step), so nothing else travels.
  */
 export type TitleWorkflowParams = {
   itemType: ItemType;
   itemIds: string[];
-  languages: string[];
 };
 
 /** Result of the TitleWorkflow — titles written to `done` vs deferred. */

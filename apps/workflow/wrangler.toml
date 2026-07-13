@@ -86,19 +86,21 @@ name = "article-workflow"
 binding = "ARTICLE_WORKFLOW"
 class_name = "ArticleWorkflow"
 
-# Cloudflare Workflow for eager title translation at discovery (DQX-11): reads
-# titles by id and translates them in chunked, retried steps per language.
-# Enqueued by the hourly cron.
+# TitleFlow (DQX-11): eager title translation at discovery — reads titles by
+# id and translates them in chunked, retried units per language. Started only
+# via the FlowHub (hub.start('title'), randomly keyed — every discovery batch
+# is disjoint work, so starts never attach) by the hourly cron and the admin
+# list-scrape endpoints.
 [[workflows]]
 name = "title-workflow"
 binding = "TITLE_WORKFLOW"
 class_name = "TitleWorkflow"
 
-# Cloudflare Workflow for the whole-archive title backfill of one language
-# (DQX-13): pages D1 for untranslated titles and translates them in chunked,
-# retried steps. Fired lazily by the first list view in an under-translated
-# language (via the WorkflowManager DO, which dedupes per language) or from the
-# admin to pre-warm a language.
+# TitleBackfillFlow (DQX-13): whole-archive title backfill of one language —
+# pages D1 for untranslated titles and translates them in chunked, retried
+# units. Started only via the FlowHub (hub.start('title-backfill'), keyed per
+# language so concurrent triggers attach) by the first list view in an
+# under-translated language or from the admin to pre-warm a language.
 [[workflows]]
 name = "title-backfill-workflow"
 binding = "TITLE_BACKFILL_WORKFLOW"
