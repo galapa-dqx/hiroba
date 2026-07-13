@@ -250,6 +250,25 @@ describe('restoreMargins', () => {
     expect([padded.width, padded.height]).toEqual([40, 11]);
   });
 
+  it('promotes gray+alpha input to RGBA', () => {
+    // 2×1 gray+alpha raster: one mid-gray opaque pixel, one semi-transparent
+    const grayAlpha: Raster = {
+      data: Uint8Array.from([100, 255, 200, 128]),
+      width: 2,
+      height: 1,
+      channels: 2,
+    };
+    const padded = restoreMargins(
+      grayAlpha,
+      { width: 4, height: 1 },
+      { x: 1, y: 0, width: 2, height: 1 },
+    );
+    expect([padded.width, padded.height, padded.channels]).toEqual([4, 1, 4]);
+    expect([...padded.data.slice(4, 12)]).toEqual([
+      100, 100, 100, 255, 200, 200, 200, 128,
+    ]);
+  });
+
   it('promotes RGB input to RGBA with opaque content', () => {
     const rgb: Raster = {
       data: new Uint8Array(2 * 2 * 3).fill(9),

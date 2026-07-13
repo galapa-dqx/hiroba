@@ -207,8 +207,8 @@ export function originalGeometry(bytes: Uint8Array): OriginalGeometry | null {
  * scales (not one average) so margins stay proportional even when the model's
  * output drifted within ASPECT_TOLERANCE and the axes grew unevenly. The
  * result's canvas geometry matches the original's, with the artwork in the
- * same relative position. Expects a 3- or 4-channel raster; always returns
- * RGBA.
+ * same relative position. Accepts any raster shape (gray / gray+alpha / RGB /
+ * RGBA); always returns RGBA.
  */
 export function restoreMargins(
   r: Raster,
@@ -223,15 +223,17 @@ export function restoreMargins(
   const bottom = Math.round((canvas.height - content.y - content.height) * sy);
   const width = r.width + left + right;
   const height = r.height + top + bottom;
+  const gray = r.channels <= 2; // single color channel, replicated into RGB
+  const hasAlpha = r.channels === 2 || r.channels === 4;
   const out = new Uint8Array(width * height * 4); // zeroed → fully transparent
   for (let y = 0; y < r.height; y++) {
     for (let x = 0; x < r.width; x++) {
       const src = (y * r.width + x) * r.channels;
       const dst = ((top + y) * width + (left + x)) * 4;
       out[dst] = r.data[src];
-      out[dst + 1] = r.data[src + 1];
-      out[dst + 2] = r.data[src + 2];
-      out[dst + 3] = r.channels >= 4 ? r.data[src + 3] : 255;
+      out[dst + 1] = gray ? r.data[src] : r.data[src + 1];
+      out[dst + 2] = gray ? r.data[src] : r.data[src + 2];
+      out[dst + 3] = hasAlpha ? r.data[src + r.channels - 1] : 255;
     }
   }
   return { data: out, width, height, channels: 4 };
@@ -306,11 +308,7 @@ export function trimToAspect(
   const target = original?.content ?? original;
   if (target) box = fitAspect(box, target.width / target.height);
 
-  // margins can only be re-added to a color raster (restoreMargins emits RGBA)
-  const content =
-    raster.channels === 3 || raster.channels === 4
-      ? (original?.content ?? null)
-      : null;
+  const content = original?.content ?? null;
 
   if (
     !content &&
