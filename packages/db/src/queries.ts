@@ -22,7 +22,7 @@ import {
 } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
-import type { Block } from '@hiroba/richtext';
+import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 import {
   getNextCheckTime,
   type Category,
@@ -35,6 +35,7 @@ import {
   RESET_SOURCE_TYPE,
   type ResetTitleMap,
 } from './reset-events';
+import { articleImages } from './schema/article-images';
 import { banners, type Banner } from './schema/banners';
 import {
   events,
@@ -508,7 +509,14 @@ export async function saveChangedBody(
     bodyChangedAt: at,
   };
   if (params.titleJa) set.titleJa = params.titleJa;
-  await db.update(table).set(set).where(eq(table.id, id));
+  const result = await db
+    .update(table)
+    .set(set)
+    .where(eq(table.id, id))
+    .returning({ id: table.id });
+  if (result.length > 0) {
+    await syncArticleImages(db, itemType, id, params.blocks);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -714,6 +722,8 @@ export async function upsertTopic(
     .insert(topics)
     .values(topic)
     .onConflictDoUpdate({ target: topics.id, set });
+  if (topic.blocksJa)
+    await syncArticleImages(db, 'topic', topic.id, topic.blocksJa);
 }
 
 /**
@@ -725,7 +735,36 @@ export async function updateTopicBlocks(
   id: string,
   blocks: Block[],
 ): Promise<void> {
-  await db.update(topics).set({ blocksJa: blocks }).where(eq(topics.id, id));
+  const result = await db
+    .update(topics)
+    .set({ blocksJa: blocks })
+    .where(eq(topics.id, id))
+    .returning({ id: topics.id });
+  // Sync only when a row matched, so a write against a nonexistent id can't
+  // plant ghost index rows (same guard as saveChangedBody).
+  if (result.length > 0) {
+    await syncArticleImages(db, 'topic', id, blocks);
+  }
+}
+
+/**
+ * Replace a news item's block tree (used by the tag-events step via
+ * saveArticleBlocks). Mirrors updateTopicBlocks so every blocks_ja writer
+ * keeps the article_images index in sync.
+ */
+export async function updateNewsBlocks(
+  db: Database,
+  id: string,
+  blocks: Block[],
+): Promise<void> {
+  const result = await db
+    .update(newsItems)
+    .set({ blocksJa: blocks })
+    .where(eq(newsItems.id, id))
+    .returning({ id: newsItems.id });
+  if (result.length > 0) {
+    await syncArticleImages(db, 'news', id, blocks);
+  }
 }
 
 /**
@@ -751,6 +790,9 @@ export async function updateArticleSource(
     .set(set)
     .where(eq(table.id, id))
     .returning({ id: table.id });
+  if (result.length > 0 && patch.blocksJa) {
+    await syncArticleImages(db, itemType, id, patch.blocksJa);
+  }
   return result.length > 0;
 }
 
@@ -1080,6 +1122,9 @@ export async function upsertPlayguide(
     .insert(playguides)
     .values(pg)
     .onConflictDoUpdate({ target: playguides.id, set });
+  if (pg.blocksJa) {
+    await syncArticleImages(db, 'playguide', pg.id, pg.blocksJa);
+  }
 }
 
 /** Get a single playguide by slug. */
@@ -1101,10 +1146,14 @@ export async function updatePlayguideBlocks(
   id: string,
   blocks: Block[],
 ): Promise<void> {
-  await db
+  const result = await db
     .update(playguides)
     .set({ blocksJa: blocks })
-    .where(eq(playguides.id, id));
+    .where(eq(playguides.id, id))
+    .returning({ id: playguides.id });
+  if (result.length > 0) {
+    await syncArticleImages(db, 'playguide', id, blocks);
+  }
 }
 
 /** A playguide plus its resolved current-language title (null ⇒ show titleJa). */
@@ -2170,6 +2219,120 @@ export async function upsertImageTranscription(
     })
     .returning({ id: images.id });
   return rows[0].id;
+}
+
+/**
+ * Replace an article's rows in the article_images reverse index from its block
+ * tree. Called by every blocks_ja writer so the index can't drift. Only
+ * block-level images are indexed (the localizable ones — see the schema doc);
+ * delete-then-insert as one atomic D1 batch, so a failure partway can't leave
+ * the index emptied or half-written while blocks_ja still references the keys.
+ *
+ * The invalidate helpers (blocksJa → null pending refetch) deliberately do NOT
+ * clear the index: the article still conceptually embeds those images, so a
+ * purge in the window before the refetch over-includes a blockless page
+ * (harmless) rather than under-purging if the refetch never lands. The next
+ * real block write replaces the set.
+ */
+export async function syncArticleImages(
+  db: Database,
+  itemType: ArticleType,
+  itemId: string,
+  blocks: Block[],
+): Promise<void> {
+  const keys = [
+    ...new Set(
+      collectImages(blocks)
+        .map((i) => imageKey(i.src))
+        .filter((k): k is string => !!k),
+    ),
+  ];
+  const del = db
+    .delete(articleImages)
+    .where(
+      and(
+        eq(articleImages.itemType, itemType),
+        eq(articleImages.itemId, itemId),
+      ),
+    );
+  // Inserts sliced to respect D1's per-query bind-parameter cap.
+  const inserts = [];
+  for (let i = 0; i < keys.length; i += 30) {
+    inserts.push(
+      db.insert(articleImages).values(
+        keys.slice(i, i + 30).map((key) => ({
+          itemType,
+          itemId,
+          imageKey: key,
+        })),
+      ),
+    );
+  }
+  await db.batch([del, ...inserts]);
+}
+
+/**
+ * Backfill one page of the article_images index for one item type — for
+ * articles written before the index existed (new writes keep it current via
+ * syncArticleImages). Cursor-paginated by id; idempotent, so re-running over
+ * already-indexed articles is harmless.
+ */
+export async function backfillArticleImages(
+  db: Database,
+  itemType: ArticleType,
+  cursor: string | null,
+  limit = 100,
+): Promise<{ processed: number; nextCursor: string | null }> {
+  const table = articleTable(itemType);
+  const rows = await db
+    .select({ id: table.id, blocksJa: table.blocksJa })
+    .from(table)
+    .where(cursor ? gt(table.id, cursor) : undefined)
+    .orderBy(asc(table.id))
+    .limit(limit)
+    .all();
+  for (const row of rows) {
+    if (row.blocksJa) {
+      await syncArticleImages(db, itemType, row.id, row.blocksJa);
+    }
+  }
+  return {
+    processed: rows.length,
+    nextCursor: rows.length === limit ? rows[rows.length - 1].id : null,
+  };
+}
+
+/**
+ * Whether an image backs a rotation banner (banners.imageKey = key) — banner
+ * images render on the home page, so the purge fan-out includes it.
+ */
+export async function isBannerImage(
+  db: Database,
+  key: string,
+): Promise<boolean> {
+  const row = await db
+    .select({ one: sql`1` })
+    .from(banners)
+    .where(eq(banners.imageKey, key))
+    .get();
+  return !!row;
+}
+
+/**
+ * Every article whose block tree embeds the given image — the purge fan-out
+ * for a regenerated/uploaded localized image (its versioned URL changed, so
+ * the pages carrying it must be re-rendered).
+ */
+export async function getArticlesByImageKey(
+  db: Database,
+  key: string,
+): Promise<Array<{ itemType: ArticleType; itemId: string }>> {
+  const rows = await db
+    .select({ itemType: articleImages.itemType, itemId: articleImages.itemId })
+    .from(articleImages)
+    .where(eq(articleImages.imageKey, key))
+    .all();
+  return rows as Array<{ itemType: ArticleType; itemId: string }>;
 }
 
 /** Look up image rows by their natural keys (imageKey). */

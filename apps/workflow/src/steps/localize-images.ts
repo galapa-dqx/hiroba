@@ -4,8 +4,9 @@
  *
  * Reads each image's source spans (`images.texts_ja`) and their translation
  * (`translations` item_type='image', field='text'), hands the pairs to
- * gpt-image-2, and stores the result in R2 under `l10n/<lang>/<imageKey>`. A
- * `translations` `url` row records the R2 key + the image model, so we skip
+ * gpt-image-2, and stores the result in R2 under a fresh versioned key
+ * (`l10n/<lang>/v<ts36>/<imageKey>` — see localizedImageKey in @hiroba/shared).
+ * A `translations` `url` row records the R2 key + the image model, so we skip
  * images already localized by the current model and regenerate when it changes.
  *
  * Only images that were translated (i.e. had Japanese) are candidates.
@@ -26,7 +27,11 @@ import {
   imageUpstreamUrl,
   type Block,
 } from '@hiroba/richtext';
-import { hasJapanese } from '@hiroba/shared';
+import {
+  hasJapanese,
+  LOCALIZED_IMAGE_CACHE_CONTROL,
+  localizedImageKey,
+} from '@hiroba/shared';
 
 import { mapWithConcurrency } from '../concurrency';
 import {
@@ -43,21 +48,19 @@ import {
 import { trimToAspect } from '../image-trim';
 import type { TargetLanguage } from './translate';
 
-/** R2 key prefix for a language's localized images. */
-export const localizedPrefix = (language: string): string => `l10n/${language}`;
+/** A fresh version tag for one localized render (epoch-ms, base36). */
+const newVersion = (): string => Date.now().toString(36);
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   Referer: 'https://hiroba.dqx.jp/',
 };
 
-// Localized rasters live at a STABLE key (`l10n/<lang>/<imageKey>`) and are
-// regenerated in place — on an image-model change, or an admin edit/upload — so
-// they can't be `immutable` like the content-keyed originals (mirror-images),
-// or a stale copy would stick for a year. A few hours keeps them self-correcting
-// if an edge purge is ever missed; a regeneration purges the exact URL for an
-// immediate refresh (see purgeImage in the regenerate-image route).
-const CACHE_CONTROL = 'public, max-age=21600'; // 6 hours
+// Every render gets a fresh versioned key (never overwritten in place), so
+// localized rasters are immutable — see the constant's doc in @hiroba/shared.
+// A manual regeneration additionally purges the pages embedding the image
+// (see purgeImagePages in the regenerate-image route).
+const CACHE_CONTROL = LOCALIZED_IMAGE_CACHE_CONTROL;
 
 /** Max concurrent gpt-image-2 edits; kept modest to stay under rate limits. */
 const LOCALIZE_CONCURRENCY = 6;
@@ -271,7 +274,7 @@ async function localizeRowForLanguage(
     }
     const localizedBytes = trimToAspect(restored, editable.bytes);
 
-    const localizedKey = `${localizedPrefix(language)}/${row.key}`;
+    const localizedKey = localizedImageKey(language, newVersion(), row.key);
     await bucket.put(localizedKey, localizedBytes, {
       httpMetadata: { contentType: 'image/png', cacheControl: CACHE_CONTROL },
     });

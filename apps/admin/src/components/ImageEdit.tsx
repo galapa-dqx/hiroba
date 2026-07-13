@@ -9,8 +9,9 @@
  *
  * Saved spans only reach the rendered image on the next regeneration; an upload
  * (and a regeneration) is marked as a manual override the nightly pipeline
- * leaves alone. The localized preview is cache-busted after any change since the
- * R2 object is served immutable at a stable key.
+ * leaves alone. Every render writes a fresh versioned R2 key recorded on the
+ * translation row, so the preview URL changes exactly when the raster does —
+ * no cache-busting needed.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -43,8 +44,6 @@ export default function ImageEdit({ id }: Props) {
   const [status, setStatus] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Bumped after a regenerate/upload to defeat the immutable image cache.
-  const [bust, setBust] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Refs mirror dirty state so an async reload never clobbers unsaved edits.
@@ -128,7 +127,6 @@ export default function ImageEdit({ id }: Props) {
     try {
       const res = await regenerateImage(id, lang);
       await loadDetail();
-      setBust((b) => b + 1);
       if (res.status === 'done') setStatus('Image regenerated.');
       else setActionError('Regeneration failed — see the error below.');
     } catch (err) {
@@ -154,7 +152,6 @@ export default function ImageEdit({ id }: Props) {
       await uploadImage(id, lang, file);
       if (fileRef.current) fileRef.current.value = '';
       await loadDetail();
-      setBust((b) => b + 1);
       setStatus('Image uploaded.');
     } catch (err) {
       console.error(err);
@@ -171,9 +168,7 @@ export default function ImageEdit({ id }: Props) {
   const langLabel =
     detail.languages.find((l) => l.code === lang)?.nativeLabel ?? lang;
   const localizedSrc =
-    t?.urlState === 'done' && t.localizedKey
-      ? `/img/${t.localizedKey}?v=${bust}`
-      : null;
+    t?.urlState === 'done' && t.localizedKey ? `/img/${t.localizedKey}` : null;
   const busy = saving || regenerating || uploading;
 
   return (

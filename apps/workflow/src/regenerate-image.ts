@@ -16,7 +16,7 @@ import {
 } from '@hiroba/db';
 import { imageUpstreamUrl, type Block } from '@hiroba/richtext';
 
-import { purgeImage } from './purge';
+import { purgeImagePages } from './purge';
 import { localizeImages } from './steps/localize-images';
 import type { Env } from './types';
 
@@ -88,11 +88,11 @@ export async function regenerateImage(
   const state = states.get(imageId) ?? null;
   const localizedKey = values.get(imageId) ?? null;
 
-  // The localized image lives at a stable URL, so a browser/edge copy of the
-  // old raster would otherwise linger past this edit. Bust it now for an
+  // The fresh render lives at a NEW versioned URL; what's stale is every
+  // cached page still embedding the previous version's URL. Purge them for an
   // immediate refresh (best-effort; no-ops until purge is configured).
   if (result.localized > 0 && localizedKey) {
-    await purgeImage(env, localizedKey, {
+    await purgeImagePages(env, db, image.key, language, {
       warn: (m) => console.warn(m),
       debug: () => {},
     });

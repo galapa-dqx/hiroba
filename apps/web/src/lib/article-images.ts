@@ -8,14 +8,14 @@
  *    so renderBlocks can put it on the image as alt (image text lives in the
  *    images / translations tables, not the block tree). A translated page
  *    prefers the translated spans and falls back to the JA transcription.
- * 2. Build the imageSrc rewriter: serve localized images from the
- *    l10n/<lang>/<key> object, but only for images we actually localized;
- *    everything else (icons, text-free art, images not yet localized) keeps the
- *    original URL — so a browser never caches the original under an l10n URL
- *    and then keeps serving it after the localized version lands. Both variants
- *    are served straight from the R2 bucket's public host (IMAGE_BASE); the
- *    localize-images step never wrote an l10n object for an unlocalized image,
- *    so an l10n URL here is always known to exist and needs no fallback probe.
+ * 2. Build the imageSrc rewriter: serve localized images from the VERSIONED
+ *    key stored on the image's `url` translation row (`l10n/<lang>/v<ts>/…` —
+ *    a fresh immutable object per render, so the URL changes exactly when the
+ *    raster does), but only for images we actually localized; everything else
+ *    (icons, text-free art, images not yet localized) keeps the original URL.
+ *    Both variants are served straight from the R2 bucket's public host
+ *    (IMAGE_BASE); the stored key always names a written object, so no
+ *    fallback probe is needed.
  */
 
 import {
@@ -45,8 +45,8 @@ export async function hydrateArticleImages(
     ),
   ];
 
-  // Keys whose localized (l10n/<lang>) image actually exists.
-  const localizedKeys = new Set<string>();
+  // Original key → stored localized (versioned) R2 key, where one exists.
+  const localizedByKey = new Map<string, string>();
   if (imgKeys.length > 0) {
     const rows = await getImagesByKeys(db, imgKeys);
     const byKey = new Map(rows.map((r) => [r.key, r]));
@@ -57,8 +57,10 @@ export async function hydrateArticleImages(
     const localizedUrl = isTranslated
       ? await getImageTranslations(db, ids, language, 'url')
       : new Map<number, string>();
-    for (const row of rows)
-      if (localizedUrl.has(row.id)) localizedKeys.add(row.key);
+    for (const row of rows) {
+      const stored = localizedUrl.get(row.id);
+      if (stored) localizedByKey.set(row.key, stored);
+    }
     for (const img of imgs) {
       const key = imageKey(img.src);
       const row = key ? byKey.get(key) : undefined;
@@ -74,10 +76,8 @@ export async function hydrateArticleImages(
 
   return (src: string): string => {
     const key = imageKey(src);
-    const base =
-      isTranslated && key && localizedKeys.has(key)
-        ? `${originalBase}/l10n/${language}`
-        : originalBase;
-    return rewriteImageSrc(src, base);
+    const stored = key ? localizedByKey.get(key) : undefined;
+    if (stored) return `${originalBase}/${stored}`;
+    return rewriteImageSrc(src, originalBase);
   };
 }

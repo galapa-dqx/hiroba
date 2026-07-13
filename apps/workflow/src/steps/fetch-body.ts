@@ -14,6 +14,7 @@ import {
   getPlayguide,
   getTopic,
   newsItems,
+  syncArticleImages,
   upsertPlayguide,
   upsertTopic,
   type Database,
@@ -63,8 +64,12 @@ export async function fetchAndSaveNewsBody(
   }
 
   // If the block tree already exists, skip fetching — a re-run after a
-  // mid-pipeline failure lands here.
+  // mid-pipeline failure lands here. Still resync the article_images index
+  // from the existing blocks: rows that predate the index self-heal on any
+  // pipeline re-run this way, matching topics and playguides, whose
+  // unconditional upserts resync every run.
   if (item.blocksJa !== null) {
+    await syncArticleImages(db, 'news', itemId, item.blocksJa);
     return { success: true, blockCount: item.blocksJa.length };
   }
 
@@ -74,14 +79,20 @@ export async function fetchAndSaveNewsBody(
     const now = Temporal.Now.instant();
 
     // Save to D1. The fetch counts as the first recheck poll.
-    await db
+    const result = await db
       .update(newsItems)
       .set({
         blocksJa: blocks,
         bodyFetchedAt: now,
         bodyCheckedAt: now,
       })
-      .where(eq(newsItems.id, itemId));
+      .where(eq(newsItems.id, itemId))
+      .returning({ id: newsItems.id });
+    // Guarded like every blocks_ja writer: sync only when a row matched, so
+    // no ghost index rows even if the item vanished since the check above.
+    if (result.length > 0) {
+      await syncArticleImages(db, 'news', itemId, blocks);
+    }
 
     return { success: blocks.length > 0, blockCount: blocks.length };
   } catch (error) {

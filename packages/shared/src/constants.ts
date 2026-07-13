@@ -30,6 +30,34 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 };
 
 /**
+ * Localized image rasters are written to VERSIONED R2 keys —
+ * `l10n/<lang>/v<version>/<host>/<path>` (see localizedImageKey) — a fresh key
+ * per render, never overwritten in place. That makes them safely `immutable`
+ * like the content-keyed originals: a regenerate or upload mints a new URL,
+ * the translation row records it, pages embedding the image are purged, and
+ * every cache (edge and browser, however old) is bypassed instantly. Old
+ * versions linger as orphans so long-cached HTML keeps resolving; they're
+ * prunable once nothing can reference them.
+ *
+ * Legacy objects at unversioned keys (`l10n/<lang>/<host>/<path>`) predate
+ * this scheme and were mutated in place — they stay on their original short
+ * TTLs until their image is next regenerated, which strands them as orphans.
+ */
+export const LOCALIZED_IMAGE_CACHE_CONTROL =
+  'public, max-age=31536000, immutable';
+
+/**
+ * The versioned R2 key for one localized render of a mirrored image.
+ * `version` must be unique per render (epoch-ms in base36 is the convention);
+ * `imageKey` is the original's `<host>/<path>` storage key.
+ */
+export const localizedImageKey = (
+  language: string,
+  version: string,
+  imageKey: string,
+): string => `l10n/${language}/v${version}/${imageKey}`;
+
+/**
  * Scraping configuration - source URLs and paths.
  */
 export const SCRAPE_CONFIG = {

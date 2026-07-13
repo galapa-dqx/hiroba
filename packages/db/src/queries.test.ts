@@ -3,8 +3,10 @@ import { Temporal } from 'temporal-polyfill';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  backfillArticleImages,
   ensureImageRows,
   failPipelineStates,
+  getArticlesByImageKey,
   getEventsForDay,
   getImagesByKeys,
   getImageTranslations,
@@ -17,6 +19,7 @@ import {
   getTopics,
   getTranslationStates,
   getUntranslatedTitles,
+  isBannerImage,
   listImagesForAdmin,
   pruneScheduleEvents,
   replaceScheduleEvents,
@@ -27,6 +30,9 @@ import {
   setImageTranscribeState,
   setTranslationStates,
   syncBanners,
+  updateNewsBlocks,
+  updatePlayguideBlocks,
+  updateTopicBlocks,
   upsertImageTranscription,
   upsertImageTranslation,
   upsertItemTranslation,
@@ -1494,5 +1500,120 @@ describe('getEventsForDay day-boundary overlap', () => {
       'ends-at-midnight',
       'spans-midnight',
     ]);
+  });
+});
+
+describe('article_images reverse index', () => {
+  const SRC_A = 'https://cache.hiroba.dqx.jp/dq_resource/img/a.png';
+  const SRC_B = 'https://cache.hiroba.dqx.jp/dq_resource/img/b.png';
+  const KEY_A = 'cache.hiroba.dqx.jp/dq_resource/img/a.png';
+  const KEY_B = 'cache.hiroba.dqx.jp/dq_resource/img/b.png';
+
+  it('syncs on upsert, replaces on rewrite, answers reverse lookups', async () => {
+    await upsertTopic(ctx.db, {
+      id: hex(1),
+      titleJa: 'トピック1',
+      publishedAt: BASE,
+      blocksJa: [
+        { type: 'image', src: SRC_A },
+        { type: 'image', src: SRC_A }, // duplicates collapse
+        { type: 'image', src: SRC_B },
+      ],
+    });
+
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([
+      { itemType: 'topic', itemId: hex(1) },
+    ]);
+
+    // A rewrite that drops an image replaces the set, not appends to it.
+    await updateTopicBlocks(ctx.db, hex(1), [{ type: 'image', src: SRC_B }]);
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
+    expect(await getArticlesByImageKey(ctx.db, KEY_B)).toEqual([
+      { itemType: 'topic', itemId: hex(1) },
+    ]);
+
+    // A metadata-only upsert (no blocksJa) must not clear the index.
+    await upsertTopic(ctx.db, {
+      id: hex(1),
+      titleJa: 'トピック1改',
+      publishedAt: BASE,
+    });
+    expect(await getArticlesByImageKey(ctx.db, KEY_B)).toEqual([
+      { itemType: 'topic', itemId: hex(1) },
+    ]);
+  });
+
+  it('backfills articles that predate the index', async () => {
+    // Simulate a pre-index article: insert the row directly, bypassing the
+    // write helpers that would sync.
+    await ctx.db.insert(topics).values({
+      id: hex(2),
+      titleJa: '旧トピック',
+      publishedAt: BASE,
+      blocksJa: [{ type: 'image', src: SRC_A }],
+    });
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
+
+    const result = await backfillArticleImages(ctx.db, 'topic', null, 50);
+    expect(result.processed).toBe(1);
+    expect(result.nextCursor).toBeNull();
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([
+      { itemType: 'topic', itemId: hex(2) },
+    ]);
+  });
+
+  it('flags banner images for the home-page purge', async () => {
+    await syncBanners(ctx.db, [
+      {
+        imageKey: KEY_A,
+        linkUrl: null,
+        linkTopicId: null,
+        altJa: 'バナー',
+        sortOrder: 0,
+        publishedAt: null,
+      },
+    ]);
+    expect(await isBannerImage(ctx.db, KEY_A)).toBe(true);
+    expect(await isBannerImage(ctx.db, KEY_B)).toBe(false);
+  });
+
+  it('syncs when a recheck saves a changed body', async () => {
+    await upsertTopic(ctx.db, {
+      id: hex(3),
+      titleJa: 'トピック3',
+      publishedAt: BASE,
+      blocksJa: [{ type: 'image', src: SRC_A }],
+    });
+
+    // The recheck poll finds changed content with a different image set.
+    await saveChangedBody(ctx.db, 'topic', hex(3), {
+      blocks: [{ type: 'image', src: SRC_B }],
+    });
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
+    expect(await getArticlesByImageKey(ctx.db, KEY_B)).toEqual([
+      { itemType: 'topic', itemId: hex(3) },
+    ]);
+
+    // A save against a nonexistent article must not plant ghost index rows.
+    await saveChangedBody(ctx.db, 'topic', hex(4), {
+      blocks: [{ type: 'image', src: SRC_A }],
+    });
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
+  });
+
+  it('syncs news blocks via updateNewsBlocks', async () => {
+    await upsertListItems(ctx.db, [listItem(5, 1)]);
+    await updateNewsBlocks(ctx.db, hex(5), [{ type: 'image', src: SRC_A }]);
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([
+      { itemType: 'news', itemId: hex(5) },
+    ]);
+  });
+
+  it('block updates against nonexistent ids plant no ghost rows', async () => {
+    const blocks = [{ type: 'image' as const, src: SRC_A }];
+    await updateNewsBlocks(ctx.db, hex(90), blocks);
+    await updateTopicBlocks(ctx.db, hex(91), blocks);
+    await updatePlayguideBlocks(ctx.db, 'no-such-guide', blocks);
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
   });
 });

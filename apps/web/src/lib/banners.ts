@@ -2,8 +2,9 @@
  * Home-page rotation banners — the display-time resolver for the carousel.
  *
  * Each banner's image is a row in the shared `images` table, so it resolves to a
- * URL exactly like article images (see article-images.ts): the localized
- * `l10n/<lang>/<key>` object when we actually localized it, else the original —
+ * URL exactly like article images (see article-images.ts): the versioned
+ * localized object recorded on its `url` translation row when we actually
+ * localized it, else the original —
  * both served from the R2 public host (IMAGE_BASE). A banner links to our
  * translated topic page when it points at a topic we render, otherwise to its
  * original external URL. The visible caption is baked into the (translated)
@@ -37,7 +38,7 @@ export async function resolveBanners(
   const rows = await getActiveBanners(db);
   if (rows.length === 0) return [];
 
-  // Which banner images have a localized variant for this language.
+  // Original key → stored localized (versioned) R2 key for this language.
   const imgRows = await getImagesByKeys(
     db,
     rows.map((r) => r.imageKey),
@@ -48,9 +49,11 @@ export async function resolveBanners(
     language,
     'url',
   );
-  const localizedKeys = new Set(
-    imgRows.filter((r) => localizedUrl.has(r.id)).map((r) => r.key),
-  );
+  const localizedByKey = new Map<string, string>();
+  for (const r of imgRows) {
+    const stored = localizedUrl.get(r.id);
+    if (stored) localizedByKey.set(r.key, stored);
+  }
 
   // Translated captions for banners that link to a topic we can render.
   const topicIds = rows
@@ -59,11 +62,11 @@ export async function resolveBanners(
   const titles = await getTitleTranslations(db, 'topic', topicIds, language);
 
   return rows.map((b) => {
-    const base = localizedKeys.has(b.imageKey)
-      ? `${imageBase}/l10n/${language}`
-      : imageBase;
+    const stored = localizedByKey.get(b.imageKey);
     return {
-      imageUrl: rewriteImageSrc(imageUpstreamUrl(b.imageKey), base),
+      imageUrl: stored
+        ? `${imageBase}/${stored}`
+        : rewriteImageSrc(imageUpstreamUrl(b.imageKey), imageBase),
       href: b.linkTopicId
         ? `/${language}/topics/${b.linkTopicId}`
         : (b.linkUrl ?? '#'),
