@@ -309,6 +309,9 @@ importers:
       '@hiroba/flow':
         specifier: workspace:*
         version: link:../flow
+      '@hiroba/shared':
+        specifier: workspace:*
+        version: link:../shared
     devDependencies:
       typescript:
         specifier: ^5.9.3

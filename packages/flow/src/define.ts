@@ -32,6 +32,22 @@ export const units = (): StepDesc => ({ kind: 'units' });
 /** One segment wrapping many engine steps (plan/submit/poll/retrieve…). */
 export const phase = (): StepDesc => ({ kind: 'phase' });
 
+/**
+ * One `units()` segment per member of a literal key list, typed as a mapped
+ * type over the list — for flows whose segments mirror a domain enum (one
+ * drain per category). Hand-written key objects only guard drift one way
+ * (an added member fails the body's `keyof S` check; a removed one leaves a
+ * forever-pending declared segment). Deriving the shape from the list makes
+ * drift impossible in both directions. Insertion order = list order.
+ */
+export function unitsForEach<const K extends readonly string[]>(
+  keys: K,
+): { [P in K[number]]: StepDesc } {
+  return Object.fromEntries(keys.map((key) => [key, units()])) as {
+    [P in K[number]]: StepDesc;
+  };
+}
+
 export type StepsShape = Record<string, StepDesc>;
 
 export type FlowDef<

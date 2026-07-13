@@ -9,5 +9,6 @@ declare namespace Cloudflare {
     GLOSSARY_REGENERATE_WORKFLOW: Workflow;
     TITLE_WORKFLOW: Workflow;
     TITLE_BACKFILL_WORKFLOW: Workflow;
+    NEWS_BACKFILL_WORKFLOW: Workflow;
   }
 }

@@ -10,4 +10,5 @@
 
 export { BannerFlow } from './banner';
 export { GlossaryRegenFlow } from './glossary-regen';
+export { NewsBackfillFlow, type NewsBackfillOutput } from './news-backfill';
 export { TitleBackfillFlow, TitleFlow } from './titles';

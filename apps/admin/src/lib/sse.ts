@@ -1,19 +1,11 @@
 /**
- * Shared SSE proxy for the admin API. Every admin stream endpoint fronts a
- * WorkflowManager DO instance: name the instance, hand off an internal path,
- * and re-emit the DO's event stream with SSE headers. One helper for the
- * per-article pipeline streams and the whole-archive scrape stream alike.
+ * Shared SSE proxy for the admin API. An admin stream endpoint fronts either a
+ * WorkflowManager DO instance (per-article pipeline streams) or the FlowHub's
+ * per-run snapshot stream: name the instance, hand off an internal path, and
+ * re-emit the DO's event stream with SSE headers.
  */
 
 type SseEnv = { WORKFLOW_MANAGER: DurableObjectNamespace };
-
-/**
- * The WorkflowManager DO instance name for a whole-archive news scrape. Shared
- * by the trigger route (POST /api/scrape) and the progress stream
- * (GET /api/scrape/stream) so both address the same instance.
- */
-export const newsScrapeStreamKey = (category?: string): string =>
-  `scrape:news:${category ?? 'all'}`;
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -23,7 +15,7 @@ const SSE_HEADERS = {
 
 /**
  * Proxy an SSE stream from the WorkflowManager DO instance `doName`, calling its
- * internal `path` (e.g. `/sse?itemId=…&itemType=news` or `/scrape-sse`).
+ * internal `path` (e.g. `/sse?itemId=…&itemType=news`).
  */
 export async function proxyDoSse(
   env: SseEnv,

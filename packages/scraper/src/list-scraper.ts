@@ -61,34 +61,52 @@ function extractDateNearElement(
 }
 
 /**
- * Extract total number of pages from pagination links.
+ * Extract the total number of DISPLAY pages from the pagination.
+ *
+ * Hiroba's URL path segment is 0-based relative to the 1-based display page
+ * (`/sc/news/category/3/1` serves display page 2 — see `listPageUrl`), so
+ * every `<a>` suffix advertises `displayPage - 1` and must be counted +1.
+ * The current page renders as an unlinked `<li class="location">N</li>`
+ * (display-numbered), never as a self-referencing link — without counting it,
+ * the genuine last page under-reports its own total by one. An out-of-range
+ * request is CLAMPED to the last page's content rendered with NO location
+ * marker and a link window that includes the true last page, so a clamped
+ * page still advertises the correct total — which is exactly what lets a
+ * caller detect the overrun (`requestedPage > totalPages`).
  */
-function extractTotalPages($: cheerio.CheerioAPI): number {
+export function extractTotalPages($: cheerio.CheerioAPI): number {
   let maxPage = 1;
 
-  // Look for pagination links
+  // Numbered/first/prev/next/last links: URL suffix + 1 = display page.
   $("a[href*='/sc/news/category/']").each((_, elem) => {
     const href = $(elem).attr('href') || '';
     const match = href.match(/\/sc\/news\/category\/\d+\/(\d+)/);
     if (match) {
-      const pageNum = parseInt(match[1]);
-      maxPage = Math.max(maxPage, pageNum);
+      maxPage = Math.max(maxPage, parseInt(match[1]) + 1);
     }
   });
 
-  // Also check for "last" link text
-  $('a').each((_, elem) => {
-    const text = $(elem).text();
-    if (/last|最後/.test(text)) {
-      const href = $(elem).attr('href') || '';
-      const match = href.match(/\/(\d+)\/?$/);
-      if (match) {
-        maxPage = Math.max(maxPage, parseInt(match[1]));
-      }
+  // The unlinked current-page marker — the only place the genuine last page
+  // states its own number.
+  $('.pageNavi li.location').each((_, elem) => {
+    const num = parseInt($(elem).text().trim());
+    if (!Number.isNaN(num)) {
+      maxPage = Math.max(maxPage, num);
     }
   });
 
   return maxPage;
+}
+
+/**
+ * URL for one DISPLAY page (1-based) of a category listing. The site's path
+ * segment is 0-based: display page 1 is the bare category URL and display
+ * page N is `/<categoryId>/<N-1>`. (The previous `/<N>` mapping silently
+ * skipped display page 2 — items 51–100 — of every category.)
+ */
+export function listPageUrl(category: Category, page: number): string {
+  const base = `${BASE_URL}/sc/news/category/${CATEGORY_TO_ID[category]}`;
+  return page > 1 ? `${base}/${page - 1}` : base;
 }
 
 /**
@@ -139,13 +157,7 @@ export async function fetchNewsListPage(
   category: Category,
   page: number,
 ): Promise<{ items: ListItem[]; totalPages: number }> {
-  const categoryId = CATEGORY_TO_ID[category];
-  let url = `${BASE_URL}/sc/news/category/${categoryId}`;
-  if (page > 1) {
-    url += `/${page}`;
-  }
-
-  const response = await fetch(url, {
+  const response = await fetch(listPageUrl(category, page), {
     headers: {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',

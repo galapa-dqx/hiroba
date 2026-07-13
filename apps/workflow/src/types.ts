@@ -2,6 +2,7 @@
  * Type definitions for the workflow worker.
  */
 
+import type { NewsBackfillOutput } from '@hiroba/flows';
 import type { Category } from '@hiroba/shared';
 
 import type { LocalizeResult } from './steps/localize-images';
@@ -66,8 +67,10 @@ export type Env = {
    *  hub.start('title-backfill'), keyed per language so concurrent triggers
    *  attach. */
   TITLE_BACKFILL_WORKFLOW: WorkflowBinding<TitleBackfillWorkflowParams>;
-  /** Whole-archive news list scrape — pages the archive one durable step at a
-   *  time so it isn't bound by a single request's subrequest limit (DQX-14). */
+  /** Whole-archive news list scrape (NewsBackfillFlow, DQX-23): drains every
+   *  requested category's archive one durable page-unit at a time. Instances
+   *  are created only by the FlowHub — triggers go through
+   *  hub.start('news-backfill'), keyed by scope (`category ?? 'all'`). */
   NEWS_BACKFILL_WORKFLOW: WorkflowBinding<NewsBackfillWorkflowParams>;
   /** Home-page rotation banners (BannerFlow, DQX-20): scrape → mirror →
    *  transcribe → translate → localize. Instances are created only by the
@@ -157,22 +160,19 @@ export type TitleBackfillWorkflowOutput = {
 };
 
 /**
- * Parameters for the NewsBackfillWorkflow (whole-archive list scrape, DQX-14).
- * `category` scopes to one category (all when omitted). `streamKey` is the
- * WorkflowManager DO instance name the caller reached — the workflow reports
- * per-page progress back to it so the SSE stream can show a live bar.
+ * Parameters for the NewsBackfillWorkflow (whole-archive list scrape).
+ * `category` scopes to one category (all when omitted) — it is also the hub's
+ * dedup key (`category ?? 'all'`). Progress reports through the flow tracker
+ * to the hub; nothing item-specific is carried.
  */
 export type NewsBackfillWorkflowParams = {
   category?: Category;
-  streamKey: string;
 };
 
-/** Result of the NewsBackfillWorkflow — how much of the archive it scraped. */
-export type NewsBackfillWorkflowOutput = {
-  pages: number;
-  scraped: number;
-  newItems: number;
-};
+/** Result of the NewsBackfillWorkflow — how much of the archive it scraped.
+ *  Declared beside the flow definition so the admin's completion toast and
+ *  this producer derive from one shape. */
+export type NewsBackfillWorkflowOutput = NewsBackfillOutput;
 
 /**
  * Parameters for the GlossaryRegenerateWorkflow. Just the Japanese term whose

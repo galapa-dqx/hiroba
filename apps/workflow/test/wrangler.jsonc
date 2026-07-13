@@ -32,6 +32,11 @@
       "binding": "TITLE_BACKFILL_WORKFLOW",
       "class_name": "TitleBackfillWorkflow",
     },
+    {
+      "name": "news-backfill-workflow",
+      "binding": "NEWS_BACKFILL_WORKFLOW",
+      "class_name": "NewsBackfillWorkflow",
+    },
   ],
   "d1_databases": [
     {

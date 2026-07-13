@@ -12,7 +12,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@hiroba/flow": "workspace:*"
+    "@hiroba/flow": "workspace:*",
+    "@hiroba/shared": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

@@ -13,32 +13,9 @@
 import { env, introspectWorkflow } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
-import type { FlowHubApi } from '@hiroba/flow/hub';
-
-function hub(): FlowHubApi {
-  const ns = env.FLOW_HUB;
-  return ns.get(ns.idFromName('hub')) as unknown as FlowHubApi;
-}
+import { hub, waitFor } from './helpers';
 
 const uniqueTerm = (): string => `term-${crypto.randomUUID()}`;
-
-async function waitFor<T>(
-  fn: () => Promise<T>,
-  pred: (value: T) => boolean,
-  ms = 15_000,
-): Promise<T> {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await fn();
-    if (pred(value)) return value;
-    if (Date.now() > deadline) {
-      throw new Error(
-        `waitFor timed out; last value: ${JSON.stringify(value)}`,
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-}
 
 /** Mock every engine step the body reaches: one short article page for news,
  *  empty scans for the other types, one short image page. */

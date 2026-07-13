@@ -79,23 +79,31 @@ export async function triggerScrape(): Promise<ScrapeResult> {
   return adminFetch(`/api/scrape?full=false`, { method: 'POST' });
 }
 
-/** Acknowledgement that the whole-archive scrape workflow was (re)started. */
+/** Acknowledgement that the whole-archive scrape flow was (re)started. */
 export type ArchiveScrapeStarted = {
-  success: boolean;
-  mode: 'workflow';
-  /** Query param for GET /api/scrape/stream to follow progress. */
-  streamKey: string;
-  status: 'started' | 'already_running';
-  instanceId: string;
+  success?: boolean;
+  mode?: 'workflow';
+  /** `already_running` = the hub attached to a scrape of the same scope;
+   *  `throttled` is carried by the wire type but unreachable without a
+   *  cooldown on this flow. */
+  status: 'started' | 'already_running' | 'throttled';
+  /** Hub run id — query param for GET /api/flow-runs/stream to follow along.
+   *  Absent only when throttled. */
+  runId?: string;
 };
 
 /**
- * Kick off the whole-archive scrape (NewsBackfillWorkflow) and return
- * immediately; follow progress via `/api/scrape/stream`. Paging the archive in
- * one request would blow the subrequest limit — that's what the workflow fixes.
+ * Kick off the whole-archive scrape (NewsBackfillFlow, optionally scoped to
+ * one category) and return immediately; follow progress via the hub's per-run
+ * SSE at `/api/flow-runs/stream?runId=…`. Paging the archive in one request
+ * would blow the subrequest limit — that's what the flow fixes.
  */
-export async function startArchiveScrape(): Promise<ArchiveScrapeStarted> {
-  return adminFetch(`/api/scrape?full=true`, { method: 'POST' });
+export async function startArchiveScrape(
+  category?: string,
+): Promise<ArchiveScrapeStarted> {
+  const params = new URLSearchParams({ full: 'true' });
+  if (category) params.set('category', category);
+  return adminFetch(`/api/scrape?${params}`, { method: 'POST' });
 }
 
 export type NewsItem = {

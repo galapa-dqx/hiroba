@@ -12,20 +12,19 @@
 import { useEffect, useRef, useState } from 'react';
 
 import {
+  isActiveRunStatus as isActive,
   renderCount,
   segmentView,
   type Snapshot,
   type StepState,
 } from '@hiroba/flow';
 // Type-only: the /hub entry's runtime half imports cloudflare:workers, which
-// must never reach the client bundle.
+// must never reach the client bundle. The terminality predicate itself lives
+// in the platform-free core for exactly this reason.
 import type { HubRunStatus, RunInfo } from '@hiroba/flow/hub';
 import { formatRelativePast } from '@hiroba/ui/format-date';
 
 const POLL_MS = 5000;
-
-const isActive = (s: HubRunStatus): boolean =>
-  s === 'queued' || s === 'running';
 
 function SegmentGlyph({ view, spin }: { view: string; spin: boolean }) {
   if (spin) return <span className="wf-spinner" aria-label="in progress" />;

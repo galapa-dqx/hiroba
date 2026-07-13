@@ -103,38 +103,49 @@ function articleTable(itemType: ArticleType) {
 }
 
 /**
+ * D1 caps bound parameters at 100 per query, and drizzle binds 5 per row here
+ * (the 4 ListItem columns plus the `fetch_state` column default, which
+ * travels as a parameter) — 16 rows = 80 keeps headroom under the cap.
+ */
+const UPSERT_LIST_CHUNK = 16;
+
+/**
  * Upsert news items from list scraping.
  * Returns items that were newly inserted (not updates to existing).
+ *
+ * Single `INSERT … ON CONFLICT DO NOTHING RETURNING` per chunk — "newly
+ * inserted" is decided by the conflict resolution itself, atomically. The
+ * previous per-item SELECT-then-INSERT could count one item as new twice
+ * when concurrent scrape pages carried it (a publish mid-backfill shifts the
+ * newest-first archive across page boundaries).
  */
 export async function upsertListItems(
   db: Database,
   items: ListItem[],
 ): Promise<ListItem[]> {
-  const newlyInserted: ListItem[] = [];
-
-  for (const item of items) {
-    const existing = await db
-      .select({ id: newsItems.id })
-      .from(newsItems)
-      .where(eq(newsItems.id, item.id))
-      .get();
-
-    await db
+  if (items.length === 0) return [];
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const inserted: ListItem[] = [];
+  for (let i = 0; i < items.length; i += UPSERT_LIST_CHUNK) {
+    const chunk = items.slice(i, i + UPSERT_LIST_CHUNK);
+    const rows = await db
       .insert(newsItems)
-      .values({
-        id: item.id,
-        titleJa: item.titleJa,
-        category: item.category,
-        publishedAt: item.publishedAt,
-      })
-      .onConflictDoNothing();
-
-    if (!existing) {
-      newlyInserted.push(item);
+      .values(
+        chunk.map((item) => ({
+          id: item.id,
+          titleJa: item.titleJa,
+          category: item.category,
+          publishedAt: item.publishedAt,
+        })),
+      )
+      .onConflictDoNothing()
+      .returning({ id: newsItems.id });
+    for (const row of rows) {
+      const item = byId.get(row.id);
+      if (item) inserted.push(item);
     }
   }
-
-  return newlyInserted;
+  return inserted;
 }
 
 /** A news item plus its resolved current-language title (null ⇒ show titleJa). */
