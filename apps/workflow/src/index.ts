@@ -66,6 +66,8 @@ export { NewsBackfillWorkflow } from './news-backfill-workflow';
 export { BannerWorkflow } from './banner-workflow';
 export { GlossaryRegenerateWorkflow } from './glossary-regenerate-workflow';
 export { PlayguideWorkflow } from './playguide-workflow';
+export { ImageIngestWorkflow } from './image-ingest-workflow';
+export { ImageLocalizeWorkflow } from './image-localize-workflow';
 
 /**
  * Minimum gap between page-driven pipeline re-triggers for one article. A

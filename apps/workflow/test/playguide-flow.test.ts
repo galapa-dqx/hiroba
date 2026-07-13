@@ -20,7 +20,11 @@ type InstanceModifier = Parameters<
   Parameters<Awaited<ReturnType<typeof introspectWorkflow>>['modifyAll']>[0]
 >[0];
 
-/** Mock every engine step of one happy-path run. */
+/** Mock every engine step of one happy-path run. The image units are JOINS
+ *  since DQX-27 — mocking each join's memoized `start` step with an
+ *  already-terminal WatchResult (child output included) settles the unit
+ *  without touching the hub; test/image-flows.test.ts covers the real join
+ *  transport. */
 async function mockHappyPath(m: InstanceModifier): Promise<void> {
   await m.mockStepResult({ name: 'loadLanguages' }, [
     { code: 'en', label: 'English' },
@@ -33,8 +37,13 @@ async function mockHappyPath(m: InstanceModifier): Promise<void> {
     { key: KEY, transcribe: true },
   ]);
   await m.mockStepResult(
-    { name: `images/${KEY}` },
-    { mirror: 'mirrored', transcribed: true },
+    { name: `images/${KEY}/start` },
+    {
+      runId: 'child-ingest',
+      status: 'complete',
+      error: null,
+      output: { imageKey: KEY, mirror: 'mirrored', transcribed: true },
+    },
   );
   await m.mockStepResult(
     { name: 'translate/plan' },
@@ -45,11 +54,16 @@ async function mockHappyPath(m: InstanceModifier): Promise<void> {
     { success: true, fieldsTranslated: 2 },
   );
   await m.mockStepResult({ name: 'localizeImages/list' }, [
-    { id: 1, key: KEY, textsJa: ['冒険'] },
+    { key: KEY, lang: 'en' },
   ]);
   await m.mockStepResult(
-    { name: `localizeImages/${KEY}` },
-    { localized: 1, skipped: 0, failed: 0 },
+    { name: `localizeImages/${KEY}:en/start` },
+    {
+      runId: 'child-localize',
+      status: 'complete',
+      error: null,
+      output: { imageKey: KEY, lang: 'en', outcome: 'localized' },
+    },
   );
   await m.mockStepResult({ name: 'purge' }, null);
 }

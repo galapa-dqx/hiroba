@@ -1,13 +1,15 @@
 /**
  * GlossaryRegenFlow body on the fast inline tier: keyset pagination through the
  * `open` handle (cursor threading, both break conditions), the fan-out of
- * per-article trigger units, and — the ticket's Note — that the
+ * per-article JOINS (DQX-27 — each unit awaits its child run's terminal state,
+ * with settled semantics), and — the ticket's Note — that the
  * closure-accumulated `affected` list is replay-safe because it is rebuilt from
  * memoized unit returns. The real engine + hub (and the keyed dedup) are
  * covered in test/glossary-regen-flow.test.ts.
  *
  * Collaborators are module-mocked (not engine-stubbed) so the real unit bodies
- * execute and their lifecycle reports fire.
+ * execute and their lifecycle reports fire; the join seam is stubbed with
+ * inlineJoinPort.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,8 +18,12 @@ import {
   findArticlesContainingSourcePage,
   findImagesContainingSourcePage,
 } from '@hiroba/db';
-import { runFlowInline } from '@hiroba/flow';
-import { getFlowHub } from '@hiroba/flow/hub';
+import {
+  inlineJoinPort,
+  runFlowInline,
+  type AnyFlowDef,
+  type JoinOutcome,
+} from '@hiroba/flow';
 import { GlossaryRegenFlow } from '@hiroba/flows';
 
 import {
@@ -41,33 +47,26 @@ vi.mock('./steps/translate-image-texts', () => ({
   retranslateImageTexts: vi.fn(),
 }));
 
-// The hub entry pulls cloudflare:workers, which doesn't exist on this plain-
-// node tier — and the RPC surface is exactly what this suite asserts against.
-vi.mock('@hiroba/flow/hub', () => ({
-  getFlowHub: vi.fn(),
-}));
-
 const TERM = 'キラーパンサー';
 
-/** A FlowHub stub recording every start call. */
-function makeEnv(opts: { failItemId?: string } = {}) {
-  const calls: Array<{ flow: string; params: Record<string, unknown> }> = [];
-  vi.mocked(getFlowHub).mockReturnValue({
-    start: vi.fn(async (flow: string, params: unknown) => {
-      const p = params as Record<string, unknown>;
-      calls.push({ flow, params: p });
-      if ((p.itemId ?? p.slug) === opts.failItemId) {
-        throw new Error('boom');
-      }
-      return { runId: 'run-1', created: true, status: 'queued' };
-    }),
-  } as unknown as ReturnType<typeof getFlowHub>);
-  const env = {
-    DB: {},
-    GEMINI_API_KEY: 'test-key',
-    FLOW_HUB: {},
-  } as unknown as GlossaryRegenFlowEnv;
-  return { env, calls };
+const env = {
+  DB: {},
+  GEMINI_API_KEY: 'test-key',
+} as unknown as GlossaryRegenFlowEnv;
+
+/** A recording stub port: each joined article child completes (or fails, for
+ *  ids in `failIds`) and its flow + params land in `children`. */
+function makeJoins(opts: { failIds?: string[] } = {}) {
+  const children: Array<{ flow: string; params: Record<string, unknown> }> = [];
+  const spy = vi.fn((def: AnyFlowDef, params: unknown): JoinOutcome => {
+    const p = params as Record<string, unknown>;
+    children.push({ flow: def.name, params: p });
+    if (opts.failIds?.includes(String(p.itemId ?? p.slug))) {
+      return { status: 'failed', error: 'boom' };
+    }
+    return { status: 'complete', output: { itemId: p.itemId ?? p.slug } };
+  });
+  return { joins: inlineJoinPort(spy), children, spy };
 }
 
 // Article pages: news fills a whole page (loop continues, then breaks on the
@@ -112,19 +111,21 @@ beforeEach(() => {
   );
 });
 
-describe('glossary regen flow — keyset scans + trigger fan-out', () => {
-  it('pages both scans by cursor and re-triggers every affected article', async () => {
-    const { env, calls } = makeEnv();
+describe('glossary regen flow — keyset scans + joined re-runs', () => {
+  it('pages both scans by cursor and joins every affected article as a child run', async () => {
+    const { joins, children } = makeJoins();
     const result = await runFlowInline(
       GlossaryRegenFlow,
       (f, params) => runGlossaryRegenFlow(f, params, env),
       { sourceText: TERM },
+      { joins },
     );
 
     expect(result.error).toBeUndefined();
     expect(result.output).toEqual({
       sourceText: TERM,
       triggered: NEWS_PAGE.length + TOPIC_PAGE.length,
+      retriggerFailed: 0,
       imagesRetranslated: IMAGE_PAGE_0.length + IMAGE_PAGE_1.length,
     });
 
@@ -148,17 +149,20 @@ describe('glossary regen flow — keyset scans + trigger fan-out', () => {
     );
     expect(vi.mocked(findImagesContainingSourcePage)).toHaveBeenCalledTimes(2);
 
-    // Every affected article was started via the hub, on the ArticleFlow
-    // with its type in the params (the flow key carries the dedup identity).
-    expect(calls).toHaveLength(NEWS_PAGE.length + TOPIC_PAGE.length);
-    expect(calls.find((c) => c.params.itemId === 'n0')?.flow).toBe('article');
-    expect(calls.find((c) => c.params.itemId === 't1')).toEqual({
+    // Every affected article was JOINED (not fire-and-forgotten) on the
+    // ArticleFlow with its type in the params — the flow key carries the
+    // dedup identity, so an in-flight run is attached to.
+    expect(children).toHaveLength(NEWS_PAGE.length + TOPIC_PAGE.length);
+    expect(children.find((c) => c.params.itemId === 'n0')?.flow).toBe(
+      'article',
+    );
+    expect(children.find((c) => c.params.itemId === 't1')).toEqual({
       flow: 'article',
       params: { itemId: 't1', itemType: 'topic' },
     });
 
     // Segment truth: every declared step settled; the scans counted one unit
-    // per page and the trigger map knew its denominator.
+    // per page and the join map's units ARE the child runs.
     expect(result.unfinishedSteps).toEqual([]);
     expect(result.snapshot.steps.scanArticles).toMatchObject({
       state: 'complete',
@@ -178,22 +182,22 @@ describe('glossary regen flow — keyset scans + trigger fan-out', () => {
   });
 
   it('replays entirely from memo: the affected list is rebuilt, nothing re-runs', async () => {
-    const { env } = makeEnv();
     const first = await runFlowInline(
       GlossaryRegenFlow,
       (f, params) => runGlossaryRegenFlow(f, params, env),
       { sourceText: TERM },
+      { joins: makeJoins().joins },
     );
     expect(first.error).toBeUndefined();
 
-    // Fresh spies + a fresh manager: a true replay touches neither D1 nor DOs.
+    // Fresh spies + a fresh port: a true replay touches neither D1 nor the hub.
     vi.clearAllMocks();
-    const replayEnv = makeEnv();
+    const { joins, spy } = makeJoins();
     const replay = await runFlowInline(
       GlossaryRegenFlow,
-      (f, params) => runGlossaryRegenFlow(f, params, replayEnv.env),
+      (f, params) => runGlossaryRegenFlow(f, params, env),
       { sourceText: TERM },
-      { memo: first.memo },
+      { memo: first.memo, joins },
     );
 
     expect(replay.error).toBeUndefined();
@@ -203,23 +207,30 @@ describe('glossary regen flow — keyset scans + trigger fan-out', () => {
     expect(vi.mocked(findArticlesContainingSourcePage)).not.toHaveBeenCalled();
     expect(vi.mocked(findImagesContainingSourcePage)).not.toHaveBeenCalled();
     expect(vi.mocked(retranslateImageTexts)).not.toHaveBeenCalled();
-    expect(replayEnv.calls).toHaveLength(0);
+    expect(spy).not.toHaveBeenCalled();
     expect(replay.trace.every((entry) => entry.cached)).toBe(true);
   });
 
-  it('a failed trigger fails the retrigger step instead of counting as done', async () => {
-    const { env } = makeEnv({ failItemId: 't1' });
+  it('counts a failed child run instead of blocking the rest (settled semantics)', async () => {
+    const { joins, children } = makeJoins({ failIds: ['t1'] });
     const result = await runFlowInline(
       GlossaryRegenFlow,
       (f, params) => runGlossaryRegenFlow(f, params, env),
       { sourceText: TERM },
+      { joins },
     );
 
-    expect(result.error).toBeInstanceOf(Error);
-    expect(String(result.error)).toContain('trigger topic t1 failed: boom');
-    expect(result.snapshot.status).toBe('failed');
-    expect(result.snapshot.steps.retriggerArticles.state).toBe('failed');
-    // The image pass was never reached — honestly pending, not skipped.
-    expect(result.snapshot.steps.retranslateImages.state).toBe('pending');
+    // The run COMPLETES: one degraded article must not sink a 100-article
+    // regeneration — but the failure is loud in the output.
+    expect(result.error).toBeUndefined();
+    expect(result.snapshot.status).toBe('complete');
+    expect(result.output).toMatchObject({
+      triggered: NEWS_PAGE.length + TOPIC_PAGE.length,
+      retriggerFailed: 1,
+    });
+    // Every other child was still joined; the image pass still ran.
+    expect(children).toHaveLength(NEWS_PAGE.length + TOPIC_PAGE.length);
+    expect(result.snapshot.steps.retriggerArticles.state).toBe('complete');
+    expect(result.snapshot.steps.retranslateImages.state).toBe('complete');
   });
 });

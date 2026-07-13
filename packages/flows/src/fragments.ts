@@ -16,15 +16,18 @@ export const articleIntake = {
   fetchBody: step(),
 };
 
-/** One unit per referenced image — mirror into R2 + transcribe the baked-in
- *  text, checkpointed per image instead of one big step. */
+/** One unit per referenced image — a JOIN on the shared per-image
+ *  ImageIngestFlow child (mirror into R2 + transcribe the baked-in text,
+ *  DQX-27), so two articles referencing the same image share one child run. */
 export const articleImagework = {
   images: units(),
 };
 
 /** The output tail: whole-document translation (one segment wrapping the
- *  size-gated sync/batch dance), per-image localized rasters, and the edge
- *  purge of the article's detail pages. */
+ *  size-gated sync/batch dance), localized rasters — one unit per
+ *  (text-bearing image, enabled language), each a JOIN on the shared
+ *  ImageLocalizeFlow child (DQX-27) — and the edge purge of the article's
+ *  detail pages. */
 export const articleOutput = {
   translate: phase(),
   localizeImages: units(),

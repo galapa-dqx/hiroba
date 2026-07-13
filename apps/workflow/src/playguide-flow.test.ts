@@ -1,21 +1,26 @@
 /**
  * PlayguideFlow body on the fast inline tier: the shared article-pipeline
- * fragments driving per-image ingest units (mirror+transcribe checkpointed
- * per image), the size-gated translate phase (sync and batch/poll paths), the
- * per-image localize units, the fetch-failure skip path, and full replay from
- * memo. The real engine + hub (and the slug-key attach semantics) are covered
- * in test/playguide-flow.test.ts.
+ * fragments driving per-image ingest JOINS (one shared ImageIngestFlow child
+ * per referenced image), the size-gated translate phase (sync and batch/poll
+ * paths), the per-(image, language) localize joins, the fetch-failure skip
+ * path, and full replay from memo. The real engine + hub (and the slug-key
+ * attach semantics) are covered in test/playguide-flow.test.ts.
  *
- * Collaborators are module-mocked at the per-unit worker seam (mirrorOneImage
- * etc.) so the orchestration — unit sets, ids, step names — is what's under
- * test; block-tree image discovery runs the REAL richtext walk over synthetic
- * blocks.
+ * The join seam is stubbed with inlineJoinPort — the child defs' names and
+ * params are what's under test here, not the child bodies (those have their
+ * own suites); block-tree image discovery runs the REAL richtext walk over
+ * synthetic blocks.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getEnabledLanguages, getImagesByKeys } from '@hiroba/db';
-import { runFlowInline } from '@hiroba/flow';
+import {
+  inlineJoinPort,
+  runFlowInline,
+  type AnyFlowDef,
+  type JoinOutcome,
+} from '@hiroba/flow';
 import { PlayguideFlow } from '@hiroba/flows';
 import type { Block } from '@hiroba/richtext';
 
@@ -23,9 +28,6 @@ import { getArticle, getArticleBlocks } from './article';
 import { runPlayguideFlow, type PlayguideFlowEnv } from './playguide-flow';
 import { purgeArticle } from './purge';
 import { fetchAndSaveArticleBody } from './steps/fetch-body';
-import { localizeOneImage } from './steps/localize-images';
-import { mirrorOneImage } from './steps/mirror-images';
-import { transcribeOneImage } from './steps/transcribe-images';
 import {
   bodyMarkupSize,
   translateArticle,
@@ -61,18 +63,6 @@ vi.mock('./steps/fetch-body', () => ({
   fetchAndSaveArticleBody: vi.fn(),
 }));
 
-vi.mock('./steps/mirror-images', () => ({
-  mirrorOneImage: vi.fn(),
-}));
-
-vi.mock('./steps/transcribe-images', () => ({
-  transcribeOneImage: vi.fn(),
-}));
-
-vi.mock('./steps/localize-images', () => ({
-  localizeOneImage: vi.fn(),
-}));
-
 vi.mock('./steps/translate', () => ({
   bodyMarkupSize: vi.fn(),
   translateArticle: vi.fn(),
@@ -89,17 +79,14 @@ vi.mock('./steps/translate-batch', async (importOriginal) => ({
 
 const env = {
   DB: {},
-  IMAGES_BUCKET: {},
-  IMAGES: {},
-  OPENAI_API_KEY: 'openai-key',
   GEMINI_API_KEY: 'gemini-key',
 } as unknown as PlayguideFlowEnv;
 
 const SLUG = 'guide42';
 
-// One block image (mirror + transcribe + localize candidate) and one inline
-// icon (mirror-only — the old mirror step's wider discovery walk), sharing a
-// real /dq_resource path so the REAL imageKey canonicalization applies.
+// One block image (ingest + localize candidate) and one inline icon
+// (mirror-only — the wider discovery walk), sharing a real /dq_resource path
+// so the REAL imageKey canonicalization applies.
 const IMG_KEY = 'cache.hiroba.dqx.jp/dq_resource/img/hero.png';
 const ICON_KEY = 'cache.hiroba.dqx.jp/dq_resource/img/icon.png';
 const BLOCKS = [
@@ -113,6 +100,40 @@ const LANGUAGES = [
   { code: 'en', label: 'English' },
   { code: 'ko', label: 'Korean' },
 ];
+
+/** The default child answer: an ingest mirrors (and transcribes when asked);
+ *  a localize generation succeeds. Tests override per-child via `overrides`. */
+function happyChild(def: AnyFlowDef, params: unknown): JoinOutcome {
+  if (def.name === 'image-ingest') {
+    const p = params as { imageKey: string; transcribe: boolean };
+    return {
+      status: 'complete',
+      output: {
+        imageKey: p.imageKey,
+        mirror: 'mirrored',
+        transcribed: p.transcribe,
+      },
+    };
+  }
+  const p = params as { imageKey: string; lang: string };
+  return {
+    status: 'complete',
+    output: { imageKey: p.imageKey, lang: p.lang, outcome: 'localized' },
+  };
+}
+
+/** A recording stub port: every joined child's def name + key + params land
+ *  in `children`, in join order. */
+function makeJoins(
+  resolve: (def: AnyFlowDef, params: unknown) => JoinOutcome = happyChild,
+) {
+  const children: Array<{ flow: string; key: string; params: unknown }> = [];
+  const spy = vi.fn((def: AnyFlowDef, params: unknown) => {
+    children.push({ flow: def.name, key: def.key(params), params });
+    return resolve(def, params);
+  });
+  return { joins: inlineJoinPort(spy), children, spy };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -128,14 +149,7 @@ beforeEach(() => {
     titleJa: 'ガイド',
     blocksJa: BLOCKS,
   } as never);
-  vi.mocked(mirrorOneImage).mockResolvedValue('mirrored');
-  vi.mocked(transcribeOneImage).mockResolvedValue(true);
   vi.mocked(getImagesByKeys).mockResolvedValue([IMG_ROW] as never);
-  vi.mocked(localizeOneImage).mockResolvedValue({
-    localized: 2,
-    skipped: 0,
-    failed: 0,
-  });
   vi.mocked(bodyMarkupSize).mockReturnValue(100); // sync-sized by default
   vi.mocked(translateArticle).mockResolvedValue({
     success: true,
@@ -146,11 +160,13 @@ beforeEach(() => {
 });
 
 describe('playguide flow — the split pipeline', () => {
-  it('runs intake → per-image units → sync translate → localize → purge', async () => {
+  it('runs intake → per-image ingest joins → sync translate → localize joins → purge', async () => {
+    const { joins, children } = makeJoins();
     const result = await runFlowInline(
       PlayguideFlow,
       (f, params) => runPlayguideFlow(f, params, env),
       { slug: SLUG },
+      { joins },
     );
 
     expect(result.error).toBeUndefined();
@@ -164,41 +180,50 @@ describe('playguide flow — the split pipeline', () => {
       localize: { localized: 2, skipped: 0, failed: 0 },
     });
 
-    // One ingest unit per referenced image (block image AND inline icon),
-    // named by the canonical image key; only the block image is a
-    // transcription candidate.
-    expect(vi.mocked(mirrorOneImage)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(transcribeOneImage)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(transcribeOneImage)).toHaveBeenCalledWith(
-      expect.anything(),
-      IMG_KEY,
-      'gemini-key',
-      env.IMAGES_BUCKET,
-    );
-    const doNames = result.trace
-      .filter((t) => t.type === 'do')
-      .map((t) => t.name);
-    expect(doNames).toContain(`images/${IMG_KEY}`);
-    expect(doNames).toContain(`images/${ICON_KEY}`);
-    expect(doNames).toContain('translate/plan');
-    expect(doNames).toContain('translate/sync');
-    expect(doNames).toContain(`localizeImages/${IMG_KEY}`);
-    expect(doNames).toContain('purge');
-
-    // Localize fans out over the candidate rows only; each unit bakes every
-    // enabled language for its image.
+    // One ingest JOIN per referenced image (block image AND inline icon),
+    // keyed by the canonical image key so parents sharing the image attach to
+    // one child run; only the block image is a transcription candidate.
+    expect(children.filter((c) => c.flow === 'image-ingest')).toEqual([
+      {
+        flow: 'image-ingest',
+        key: IMG_KEY,
+        params: { imageKey: IMG_KEY, transcribe: true },
+      },
+      {
+        flow: 'image-ingest',
+        key: ICON_KEY,
+        params: { imageKey: ICON_KEY, transcribe: false },
+      },
+    ]);
+    // Localize fans out over (text-bearing image × enabled language) pairs —
+    // the icon never transcribed, so only the hero generates, per language.
+    expect(children.filter((c) => c.flow === 'image-localize')).toEqual([
+      {
+        flow: 'image-localize',
+        key: `${IMG_KEY}:en`,
+        params: { imageKey: IMG_KEY, lang: 'en' },
+      },
+      {
+        flow: 'image-localize',
+        key: `${IMG_KEY}:ko`,
+        params: { imageKey: IMG_KEY, lang: 'ko' },
+      },
+    ]);
     expect(vi.mocked(getImagesByKeys)).toHaveBeenCalledWith(expect.anything(), [
       IMG_KEY,
     ]);
-    expect(vi.mocked(localizeOneImage)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(localizeOneImage)).toHaveBeenCalledWith(
-      expect.anything(),
-      env.IMAGES_BUCKET,
-      env.IMAGES,
-      'openai-key',
-      IMG_ROW,
-      LANGUAGES.map((l) => ({ ...l, nativeLabel: l.label })),
-    );
+
+    // The joins ride memoized engine steps under the production names.
+    const doNames = result.trace
+      .filter((t) => t.type === 'do')
+      .map((t) => t.name);
+    expect(doNames).toContain(`images/${IMG_KEY}/start`);
+    expect(doNames).toContain(`images/${ICON_KEY}/start`);
+    expect(doNames).toContain('translate/plan');
+    expect(doNames).toContain('translate/sync');
+    expect(doNames).toContain(`localizeImages/${IMG_KEY}:en/start`);
+    expect(doNames).toContain(`localizeImages/${IMG_KEY}:ko/start`);
+    expect(doNames).toContain('purge');
 
     // Events were never declared, so nothing was skipped either — the shape
     // simply has no event steps.
@@ -210,6 +235,29 @@ describe('playguide flow — the split pipeline', () => {
       'localizeImages',
       'purge',
     ]);
+  });
+
+  it('skips localize children for images whose text has no Japanese', async () => {
+    vi.mocked(getImagesByKeys).mockResolvedValue([
+      { id: 7, key: IMG_KEY, textsJa: ['LEVEL UP!'] },
+    ] as never);
+    const { joins, children } = makeJoins();
+
+    const result = await runFlowInline(
+      PlayguideFlow,
+      (f, params) => runPlayguideFlow(f, params, env),
+      { slug: SLUG },
+      { joins },
+    );
+
+    expect(result.error).toBeUndefined();
+    // No generation children at all — nothing to bake, in any language.
+    expect(children.filter((c) => c.flow === 'image-localize')).toEqual([]);
+    expect(result.snapshot.steps.localizeImages).toMatchObject({
+      state: 'complete',
+      current: 0,
+      total: 0,
+    });
   });
 
   it('routes an oversized document to the batch path and polls it durably', async () => {
@@ -227,6 +275,7 @@ describe('playguide flow — the split pipeline', () => {
       PlayguideFlow,
       (f, params) => runPlayguideFlow(f, params, env),
       { slug: SLUG },
+      { joins: makeJoins().joins },
     );
 
     expect(result.error).toBeUndefined();
@@ -251,11 +300,13 @@ describe('playguide flow — the split pipeline', () => {
       success: false,
       blockCount: 0,
     });
+    const { joins, spy } = makeJoins();
 
     const result = await runFlowInline(
       PlayguideFlow,
       (f, params) => runPlayguideFlow(f, params, env),
       { slug: SLUG },
+      { joins },
     );
 
     expect(result.error).toBeUndefined();
@@ -268,7 +319,7 @@ describe('playguide flow — the split pipeline', () => {
     ] as const) {
       expect(result.snapshot.steps[step].state).toBe('skipped');
     }
-    expect(vi.mocked(mirrorOneImage)).not.toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled();
     expect(vi.mocked(translateArticle)).not.toHaveBeenCalled();
     expect(vi.mocked(purgeArticle)).not.toHaveBeenCalled();
     expect((result.output as { translate: unknown }).translate).toEqual({
@@ -277,46 +328,45 @@ describe('playguide flow — the split pipeline', () => {
     });
   });
 
-  it('replays from memo without re-running any unit', async () => {
+  it('replays from memo without re-running any step or re-joining any child', async () => {
     const first = await runFlowInline(
       PlayguideFlow,
       (f, params) => runPlayguideFlow(f, params, env),
       { slug: SLUG },
+      { joins: makeJoins().joins },
     );
     expect(first.error).toBeUndefined();
     vi.clearAllMocks();
 
+    const { joins, spy } = makeJoins();
     const replay = await runFlowInline(
       PlayguideFlow,
       (f, params) => runPlayguideFlow(f, params, env),
       { slug: SLUG },
-      { memo: first.memo },
+      { memo: first.memo, joins },
     );
 
     expect(replay.error).toBeUndefined();
     expect(replay.output).toEqual(first.output);
-    // Every step answered from memo — the per-unit workers never ran, which
-    // is the point of per-image checkpointing (a resume redoes nothing done).
-    expect(vi.mocked(mirrorOneImage)).not.toHaveBeenCalled();
-    expect(vi.mocked(transcribeOneImage)).not.toHaveBeenCalled();
+    // Every step answered from memo — including the join `start` steps, which
+    // is what pins a parent to the SAME child run across replays in
+    // production (the memoized startAndWatch).
+    expect(spy).not.toHaveBeenCalled();
     expect(vi.mocked(translateArticle)).not.toHaveBeenCalled();
-    expect(vi.mocked(localizeOneImage)).not.toHaveBeenCalled();
     expect(vi.mocked(purgeArticle)).not.toHaveBeenCalled();
   });
 
-  it('degrades on per-image failures instead of failing the run', async () => {
-    vi.mocked(mirrorOneImage).mockResolvedValue('failed');
-    vi.mocked(transcribeOneImage).mockResolvedValue(false);
-    vi.mocked(localizeOneImage).mockResolvedValue({
-      localized: 0,
-      skipped: 0,
-      failed: 2,
-    });
+  it('degrades on failed child runs instead of failing the parent', async () => {
+    const { joins } = makeJoins(() => ({
+      status: 'failed',
+      error: 'child run failed',
+    }));
 
     const result = await runFlowInline(
       PlayguideFlow,
       (f, params) => runPlayguideFlow(f, params, env),
       { slug: SLUG },
+      { joins },
     );
 
     expect(result.error).toBeUndefined();
@@ -326,8 +376,5 @@ describe('playguide flow — the split pipeline', () => {
       transcribe: { imagesTranscribed: 0 },
       localize: { localized: 0, skipped: 0, failed: 2 },
     });
-    // Transcription was still attempted — the loader falls back to a direct
-    // CDN fetch when the mirror failed.
-    expect(vi.mocked(transcribeOneImage)).toHaveBeenCalledTimes(1);
   });
 });

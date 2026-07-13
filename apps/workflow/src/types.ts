@@ -5,8 +5,8 @@
 import type { NewsBackfillOutput } from '@hiroba/flows';
 import type { Category } from '@hiroba/shared';
 
-import type { LocalizeResult } from './steps/localize-images';
-import type { MirrorResult } from './steps/mirror-images';
+import type { LocalizeOutcome, LocalizeResult } from './steps/localize-images';
+import type { MirrorOutcome, MirrorResult } from './steps/mirror-images';
 
 /**
  * Workflow instance type for type safety.
@@ -90,6 +90,15 @@ export type Env = {
    *  the FlowHub — triggers go through hub.start('playguide'), keyed by slug
    *  so concurrent triggers attach. News/topics stay on ARTICLE_WORKFLOW. */
   PLAYGUIDE_WORKFLOW: WorkflowBinding<PlayguideWorkflowParams>;
+  /** Shared per-image ingest (ImageIngestFlow, DQX-27): mirror → transcribe,
+   *  keyed by the image key. Instances are created only by the FlowHub, and
+   *  only from parent flows' `mapJoin`s — two articles referencing the same
+   *  image attach to one child run. */
+  IMAGE_INGEST_WORKFLOW: WorkflowBinding<ImageIngestWorkflowParams>;
+  /** Localized raster generation (ImageLocalizeFlow, DQX-27): one image into
+   *  one language, keyed `${imageKey}:${lang}`. Instances are created only by
+   *  the FlowHub, from parent flows' `mapJoin`s after their translate phase. */
+  IMAGE_LOCALIZE_WORKFLOW: WorkflowBinding<ImageLocalizeWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
@@ -199,14 +208,57 @@ export type GlossaryRegenerateWorkflowParams = {
 };
 
 /**
- * Result of the GlossaryRegenerateWorkflow — how many articles it re-triggered
- * and how many image `text` translations it refreshed (the localized raster is
- * left as-is; only the stored text changes).
+ * Result of the GlossaryRegenerateWorkflow — how many articles it re-ran (as
+ * joined child runs since DQX-27: completion means every re-run settled, and
+ * `retriggerFailed` counts children that failed rather than completed) and how
+ * many image `text` translations it refreshed (the localized raster is left
+ * as-is; only the stored text changes).
  */
 export type GlossaryRegenerateWorkflowOutput = {
   sourceText: string;
   triggered: number;
+  retriggerFailed: number;
   imagesRetranslated: number;
+};
+
+/**
+ * Parameters for the ImageIngestWorkflow (ImageIngestFlow, DQX-27). The image
+ * key is the hub's dedup identity — every parent referencing the image joins
+ * one run. `transcribe` rides along (block images get transcribed;
+ * icon/bubble/responsive-source assets are mirror-only) because candidacy
+ * comes from how the discovering article references the image, which the
+ * child cannot see.
+ */
+export type ImageIngestWorkflowParams = {
+  imageKey: string;
+  transcribe: boolean;
+};
+
+/** Result of the ImageIngestWorkflow — one image's fate through mirror +
+ *  transcribe, aggregated by parents into MirrorResult/TranscribeResult. */
+export type ImageIngestWorkflowOutput = {
+  imageKey: string;
+  mirror: MirrorOutcome;
+  transcribed: boolean;
+};
+
+/**
+ * Parameters for the ImageLocalizeWorkflow (ImageLocalizeFlow, DQX-27).
+ * Together they are the hub's dedup key (`${imageKey}:${lang}`) — every
+ * article sharing the image joins one generation per language. Only the
+ * language code travels; the child resolves the prompt label itself.
+ */
+export type ImageLocalizeWorkflowParams = {
+  imageKey: string;
+  lang: string;
+};
+
+/** Result of the ImageLocalizeWorkflow — one (image, language) generation's
+ *  fate, aggregated by parents into LocalizeResult. */
+export type ImageLocalizeWorkflowOutput = {
+  imageKey: string;
+  lang: string;
+  outcome: LocalizeOutcome;
 };
 
 /**

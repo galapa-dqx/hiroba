@@ -7,21 +7,26 @@
  * mechanism — flows share bodies structurally, not by inheritance.
  *
  * What changed shape-wise from the old workflow:
- *   - mirror + transcribe collapse into ONE `images` map — one durable unit
- *     per referenced image (mirror into R2, then transcribe the baked-in
- *     text), replacing two one-big-steps whose internal mapWithConcurrency
- *     restarted every image on an engine retry. A retried step now re-runs
- *     only the unfinished units.
+ *   - mirror + transcribe collapse into ONE `images` mapJoin — one unit per
+ *     referenced image, each unit a JOIN on the shared per-image
+ *     ImageIngestFlow child (DQX-27). Keyed by the image key, so two articles
+ *     referencing the same image attach to ONE child run: the hub's dedup
+ *     replaces the D1 image-row state machine as the cross-article
+ *     coordination point.
  *   - translate becomes a `phase`: one segment wrapping the size-gated
  *     sync/batch dance, with `poll` subsuming the sleep/check/budget loop.
- *   - localize becomes a per-image map (each unit bakes every enabled
- *     language for its image).
+ *     Translation stays article-scoped — whole-document in-context
+ *     translation of image text is the point.
+ *   - localize becomes a mapJoin over (image, language) pairs on the
+ *     ImageLocalizeFlow child, started after translate (the generation needs
+ *     the spans that phase wrote) and shared the same way.
  *
- * Per-image failures keep the degrade-don't-block policy: the per-unit step
- * workers mark the image's D1 rows failed and RETURN (never throw), so a bad
- * image degrades the article without failing the run — and the unchanged D1
- * writes are exactly why computeSnapshot and the web SSE don't care which
- * engine ran the steps.
+ * Per-image failures keep the degrade-don't-block policy, now as explicit
+ * code instead of implicit D1 row states: mapJoin is always SETTLED — a
+ * failed child becomes a failed outcome in the collected results, counted
+ * into the tail's totals, and the run carries on. The children's step workers
+ * still mark the image's D1 rows failed rather than throw, which is why
+ * computeSnapshot and the web SSE don't care which flow ran the work.
  *
  * Platform-free on purpose (no cloudflare:workers import): flow shells live in
  * *-workflow.ts files, and these helpers run under runFlowInline in
@@ -29,21 +34,26 @@
  */
 
 import { createDb, ensureImageRows, getImagesByKeys } from '@hiroba/db';
-import type { Flow, PhaseStep } from '@hiroba/flow';
-import type { articleImagework, articleOutput } from '@hiroba/flows';
+import { joinRequest, type Flow, type PhaseStep } from '@hiroba/flow';
+import {
+  ImageIngestFlow,
+  ImageLocalizeFlow,
+  type articleImagework,
+  type articleOutput,
+} from '@hiroba/flows';
 import {
   collectImages,
   collectImageUrls,
   imageKey,
   type Block,
 } from '@hiroba/richtext';
+import { hasJapanese } from '@hiroba/shared';
 
 import { getArticle, getArticleBlocks } from './article';
 import { createGemini } from './gemini';
 import { purgeArticle, type PurgeEnv } from './purge';
-import { localizeOneImage, type LocalizeResult } from './steps/localize-images';
-import { mirrorOneImage, type MirrorResult } from './steps/mirror-images';
-import { transcribeOneImage } from './steps/transcribe-images';
+import type { LocalizeResult } from './steps/localize-images';
+import type { MirrorResult } from './steps/mirror-images';
 import {
   bodyMarkupSize,
   translateArticle,
@@ -59,20 +69,26 @@ import {
   retrieveBodyBatch,
   submitBodyBatch,
 } from './steps/translate-batch';
-import type { Env, ItemType, TranscribeResult, TranslateResult } from './types';
-
-/** The slice of the worker env the shared pipeline touches. */
-export type ArticlePipelineEnv = Pick<
+import type {
   Env,
-  'DB' | 'IMAGES_BUCKET' | 'IMAGES' | 'OPENAI_API_KEY' | 'GEMINI_API_KEY'
-> &
-  PurgeEnv;
+  ImageIngestWorkflowOutput,
+  ImageLocalizeWorkflowOutput,
+  ItemType,
+  TranscribeResult,
+  TranslateResult,
+} from './types';
 
-/** Image-ingest units in flight (each is one CDN→R2 copy + one Gemini vision
- *  call) — the LLM half is the binding constraint, so the old transcribe cap. */
+/** The slice of the worker env the shared pipeline touches. The image work
+ *  runs in the joined children now, so the R2/Images/OpenAI bindings left
+ *  with it — what remains is D1, the translate phase's LLM, and the purge. */
+export type ArticlePipelineEnv = Pick<Env, 'DB' | 'GEMINI_API_KEY'> & PurgeEnv;
+
+/** Ingest joins in flight — bounds how fast this parent CREATES child runs
+ *  (each child is one CDN→R2 copy + one Gemini vision call; the LLM half is
+ *  the binding constraint, so the old transcribe cap). */
 const IMAGE_INGEST_CONCURRENCY = 6;
-/** Localize units in flight. Each unit works through EVERY enabled language
- *  for its image sequentially, so this bounds concurrent gpt-image-2 calls. */
+/** Localize joins in flight. Units are (image, language) pairs now, each one
+ *  gpt-image-2 generation, so this bounds concurrent generations directly. */
 const LOCALIZE_CONCURRENCY = 4;
 
 /** What the pipeline tail produced — the output shape shared by every flow
@@ -199,14 +215,16 @@ export async function translateSizeGated(
 }
 
 /**
- * The shared pipeline tail: per-image ingest (mirror + transcribe), the
- * size-gated translate phase, per-image localization, and the edge purge.
- * Typed against the imagework + output FRAGMENTS, so any flow whose shape
- * contains them can pass its tracker (structural typing).
+ * The shared pipeline tail: per-image ingest joins (mirror + transcribe in
+ * the shared ImageIngestFlow child), the size-gated translate phase,
+ * per-(image, language) localize joins on ImageLocalizeFlow, and the edge
+ * purge. Typed against the imagework + output FRAGMENTS, so any flow whose
+ * shape contains them can pass its tracker (structural typing).
  *
  * Localize runs even when translation reported failure (matching the old
  * workflow): candidates without translated text get their url rows marked
- * failed, settling the snapshot instead of leaving it waiting forever.
+ * failed by the child, settling the snapshot instead of leaving it waiting
+ * forever.
  */
 export async function imageAndOutputPipeline(
   f: Flow<typeof articleImagework & typeof articleOutput>,
@@ -218,13 +236,14 @@ export async function imageAndOutputPipeline(
 ): Promise<ArticlePipelineTail> {
   const db = createDb(env.DB);
 
-  // One durable unit per referenced image: mirror into R2, then transcribe
-  // the baked-in text (reading bytes back from the mirror — one CDN fetch per
-  // image ever). The memoized list step is the replay-safe unit set, and it
+  // One unit per referenced image, each a JOIN on the shared per-image ingest
+  // child — settled semantics, so a failed image degrades the article, never
+  // blocks it. The memoized list step is the replay-safe unit set, and it
   // doubles as the pipeline's image-discovery point: every key gets its
   // `images` row here, which is what feeds the "Downloading images (x/y)"
-  // progress in the SSE snapshot.
-  const ingested = await f.map(
+  // progress in the SSE snapshot (the child re-ensures its own row, but only
+  // the full set here gives the denominator up front).
+  const ingested = await f.mapJoin<ImageIngestItem, ImageIngestWorkflowOutput>(
     'images',
     async () => {
       const items = imageIngestItems(
@@ -236,20 +255,11 @@ export async function imageAndOutputPipeline(
       );
       return items;
     },
-    async (item) => {
-      const mirror = await mirrorOneImage(db, env.IMAGES_BUCKET, item.key);
-      // Transcribe even when the mirror failed — the loader falls back to a
-      // direct CDN fetch, same as the old step.
-      const transcribed = item.transcribe
-        ? await transcribeOneImage(
-            db,
-            item.key,
-            env.GEMINI_API_KEY,
-            env.IMAGES_BUCKET,
-          )
-        : false;
-      return { mirror, transcribed };
-    },
+    (item) =>
+      joinRequest(ImageIngestFlow, {
+        imageKey: item.key,
+        transcribe: item.transcribe,
+      }),
     { concurrency: IMAGE_INGEST_CONCURRENCY, id: (item) => item.key },
   );
 
@@ -257,9 +267,15 @@ export async function imageAndOutputPipeline(
     translateSizeGated(s, env, itemType, itemId, eventIds, languages),
   );
 
-  // One durable unit per transcription-candidate image; each unit bakes the
-  // translations into the image for every enabled language.
-  const localized = await f.map(
+  // One unit per (transcribed-Japanese image, enabled language) pair, each a
+  // JOIN on the shared per-(image, language) generation child. Filtered to
+  // images whose ingest actually found Japanese — a textless image has
+  // nothing to generate, and its child runs would be pure overhead across
+  // every language.
+  const localized = await f.mapJoin<
+    { key: string; lang: string },
+    ImageLocalizeWorkflowOutput
+  >(
     'localizeImages',
     async () => {
       const keys = [
@@ -269,18 +285,19 @@ export async function imageAndOutputPipeline(
             .filter((k): k is string => !!k),
         ),
       ];
-      return keys.length > 0 ? await getImagesByKeys(db, keys) : [];
+      const rows = keys.length > 0 ? await getImagesByKeys(db, keys) : [];
+      return rows
+        .filter((row) => !!row.textsJa && hasJapanese(row.textsJa))
+        .flatMap((row) =>
+          languages.map((lang) => ({ key: row.key, lang: lang.code })),
+        );
     },
-    (row) =>
-      localizeOneImage(
-        db,
-        env.IMAGES_BUCKET,
-        env.IMAGES,
-        env.OPENAI_API_KEY,
-        row,
-        languages,
-      ),
-    { concurrency: LOCALIZE_CONCURRENCY, id: (row) => row.key },
+    (pair) =>
+      joinRequest(ImageLocalizeFlow, { imageKey: pair.key, lang: pair.lang }),
+    {
+      concurrency: LOCALIZE_CONCURRENCY,
+      id: (pair) => `${pair.key}:${pair.lang}`,
+    },
   );
 
   // The article just (re)settled — bust the edge copies of its detail pages
@@ -293,17 +310,26 @@ export async function imageAndOutputPipeline(
     }),
   );
 
+  // A failed JOIN (child run failed/unknown — its step workers never throw
+  // for domain failures, so this means real trouble) counts into the same
+  // `failed` buckets a failed image always filled: degrade, don't block.
   const mirror: MirrorResult = { mirrored: 0, skipped: 0, failed: 0 };
   let imagesTranscribed = 0;
-  for (const unit of ingested) {
-    mirror[unit.mirror]++;
-    if (unit.transcribed) imagesTranscribed++;
+  for (const outcome of ingested) {
+    if (outcome.status === 'complete' && outcome.output) {
+      mirror[outcome.output.mirror]++;
+      if (outcome.output.transcribed) imagesTranscribed++;
+    } else {
+      mirror.failed++;
+    }
   }
   const localize: LocalizeResult = { localized: 0, skipped: 0, failed: 0 };
-  for (const unit of localized) {
-    localize.localized += unit.localized;
-    localize.skipped += unit.skipped;
-    localize.failed += unit.failed;
+  for (const outcome of localized) {
+    if (outcome.status === 'complete' && outcome.output) {
+      localize[outcome.output.outcome]++;
+    } else {
+      localize.failed++;
+    }
   }
 
   return { mirror, transcribe: { imagesTranscribed }, translate, localize };

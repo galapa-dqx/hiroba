@@ -151,6 +151,26 @@ name = "playguide-workflow"
 binding = "PLAYGUIDE_WORKFLOW"
 class_name = "PlayguideWorkflow"
 
+# ImageIngestFlow (DQX-27): shared per-image ingest (mirror → transcribe) as a
+# child flow, keyed by the image key. Created only by the FlowHub, and only
+# from parent flows' mapJoins (article, playguide) — two articles referencing
+# the same image attach to ONE child run; the hub's keyed dedup replaces the
+# D1 image-row state machine as the cross-article coordination point.
+[[workflows]]
+name = "image-ingest-workflow"
+binding = "IMAGE_INGEST_WORKFLOW"
+class_name = "ImageIngestWorkflow"
+
+# ImageLocalizeFlow (DQX-27): localized raster generation for one image into
+# one language, keyed `${imageKey}:${lang}`. Created only by the FlowHub, from
+# parent flows' mapJoins after their translate phase (the generation reads the
+# translated spans that phase wrote) — articles sharing the image attach to
+# one generation per language.
+[[workflows]]
+name = "image-localize-workflow"
+binding = "IMAGE_LOCALIZE_WORKFLOW"
+class_name = "ImageLocalizeWorkflow"
+
 # Scheduled triggers. The nightly work is staggered into separate invocations
 # so each job gets its own subrequest/CPU budget and can't starve the next
 # (the playguide crawl alone fetches ~130 pages):
