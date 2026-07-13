@@ -26,8 +26,32 @@ import {
   type EngineStep,
   type Flow,
   type FlowLogger,
+  type JoinOutcome,
   type JoinPort,
 } from './tracker';
+
+/**
+ * A stub JoinPort for inline tests: `resolve` answers each joined child with
+ * its outcome. Faithful to createHubJoinPort where it matters — the outcome
+ * is memoized in the `<prefix>start` engine step, so a replay over memo does
+ * NOT re-invoke `resolve` (the production port pins the same child run
+ * forever the same way), and the trace carries the production step names.
+ * `resolve` may throw to simulate a PORT failure (which fails the parent
+ * step); a failed CHILD is an outcome, not a throw.
+ */
+export function inlineJoinPort(
+  resolve: (
+    def: AnyFlowDef,
+    params: unknown,
+  ) => JoinOutcome | Promise<JoinOutcome>,
+): JoinPort {
+  return {
+    join: (def, params, { engine, namePrefix }) =>
+      engine.do(`${namePrefix}start`, () =>
+        Promise.resolve(resolve(def, params)),
+      ),
+  };
+}
 
 export type InlineTraceEntry = {
   type: 'do' | 'sleep' | 'waitForEvent';
@@ -72,6 +96,37 @@ export type InlineResult<D extends AnyFlowDef, T> = {
 
 let inlineRunCounter = 0;
 
+/** structuredClone happily copies cycles, but the real engine refuses to
+ *  persist them ("objects with circular references cannot be serialized") —
+ *  without this walk a cyclic step return passes every inline test and fails
+ *  only in production. Path-set (not visited-set) so shared DAG references
+ *  stay legal, exactly like the engine. */
+function assertNoCycles(value: unknown, stepName: string): void {
+  const path = new Set<object>();
+  const walk = (v: unknown): void => {
+    if (v === null || typeof v !== 'object') return;
+    if (path.has(v)) {
+      throw new Error(
+        `runFlowInline: step "${stepName}" returned an object with a ` +
+          `circular reference — the real engine cannot persist it`,
+      );
+    }
+    path.add(v);
+    if (v instanceof Map) {
+      for (const [mk, mv] of v) {
+        walk(mk);
+        walk(mv);
+      }
+    } else if (v instanceof Set) {
+      for (const sv of v) walk(sv);
+    } else {
+      for (const pv of Object.values(v)) walk(pv);
+    }
+    path.delete(v);
+  };
+  walk(value);
+}
+
 export async function runFlowInline<D extends AnyFlowDef, T>(
   def: D,
   body: (f: Flow<D['steps']>, params: ParamsOf<D>) => Promise<T>,
@@ -113,7 +168,9 @@ export async function runFlowInline<D extends AnyFlowDef, T>(
       }
       // The clone round-trip is the serialization check: a class instance or
       // function smuggled through a step return fails here like it would fail
-      // the real engine's persistence.
+      // the real engine's persistence. Cycles are checked separately —
+      // structuredClone accepts them, the engine does not.
+      assertNoCycles(value, name);
       memo.set(name, structuredClone(value));
       return value;
     },
@@ -132,7 +189,14 @@ export async function runFlowInline<D extends AnyFlowDef, T>(
           ),
         );
       }
-      return Promise.resolve(structuredClone(payload));
+      // The real engine resolves a WorkflowStepEvent wrapper, never the bare
+      // payload — match it, or inline-green flow bodies read the wrong
+      // object in production. Epoch timestamp: deterministic, obviously fake.
+      return Promise.resolve({
+        type: options.type,
+        payload: structuredClone(payload),
+        timestamp: new Date(0),
+      });
     },
   };
 

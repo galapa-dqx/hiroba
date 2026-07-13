@@ -2,21 +2,28 @@
  * ArticleFlow body on the fast inline tier: what the port added on top of the
  * playguide-proven fragments — the two event steps between intake and the
  * shared tail, the extracted event ids feeding both tagging and the translate
- * phase, the image units no-oping for image-free news, and the fetch-failure
+ * phase, the image JOINS no-oping for image-free news, and the fetch-failure
  * path storing skips for events + tail alike. The real engine + hub (and the
  * `${itemType}:${itemId}` key attach semantics) are covered in
- * test/article-flow.test.ts.
+ * test/article-flow.test.ts; the shared-child attach semantics in
+ * test/image-flows.test.ts.
  *
- * Collaborators are module-mocked at the per-unit worker seam (mirrorOneImage
- * etc.) so the orchestration — unit sets, ids, step names — is what's under
- * test; block-tree image discovery runs the REAL richtext walk over synthetic
- * blocks.
+ * The join seam is stubbed with inlineJoinPort — the child defs' names and
+ * params are what's under test here, not the child bodies (those have their
+ * own suites); block-tree image discovery runs the REAL richtext walk over
+ * synthetic blocks.
  */
 
+import { Temporal } from 'temporal-polyfill';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getEnabledLanguages, getImagesByKeys } from '@hiroba/db';
-import { runFlowInline } from '@hiroba/flow';
+import {
+  inlineJoinPort,
+  runFlowInline,
+  type AnyFlowDef,
+  type JoinOutcome,
+} from '@hiroba/flow';
 import { ArticleFlow } from '@hiroba/flows';
 import type { Block } from '@hiroba/richtext';
 
@@ -25,10 +32,7 @@ import { runArticleFlow, type ArticleFlowEnv } from './article-flow';
 import { purgeArticle } from './purge';
 import { extractAndSaveEvents } from './steps/extract-events';
 import { fetchAndSaveArticleBody } from './steps/fetch-body';
-import { localizeOneImage } from './steps/localize-images';
-import { mirrorOneImage } from './steps/mirror-images';
 import { tagArticleEvents } from './steps/tag-events';
-import { transcribeOneImage } from './steps/transcribe-images';
 import {
   bodyMarkupSize,
   translateArticle,
@@ -72,18 +76,6 @@ vi.mock('./steps/fetch-body', () => ({
   fetchAndSaveArticleBody: vi.fn(),
 }));
 
-vi.mock('./steps/mirror-images', () => ({
-  mirrorOneImage: vi.fn(),
-}));
-
-vi.mock('./steps/transcribe-images', () => ({
-  transcribeOneImage: vi.fn(),
-}));
-
-vi.mock('./steps/localize-images', () => ({
-  localizeOneImage: vi.fn(),
-}));
-
 vi.mock('./steps/translate', () => ({
   bodyMarkupSize: vi.fn(),
   translateArticle: vi.fn(),
@@ -100,18 +92,15 @@ vi.mock('./steps/translate-batch', async (importOriginal) => ({
 
 const env = {
   DB: {},
-  IMAGES_BUCKET: {},
-  IMAGES: {},
-  OPENAI_API_KEY: 'openai-key',
   GEMINI_API_KEY: 'gemini-key',
 } as unknown as ArticleFlowEnv;
 
 const TOPIC_ID = 'a'.repeat(32);
 const EVENT_IDS = ['ev1', 'ev2'];
 
-// One block image (mirror + transcribe + localize candidate) with a real
-// /dq_resource path so the REAL imageKey canonicalization applies — the topic
-// shape. News bodies are text-only (below).
+// One block image (ingest + localize candidate) with a real /dq_resource path
+// so the REAL imageKey canonicalization applies — the topic shape. News
+// bodies are text-only (below).
 const IMG_KEY = 'cache.hiroba.dqx.jp/dq_resource/img/hero.png';
 const TOPIC_BLOCKS = [
   { type: 'paragraph', children: ['開催期間'] },
@@ -127,6 +116,40 @@ const LANGUAGES = [
   { code: 'en', label: 'English' },
   { code: 'ko', label: 'Korean' },
 ];
+
+/** The default child answer: an ingest mirrors (and transcribes when asked);
+ *  a localize generation succeeds. */
+function happyChild(def: AnyFlowDef, params: unknown): JoinOutcome {
+  if (def.name === 'image-ingest') {
+    const p = params as { imageKey: string; transcribe: boolean };
+    return {
+      status: 'complete',
+      output: {
+        imageKey: p.imageKey,
+        mirror: 'mirrored',
+        transcribed: p.transcribe,
+      },
+    };
+  }
+  const p = params as { imageKey: string; lang: string };
+  return {
+    status: 'complete',
+    output: { imageKey: p.imageKey, lang: p.lang, outcome: 'localized' },
+  };
+}
+
+/** A recording stub port: every joined child's def name + key + params land
+ *  in `children`, in join order. */
+function makeJoins(
+  resolve: (def: AnyFlowDef, params: unknown) => JoinOutcome = happyChild,
+) {
+  const children: Array<{ flow: string; key: string; params: unknown }> = [];
+  const spy = vi.fn((def: AnyFlowDef, params: unknown) => {
+    children.push({ flow: def.name, key: def.key(params), params });
+    return resolve(def, params);
+  });
+  return { joins: inlineJoinPort(spy), children, spy };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -152,14 +175,7 @@ beforeEach(() => {
     titleJa: '記事',
     blocksJa: TOPIC_BLOCKS,
   } as never);
-  vi.mocked(mirrorOneImage).mockResolvedValue('mirrored');
-  vi.mocked(transcribeOneImage).mockResolvedValue(true);
   vi.mocked(getImagesByKeys).mockResolvedValue([IMG_ROW] as never);
-  vi.mocked(localizeOneImage).mockResolvedValue({
-    localized: 2,
-    skipped: 0,
-    failed: 0,
-  });
   vi.mocked(bodyMarkupSize).mockReturnValue(100); // sync-sized by default
   vi.mocked(translateArticle).mockResolvedValue({
     success: true,
@@ -170,11 +186,13 @@ beforeEach(() => {
 });
 
 describe('article flow — news + topics on the shared fragments', () => {
-  it('runs intake → events → per-image units → sync translate → localize → purge', async () => {
+  it('runs intake → events → ingest joins → sync translate → localize joins → purge', async () => {
+    const { joins, children } = makeJoins();
     const result = await runFlowInline(
       ArticleFlow,
       (f, params) => runArticleFlow(f, params, env),
       { itemType: 'topic', itemId: TOPIC_ID },
+      { joins },
     );
 
     expect(result.error).toBeUndefined();
@@ -221,25 +239,71 @@ describe('article flow — news + topics on the shared fragments', () => {
       LANGUAGES.map((l) => ({ ...l, nativeLabel: l.label })),
     );
 
+    // The image work went through the shared children: one ingest join per
+    // referenced image, one localize join per (image, language) pair.
+    expect(children).toEqual([
+      {
+        flow: 'image-ingest',
+        key: IMG_KEY,
+        params: { imageKey: IMG_KEY, transcribe: true },
+      },
+      {
+        flow: 'image-localize',
+        key: `${IMG_KEY}:en`,
+        params: { imageKey: IMG_KEY, lang: 'en' },
+      },
+      {
+        flow: 'image-localize',
+        key: `${IMG_KEY}:ko`,
+        params: { imageKey: IMG_KEY, lang: 'ko' },
+      },
+    ]);
     const doNames = result.trace
       .filter((t) => t.type === 'do')
       .map((t) => t.name);
-    expect(doNames).toContain(`images/${IMG_KEY}`);
-    expect(doNames).toContain(`localizeImages/${IMG_KEY}`);
+    expect(doNames).toContain(`images/${IMG_KEY}/start`);
+    expect(doNames).toContain(`localizeImages/${IMG_KEY}:en/start`);
+    expect(doNames).toContain(`localizeImages/${IMG_KEY}:ko/start`);
   });
 
-  it('no-ops the image units for an image-free news body', async () => {
+  it('memoizes only plain pairs as localize units, never the image rows', async () => {
+    // A real `images` row carries a Temporal.Instant updatedAt, which the
+    // engine cannot persist — the memoized unit set must be projected down
+    // to plain data before it hits step storage. Since DQX-27 the units are
+    // (key, lang) pairs and the child re-reads its row from D1; pin that no
+    // row field leaks back into the list step's return.
+    vi.mocked(getImagesByKeys).mockResolvedValue([
+      { ...IMG_ROW, updatedAt: Temporal.Now.instant() },
+    ] as never);
+
+    const result = await runFlowInline(
+      ArticleFlow,
+      (f, params) => runArticleFlow(f, params, env),
+      { itemType: 'topic', itemId: TOPIC_ID },
+      { joins: makeJoins().joins },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.memo.get('localizeImages/list')).toEqual([
+      { key: IMG_KEY, lang: 'en' },
+      { key: IMG_KEY, lang: 'ko' },
+    ]);
+  });
+
+  it('no-ops the image joins for an image-free news body', async () => {
     vi.mocked(getArticleBlocks).mockResolvedValue(NEWS_BLOCKS);
     vi.mocked(getArticle).mockResolvedValue({
       titleJa: 'ニュース',
       blocksJa: NEWS_BLOCKS,
     } as never);
     vi.mocked(getImagesByKeys).mockResolvedValue([] as never);
+    const { joins, spy } = makeJoins();
 
     const result = await runFlowInline(
       ArticleFlow,
       (f, params) => runArticleFlow(f, params, env),
       { itemType: 'news', itemId: 'b'.repeat(32) },
+      { joins },
     );
 
     expect(result.error).toBeUndefined();
@@ -250,8 +314,8 @@ describe('article flow — news + topics on the shared fragments', () => {
       transcribe: { imagesTranscribed: 0 },
       localize: { localized: 0, skipped: 0, failed: 0 },
     });
-    expect(vi.mocked(mirrorOneImage)).not.toHaveBeenCalled();
-    expect(vi.mocked(localizeOneImage)).not.toHaveBeenCalled();
+    // No children were ever joined — an image-free article costs zero runs.
+    expect(spy).not.toHaveBeenCalled();
     // The unit steps still settle — empty sets, not eternal pendings.
     expect(result.snapshot.steps.images.state).toBe('complete');
     expect(result.snapshot.steps.localizeImages.state).toBe('complete');
@@ -272,6 +336,7 @@ describe('article flow — news + topics on the shared fragments', () => {
       ArticleFlow,
       (f, params) => runArticleFlow(f, params, env),
       { itemType: 'topic', itemId: TOPIC_ID },
+      { joins: makeJoins().joins },
     );
 
     expect(result.error).toBeUndefined();
@@ -294,11 +359,13 @@ describe('article flow — news + topics on the shared fragments', () => {
       success: false,
       blockCount: 0,
     });
+    const { joins, spy } = makeJoins();
 
     const result = await runFlowInline(
       ArticleFlow,
       (f, params) => runArticleFlow(f, params, env),
       { itemType: 'news', itemId: 'b'.repeat(32) },
+      { joins },
     );
 
     expect(result.error).toBeUndefined();
@@ -316,31 +383,35 @@ describe('article flow — news + topics on the shared fragments', () => {
     expect(vi.mocked(extractAndSaveEvents)).not.toHaveBeenCalled();
     expect(vi.mocked(translateArticle)).not.toHaveBeenCalled();
     expect(vi.mocked(purgeArticle)).not.toHaveBeenCalled();
+    expect(spy).not.toHaveBeenCalled();
   });
 
-  it('replays from memo without re-running any step', async () => {
+  it('replays from memo without re-running any step or re-joining any child', async () => {
     const first = await runFlowInline(
       ArticleFlow,
       (f, params) => runArticleFlow(f, params, env),
       { itemType: 'topic', itemId: TOPIC_ID },
+      { joins: makeJoins().joins },
     );
     expect(first.error).toBeUndefined();
     vi.clearAllMocks();
 
+    const { joins, spy } = makeJoins();
     const replay = await runFlowInline(
       ArticleFlow,
       (f, params) => runArticleFlow(f, params, env),
       { itemType: 'topic', itemId: TOPIC_ID },
-      { memo: first.memo },
+      { memo: first.memo, joins },
     );
 
     expect(replay.error).toBeUndefined();
     expect(replay.output).toEqual(first.output);
     expect(vi.mocked(extractAndSaveEvents)).not.toHaveBeenCalled();
     expect(vi.mocked(tagArticleEvents)).not.toHaveBeenCalled();
-    expect(vi.mocked(mirrorOneImage)).not.toHaveBeenCalled();
     expect(vi.mocked(translateArticle)).not.toHaveBeenCalled();
-    expect(vi.mocked(localizeOneImage)).not.toHaveBeenCalled();
     expect(vi.mocked(purgeArticle)).not.toHaveBeenCalled();
+    // The join `start` steps answered from memo too — production's memoized
+    // startAndWatch pinning the same child run across replays.
+    expect(spy).not.toHaveBeenCalled();
   });
 });

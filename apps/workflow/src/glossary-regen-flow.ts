@@ -16,11 +16,15 @@
  *                        the term, per item type. Driven through the `open`
  *                        handle: page N+1 needs page N's cursor, so map/drain
  *                        (where the pool owns the counter) don't apply.
- * 2. retriggerArticles — re-run each match's flow via the hub, which dedupes
- *                        on the flow key (an already running/queued run is
- *                        attached to) — idempotent, safe to re-fire.
- *                        (Phase 5 — see DQX-21 — turns these into `join`s on
- *                        the article flow; until then fire-and-forget stands.)
+ * 2. retriggerArticles — re-run each match's flow as a JOINED child (DQX-27):
+ *                        each unit starts-or-attaches via the hub (dedup on
+ *                        the flow key, so an already running/queued run is
+ *                        attached to) and AWAITS its terminal state. The
+ *                        segment's units are the child runs themselves — real
+ *                        aggregate progress — and this run completing means
+ *                        the regeneration actually finished, not merely got
+ *                        enqueued. Settled semantics: a failed article is
+ *                        counted (`retriggerFailed`), never blocks the rest.
  * 3. languages         — load the enabled-language whitelist once, so every
  *                        image page translates into the same set even if the
  *                        admin edits it mid-run.
@@ -45,8 +49,7 @@ import {
   findImagesContainingSourcePage,
   getEnabledLanguages,
 } from '@hiroba/db';
-import type { Flow } from '@hiroba/flow';
-import { getFlowHub } from '@hiroba/flow/hub';
+import { joinRequest, type Flow, type JoinRequest } from '@hiroba/flow';
 import {
   ArticleFlow,
   PlayguideFlow,
@@ -73,16 +76,15 @@ export const GLOSSARY_REGENERATE_BATCH_SIZE = 100;
  */
 export const GLOSSARY_REGENERATE_IMAGE_BATCH_SIZE = 25;
 
-/** Concurrent trigger units in flight — overlap the round-trips, don't burst. */
+/** Concurrent article JOINS in flight — bounds in-flight child runs (the real
+ *  constraint is LLM rate limits, same as the old paged triggers). */
 const TRIGGER_CONCURRENCY = 10;
 
 const ITEM_TYPES: readonly ItemType[] = ['news', 'topic', 'playguide'];
 
-/** The slice of the worker env the body actually touches. */
-export type GlossaryRegenFlowEnv = Pick<
-  Env,
-  'DB' | 'GEMINI_API_KEY' | 'FLOW_HUB'
->;
+/** The slice of the worker env the body actually touches (joins go through
+ *  the tracker's JoinPort, so the hub binding is no longer read here). */
+export type GlossaryRegenFlowEnv = Pick<Env, 'DB' | 'GEMINI_API_KEY'>;
 
 export async function runGlossaryRegenFlow(
   f: Flow<(typeof GlossaryRegenFlow)['steps']>,
@@ -127,18 +129,23 @@ export async function runGlossaryRegenFlow(
   }
   await scan.done();
 
-  // 2. Re-trigger every affected article's flow via the hub, which dedupes on
-  // the flow key — a retried unit just re-triggers an already-running
-  // article, which attaches instead of doubling.
-  await f.map(
+  // 2. Re-run every affected article as a joined child (playguide = slug key,
+  // article = `${itemType}:${itemId}` key): each unit starts-or-attaches via
+  // the hub and awaits the child's terminal state, so the segment counts
+  // FINISHED regenerations and this run completing means the work is done.
+  // Settled semantics — one failed article is counted, never blocks the rest.
+  const retriggered = await f.mapJoin(
     'retriggerArticles',
     async () => affected,
-    (a) => triggerArticle(env, a.itemType, a.itemId),
+    (a) => childRequest(a.itemType, a.itemId),
     {
       concurrency: TRIGGER_CONCURRENCY,
       id: (a) => `${a.itemType}:${a.itemId}`,
     },
   );
+  const retriggerFailed = retriggered.filter(
+    (outcome) => outcome.status === 'failed',
+  ).length;
 
   // 3+4. Refresh the stored `text` translation of every image whose baked-in
   // Japanese contains the term, one keyset page at a time. Scan and translate
@@ -172,33 +179,18 @@ export async function runGlossaryRegenFlow(
   }
   await images.done();
 
-  return { sourceText, triggered: affected.length, imagesRetranslated };
+  return {
+    sourceText,
+    triggered: affected.length,
+    retriggerFailed,
+    imagesRetranslated,
+  };
 }
 
-/**
- * Re-run one article's flow via the hub, which dedupes on the flow key
- * (playguide = slug, article = `${itemType}:${itemId}`) so an in-flight run is
- * attached to. `force` keeps the contract explicit — this system-initiated
- * regen must never be throttled. Returns a truthy marker (a unit return must
- * be Serializable, and the introspector drops a nullish mock); a failed start
- * throws so the unit retries rather than being silently counted as done — if
- * retries are exhausted the flow fails, surfacing an incomplete regeneration.
- */
-async function triggerArticle(
-  env: GlossaryRegenFlowEnv,
-  itemType: ItemType,
-  id: string,
-): Promise<{ triggered: true }> {
-  const start =
-    itemType === 'playguide'
-      ? { flow: PlayguideFlow.name, params: { slug: id } }
-      : { flow: ArticleFlow.name, params: { itemId: id, itemType } };
-  try {
-    await getFlowHub(env).start(start.flow, start.params, { force: true });
-  } catch (err) {
-    throw new Error(
-      `trigger ${itemType} ${id} failed: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  return { triggered: true };
+/** The join request for one affected item — the same flow-and-params routing
+ *  every trigger surface uses (playguide = slug, article = typed id). */
+function childRequest(itemType: ItemType, id: string): JoinRequest {
+  return itemType === 'playguide'
+    ? joinRequest(PlayguideFlow, { slug: id })
+    : joinRequest(ArticleFlow, { itemId: id, itemType });
 }

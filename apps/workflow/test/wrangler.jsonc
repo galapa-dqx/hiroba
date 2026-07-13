@@ -47,6 +47,16 @@
       "binding": "PLAYGUIDE_WORKFLOW",
       "class_name": "PlayguideWorkflow",
     },
+    {
+      "name": "image-ingest-workflow",
+      "binding": "IMAGE_INGEST_WORKFLOW",
+      "class_name": "ImageIngestWorkflow",
+    },
+    {
+      "name": "image-localize-workflow",
+      "binding": "IMAGE_LOCALIZE_WORKFLOW",
+      "class_name": "ImageLocalizeWorkflow",
+    },
   ],
   "d1_databases": [
     {

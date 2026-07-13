@@ -4,11 +4,12 @@ main = "src/index.ts"
 compatibility_date = "2025-11-21"
 compatibility_flags = ["nodejs_compat"]
 
-# No public HTTP entry point. This worker is driven only by its cron triggers
-# (the `scheduled` handler) and reached only through the WORKFLOW_MANAGER durable
-# object binding from web/admin — never over HTTP. Disabling the workers.dev route
-# closes the otherwise-unauthenticated fetch router (/trigger, /reconcile,
-# /workflow/*) to the public internet. Bindings and cron are unaffected.
+# No public HTTP entry point. This worker is driven by its cron triggers (the
+# `scheduled` handler) and reached only through service/DO bindings from
+# web/admin — never over public HTTP. Disabling the workers.dev route closes
+# the otherwise-unauthenticated fetch router (/trigger, /reconcile, /sse,
+# /regenerate-image, /flow/*) to the public internet. Bindings and cron are
+# unaffected.
 workers_dev = false
 
 [observability]
@@ -56,13 +57,11 @@ bucket_name = "galapa--images"
 binding = "IMAGES"
 
 # Durable Objects:
-# - WORKFLOW_MANAGER: legacy per-item coordination + SSE (dissolves in DQX-26)
 # - FLOW_HUB: the flow framework's control plane — ONE instance ('hub'), ONE
 #   SQLite database for all runs/steps/units state (docs/flow-framework.md).
 #   Mounted dark in DQX-19; flows register in src/flow-hub.ts as they port.
 [durable_objects]
 bindings = [
-  { name = "WORKFLOW_MANAGER", class_name = "WorkflowManager" },
   { name = "FLOW_HUB", class_name = "FlowHub" }
 ]
 
@@ -70,12 +69,21 @@ bindings = [
 tag = "v1"
 # SQLite-backed DO namespace — required on the Workers free plan, and the
 # recommended default for new Durable Objects regardless of plan.
+# (The legacy per-item coordination DO, deleted in v3.)
 new_sqlite_classes = ["WorkflowManager"]
 
 [[migrations]]
 tag = "v2"
 # Additive — deploys alongside the existing v1 namespace untouched.
 new_sqlite_classes = ["FlowHub"]
+
+[[migrations]]
+tag = "v3"
+# DQX-26: the legacy coordination DO is dissolved — dedup/tracking live in the
+# hub, the SSE/regenerate routes are plain. IRREVERSIBLE: deploying this drops
+# the namespace and all its stored state (which was only soft caches/dedup
+# maps; D1 holds the ground truth).
+deleted_classes = ["WorkflowManager"]
 
 # ArticleFlow (DQX-25): the news+topics pipeline — fetch-body → extract/tag
 # events → per-image mirror+transcribe units → size-gated translate →
@@ -150,6 +158,26 @@ class_name = "GlossaryRegenerateWorkflow"
 name = "playguide-workflow"
 binding = "PLAYGUIDE_WORKFLOW"
 class_name = "PlayguideWorkflow"
+
+# ImageIngestFlow (DQX-27): shared per-image ingest (mirror → transcribe) as a
+# child flow, keyed by the image key. Created only by the FlowHub, and only
+# from parent flows' mapJoins (article, playguide) — two articles referencing
+# the same image attach to ONE child run; the hub's keyed dedup replaces the
+# D1 image-row state machine as the cross-article coordination point.
+[[workflows]]
+name = "image-ingest-workflow"
+binding = "IMAGE_INGEST_WORKFLOW"
+class_name = "ImageIngestWorkflow"
+
+# ImageLocalizeFlow (DQX-27): localized raster generation for one image into
+# one language, keyed `${imageKey}:${lang}`. Created only by the FlowHub, from
+# parent flows' mapJoins after their translate phase (the generation reads the
+# translated spans that phase wrote) — articles sharing the image attach to
+# one generation per language.
+[[workflows]]
+name = "image-localize-workflow"
+binding = "IMAGE_LOCALIZE_WORKFLOW"
+class_name = "ImageLocalizeWorkflow"
 
 # Scheduled triggers. The nightly work is staggered into separate invocations
 # so each job gets its own subrequest/CPU budget and can't starve the next

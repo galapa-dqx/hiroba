@@ -19,13 +19,9 @@
   ],
   "durable_objects": {
     "bindings": [
-      {
-        "name": "WORKFLOW_MANAGER",
-        "class_name": "WorkflowManager",
-        "script_name": "hiroba-workflow",
-      },
       // The flow framework's control plane (DQX-19) — one 'hub' instance
-      // holding every flow run; read by the "Flow runs" panel.
+      // holding every flow run; the trigger routes and per-run SSE streams
+      // talk to it directly.
       {
         "name": "FLOW_HUB",
         "class_name": "FlowHub",
@@ -33,4 +29,13 @@
       },
     ],
   },
+  // The workflow worker's plain routes (DQX-26): the per-item SSE progress
+  // streams, the enriched tracker listing, and single-image regeneration
+  // (the workflow worker holds the OpenAI key + Images binding this app lacks).
+  "services": [
+    {
+      "binding": "WORKFLOW",
+      "service": "hiroba-workflow",
+    },
+  ],
 }

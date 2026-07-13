@@ -2,7 +2,9 @@
 
 type RuntimeEnv = {
   DB: D1Database;
-  WORKFLOW_MANAGER: DurableObjectNamespace;
+  /** Service binding to the workflow worker's plain domain SSE route
+   *  (DQX-26) — the article progress streams proxy through it. */
+  WORKFLOW: Fetcher;
   /** FlowHub DO (flow framework control plane) — single 'hub' instance; the
    *  list-view title-backfill trigger starts flows through it. */
   FLOW_HUB: DurableObjectNamespace;

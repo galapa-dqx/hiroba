@@ -19,7 +19,7 @@ graph TD
             CRON[Cron triggers<br/>hourly scrape / daily glossary]
             NW[NewsWorkflow<br/>3 steps]
             TW[TopicsWorkflow<br/>5 steps]
-            DO[WorkflowManager DO<br/>trigger + SSE progress]
+            HUB[FlowHub DO<br/>run registry + dedup + SSE]
         end
         D1[(D1: galapa--news-db)]
         R2[(R2: galapa--images)]
@@ -36,7 +36,7 @@ graph TD
     DQX -->|scrape| CRON
     GH -->|daily import| CRON
     CRON --> NW & TW
-    DO --> NW & TW
+    HUB --> NW & TW
     NW <--> GPT4O
     TW <--> GEM & IMG
     NW --> D1
@@ -45,11 +45,11 @@ graph TD
     WEB --> D1
     WEB -->|/img proxy| R2
     ADMIN --> D1
-    WEB & ADMIN -.->|trigger / SSE| DO
+    WEB & ADMIN -.->|trigger / SSE| HUB
 ```
 
 Everything runs on Cloudflare: one Worker with two [Workflows](https://developers.cloudflare.com/workflows/),
-a Durable Object coordinator, a shared D1 database, an R2 bucket for images, and two Astro SSR
+a Durable Object control plane (the FlowHub), a shared D1 database, an R2 bucket for images, and two Astro SSR
 apps that query D1 directly (no API gateway layer).
 
 ## Repository layout
@@ -125,9 +125,9 @@ mangling structure while still letting it see full document context.
 - **Cron (daily, midnight JST)** — reimport the community glossary from the
   [dqx-translation-project](https://github.com/dqx-translation-project/dqx-custom-translations) CSV.
 - **On demand** — `POST /trigger` on the worker, or per-item buttons in the admin UI. The
-  `WorkflowManager` Durable Object dedupes concurrent runs per item and streams progress
-  over SSE, which both frontends proxy to the browser (live "translating…" status on
-  article pages).
+  FlowHub Durable Object dedupes concurrent runs per item, and the worker streams pipeline
+  progress over SSE, which both frontends proxy to the browser (live "translating…" status
+  on article pages).
 - **Freshness** — recently published articles get their bodies rechecked on an age-scaled
   interval (1h–168h, from `packages/shared/src/freshness.ts`); the admin recheck queue
   surfaces what's due.
@@ -220,7 +220,7 @@ Entry: `src/index.ts` (fetch handler + cron `scheduled()`). Key modules:
 | ----------------------------------------- | ------------------------------------------------------------------------------------ |
 | `news-workflow.ts` / `topics-workflow.ts` | Workflow classes and step sequencing                                                 |
 | `steps/*.ts`                              | One file per pipeline step (fetch, extract, translate, mirror, transcribe, localize) |
-| `workflow-manager.ts`                     | Durable Object: per-item run dedupe, status polling, SSE fan-out                     |
+| `flow-hub.ts`                             | Durable Object: the flow framework's control plane (run registry, dedup, SSE)       |
 | `gemini.ts`                               | Gemini via its OpenAI-compatible endpoint                                            |
 | `image-edit.ts` / `image-trim.ts`         | gpt-image-2 wrapper + PNG/JPEG/GIF header parsing and padding trim                   |
 | `migrations/`                             | The D1 migrations (10 so far) — applied via root `pnpm db:migrate:*` scripts         |

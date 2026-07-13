@@ -8,9 +8,9 @@
  * row records the new key, and the pages embedding the image are purged so the
  * new URL reaches readers immediately. The row is marked with the manual
  * sentinel model so the nightly localize step won't overwrite it (an explicit
- * "Regenerate" still can). The admin worker owns the R2 bucket, so no DO hop
- * for the write — only the purge is proxied (the credentials live on the
- * workflow side).
+ * "Regenerate" still can). The admin worker owns the R2 bucket, so the write
+ * happens here — only the page purge is proxied over the WORKFLOW service
+ * binding (the purge credentials live on the workflow worker).
  */
 
 import type { APIRoute } from 'astro';
@@ -44,14 +44,8 @@ function json(data: unknown, status = 200): Response {
 }
 
 export const POST: APIRoute = async ({ locals, params, request }) => {
-  const runtime = locals.runtime as {
-    env: {
-      DB: D1Database;
-      IMAGES_BUCKET: R2Bucket;
-      WORKFLOW_MANAGER: DurableObjectNamespace;
-    };
-  };
-  const db = createDb(runtime.env.DB);
+  const { env } = locals.runtime;
+  const db = createDb(env.DB);
 
   const id = Number(params.id);
   const lang = params.lang!;
@@ -83,7 +77,7 @@ export const POST: APIRoute = async ({ locals, params, request }) => {
     image.key,
   );
   const bytes = await file.arrayBuffer();
-  await runtime.env.IMAGES_BUCKET.put(localizedKey, bytes, {
+  await env.IMAGES_BUCKET.put(localizedKey, bytes, {
     httpMetadata: {
       contentType: file.type,
       cacheControl: LOCALIZED_IMAGE_CACHE_CONTROL,
@@ -103,9 +97,7 @@ export const POST: APIRoute = async ({ locals, params, request }) => {
   // path), so proxy there — best-effort: a purge failure must not fail the
   // upload (pages then refresh on their own TTL).
   try {
-    const doId = runtime.env.WORKFLOW_MANAGER.idFromName(`image:${id}`);
-    const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
-    await stub.fetch('http://internal/purge-image-pages', {
+    await env.WORKFLOW.fetch('http://internal/purge-image-pages', {
       method: 'POST',
       body: JSON.stringify({ imageKey: image.key, language: lang }),
       headers: { 'Content-Type': 'application/json' },

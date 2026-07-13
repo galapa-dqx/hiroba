@@ -269,8 +269,8 @@ inline handling now recurses into a nested `Inline[]` instead of flattening to s
 
 ## 4. Bulk import (one-time seed of the ~3,306-topic corpus)
 
-An admin-triggered Cloudflare Workflow with SSE progress (reuse the `WorkflowManager` DO + admin SSE
-pattern):
+An admin-triggered Cloudflare Workflow with SSE progress (reuse the workflow-coordinator DO + admin
+SSE pattern):
 
 1. Read `prescraper/out/blocks_new/*.json` (blocks) + `prescraper/out/topics/*.html` (title via
    `h2.iconTitle`, date from title/`<title>`). Validate each tree against the typia validator (§1);
@@ -325,8 +325,8 @@ block arrays. Never split inside a block, so every chunk is independently well-f
   Register a second workflow binding in `apps/workflow/wrangler.toml`.
 - **Cron**: extend `scheduled()` in `apps/workflow/src/index.ts` to also scrape the latest topics
   (first backnumber page / latest list) hourly; enqueue new ids → trigger `TopicsWorkflow` via the
-  `WorkflowManager` DO.
-- **DO keying caution**: `WorkflowManager` is `idFromName(item.id)`. News and topic ids are both
+  workflow-coordinator DO.
+- **DO keying caution**: the coordinator DO is `idFromName(item.id)`. News and topic ids are both
   32-char hex and _could_ collide — namespace the DO name (`idFromName('topic:'+id)`) and/or thread an
   `itemType` through the trigger payload so news vs topic workflows don't clobber each other.
 
@@ -440,7 +440,7 @@ than the 2005 originals, validated against **`docs/design-reference/inventory.md
 
 **Reuse / mirror:** `packages/scraper/src/{list-scraper,body-scraper}.ts` ·
 `apps/workflow/src/news-workflow.ts` · `apps/workflow/src/steps/{translate,extract-events,fetch-body}.ts` ·
-`apps/workflow/src/workflow-manager.ts` · `apps/web/src/pages/news/[id].astro` ·
+`apps/web/src/pages/news/[id].astro` ·
 `packages/db/src/schema/{translations,events,glossary,news-items}.ts` ·
 `packages/db/src/queries.ts` · `packages/shared/src/constants.ts` · `apps/workflow/wrangler.toml`.
 

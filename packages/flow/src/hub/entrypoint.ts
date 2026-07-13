@@ -131,18 +131,13 @@ export function createHubJoinPort(
 
       for (let i = 0; i < maxWaits; i++) {
         try {
-          const event = await engine.waitForEvent(`${namePrefix}wait-${i}`, {
+          // EngineStep.waitForEvent resolves the WorkflowStepEvent wrapper
+          // (the inline harness matches that shape).
+          const event = (await engine.waitForEvent(`${namePrefix}wait-${i}`, {
             type: `flow:${watch.runId}`,
             timeout: waitTimeout,
-          });
-          // The real engine wraps the payload in a WorkflowStepEvent; the
-          // inline harness hands the payload back directly.
-          const payload = (
-            event && typeof event === 'object' && 'payload' in event
-              ? (event as { payload: unknown }).payload
-              : event
-          ) as JoinEventPayload;
-          return toOutcome(payload);
+          })) as { payload: JoinEventPayload };
+          return toOutcome(event.payload);
         } catch {
           // Timeout (or transient failure): one authoritative status poll,
           // then re-wait. getRun reconciles a silently-dead child to

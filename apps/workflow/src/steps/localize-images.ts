@@ -4,8 +4,9 @@
  *
  * Reads each image's source spans (`images.texts_ja`) and their translation
  * (`translations` item_type='image', field='text'), hands the pairs to
- * gpt-image-2, and stores the result in R2 under `l10n/<lang>/<imageKey>`. A
- * `translations` `url` row records the R2 key + the image model, so we skip
+ * gpt-image-2, and stores the result in R2 under a fresh versioned key
+ * (`l10n/<lang>/v<ts36>/<imageKey>` — see localizedImageKey in @hiroba/shared).
+ * A `translations` `url` row records the R2 key + the image model, so we skip
  * images already localized by the current model and regenerate when it changes.
  *
  * Only images that were translated (i.e. had Japanese) are candidates.
@@ -57,6 +58,8 @@ const FETCH_HEADERS = {
 
 // Every render gets a fresh versioned key (never overwritten in place), so
 // localized rasters are immutable — see the constant's doc in @hiroba/shared.
+// A manual regeneration additionally purges the pages embedding the image
+// (see purgeImagePages in the regenerate-image route).
 const CACHE_CONTROL = LOCALIZED_IMAGE_CACHE_CONTROL;
 
 /** Max concurrent gpt-image-2 edits; kept modest to stay under rate limits. */
@@ -135,12 +138,19 @@ async function loadOriginal(
 /** One image row from the shared `images` table. */
 type ImageRow = Awaited<ReturnType<typeof getImagesByKeys>>[number];
 
+/**
+ * The slice of an image row localization actually reads. Flow map units
+ * round-trip through the engine's step storage, which can't serialize the
+ * full row's Temporal.Instant `updatedAt` — so the pipeline passes only this.
+ */
+export type LocalizableImage = Pick<ImageRow, 'id' | 'key' | 'textsJa'>;
+
 /** One image's fate through `localizeRowForLanguage` — the unit of LocalizeResult. */
-type LocalizeOutcome = 'localized' | 'skipped' | 'failed';
+export type LocalizeOutcome = 'localized' | 'skipped' | 'failed';
 
 /**
  * Localize one image row into one language — the core both entry points share
- * (`localizeImages` prefetches the per-language maps; `localizeOneImage`
+ * (`localizeImages` prefetches the per-language maps; `localizeImageLanguage`
  * fetches per row). Never throws for a bad image — the url row is marked
  * failed and the outcome says so, because one bad image degrades the article,
  * never blocks it.
@@ -150,7 +160,7 @@ async function localizeRowForLanguage(
   bucket: R2Bucket,
   images: ImagesBinding,
   apiKey: string,
-  row: ImageRow,
+  row: LocalizableImage,
   target: TargetLanguage,
   /** The row's `text` translation and prior localized-by model, prefetched. */
   seen: {
@@ -285,49 +295,40 @@ async function localizeRowForLanguage(
 }
 
 /**
- * Localize one image row into every target language (the per-unit worker
- * behind the flow framework's per-image `map` units — the batch entry point
- * below prefetches per-language maps instead). Idempotent per
- * (language, model), like the batch path.
+ * Localize one image row into ONE target language (the ImageLocalizeFlow
+ * child's `generate` body — the batch entry point below prefetches
+ * per-language maps for many rows instead). Idempotent per (language, model),
+ * like the batch path, and never throws for a bad image — the outcome says so.
  */
-export async function localizeOneImage(
+export async function localizeImageLanguage(
   db: Database,
   bucket: R2Bucket,
   images: ImagesBinding,
   apiKey: string,
-  row: ImageRow,
-  targetLanguages: TargetLanguage[],
-): Promise<LocalizeResult> {
-  const result: LocalizeResult = { localized: 0, skipped: 0, failed: 0 };
-  for (const target of targetLanguages) {
-    const translated = await getImageTranslations(
-      db,
-      [row.id],
-      target.code,
-      'text',
-    );
-    const localizedBy = await getLocalizedImageModels(
-      db,
-      [row.id],
-      target.code,
-    );
-    const outcome = await localizeRowForLanguage(
-      db,
-      bucket,
-      images,
-      apiKey,
-      row,
-      target,
-      {
-        translatedJson: translated.get(row.id),
-        localizedModel: localizedBy.get(row.id),
-      },
-      false,
-      IMAGE_MODEL,
-    );
-    result[outcome]++;
-  }
-  return result;
+  row: LocalizableImage,
+  target: TargetLanguage,
+): Promise<LocalizeOutcome> {
+  const translated = await getImageTranslations(
+    db,
+    [row.id],
+    target.code,
+    'text',
+  );
+  const localizedBy = await getLocalizedImageModels(db, [row.id], target.code);
+  return localizeRowForLanguage(
+    db,
+    bucket,
+    images,
+    apiKey,
+    row,
+    target,
+    {
+      translatedJson: translated.get(row.id),
+      localizedModel: localizedBy.get(row.id),
+    },
+    false,
+    IMAGE_MODEL,
+  );
 }
 
 /**

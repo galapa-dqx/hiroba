@@ -1,7 +1,8 @@
 # Workflow Progress Tracking — Design Notes
 
 A TypeScript layer over Cloudflare Workflows that lets the web app track run status
-via SSE, with a `WorkflowManager` Durable Object as the store and fan-out point.
+via SSE, with a coordinator Durable Object (since dissolved, DQX-26) as the store
+and fan-out point.
 
 > Reconstructed from the design conversation. Captures decisions **and their
 > rationale** — the rationale is the part that's expensive to re-derive.

@@ -1,9 +1,9 @@
 /**
  * GlossaryRegenFlow integration — the real engine, the real hub DO, the real
  * FlowEntrypoint shell. Step/unit BODIES are mocked through the pool-workers
- * introspector (they'd hit D1 and the WorkflowManager DOs), so what's under
+ * introspector (they'd hit D1 and remote APIs), so what's under
  * test is what the port changed: keyed dedup at the hub (key = sourceText,
- * replacing the per-term WorkflowManager DO-storage mechanism) and the
+ * replacing the old per-term coordinator-DO-storage mechanism) and the
  * open-handle keyset orchestration driving real engine steps.
  *
  * Unlike BannerFlow's constant key, every test here mints a unique term, so
@@ -18,7 +18,10 @@ import { hub, waitFor } from './helpers';
 const uniqueTerm = (): string => `term-${crypto.randomUUID()}`;
 
 /** Mock every engine step the body reaches: one short article page for news,
- *  empty scans for the other types, one short image page. */
+ *  empty scans for the other types, one short image page. The re-runs are
+ *  JOINS since DQX-27 — mocking each join's memoized `start` step with an
+ *  already-terminal WatchResult settles the unit without touching the hub
+ *  (test/image-flows.test.ts covers the real join transport). */
 async function mockHappyPath(
   introspector: Awaited<ReturnType<typeof introspectWorkflow>>,
 ): Promise<void> {
@@ -27,12 +30,12 @@ async function mockHappyPath(
     await m.mockStepResult({ name: 'scanArticles/topic:0' }, []);
     await m.mockStepResult({ name: 'scanArticles/playguide:0' }, []);
     await m.mockStepResult(
-      { name: 'retriggerArticles/news:na' },
-      { triggered: true },
+      { name: 'retriggerArticles/news:na/start' },
+      { runId: 'child-na', status: 'complete', error: null, output: null },
     );
     await m.mockStepResult(
-      { name: 'retriggerArticles/news:nb' },
-      { triggered: true },
+      { name: 'retriggerArticles/news:nb/start' },
+      { runId: 'child-nb', status: 'complete', error: null, output: null },
     );
     await m.mockStepResult({ name: 'languages' }, [
       { code: 'en', label: 'English', nativeLabel: 'English' },
@@ -83,6 +86,7 @@ describe('GlossaryRegenFlow on the hub', () => {
       expect(run?.output).toEqual({
         sourceText,
         triggered: 2,
+        retriggerFailed: 0,
         imagesRetranslated: 1,
       });
     } finally {

@@ -3,7 +3,7 @@
  *
  * The hub's per-run stream speaks full `Snapshot` frames (seq-ordered, closed
  * server-side after the terminal frame) — a different wire protocol from the
- * WorkflowManager `SSEEvent` streams job-stream.ts consumes. This is the one
+ * domain `SSEEvent` streams job-stream.ts consumes. This is the one
  * place that folds those frames into a progress/done/error lifecycle for
  * fire-and-follow UI (e.g. the scrape backfill button); the FlowRuns panel
  * keeps its own consumer because it merges SSE with polling across many runs.
