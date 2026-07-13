@@ -286,6 +286,9 @@ export async function imageAndOutputPipeline(
         ),
       ];
       const rows = keys.length > 0 ? await getImagesByKeys(db, keys) : [];
+      // Plain-literal pairs, never the rows themselves: the memoized unit set
+      // is engine-serialized, and a full row's Temporal.Instant updatedAt
+      // isn't serializable (the child re-reads its row from D1 instead).
       return rows
         .filter((row) => !!row.textsJa && hasJapanese(row.textsJa))
         .flatMap((row) =>

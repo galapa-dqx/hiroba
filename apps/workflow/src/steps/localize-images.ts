@@ -135,12 +135,19 @@ async function loadOriginal(
 /** One image row from the shared `images` table. */
 type ImageRow = Awaited<ReturnType<typeof getImagesByKeys>>[number];
 
+/**
+ * The slice of an image row localization actually reads. Flow map units
+ * round-trip through the engine's step storage, which can't serialize the
+ * full row's Temporal.Instant `updatedAt` — so the pipeline passes only this.
+ */
+export type LocalizableImage = Pick<ImageRow, 'id' | 'key' | 'textsJa'>;
+
 /** One image's fate through `localizeRowForLanguage` — the unit of LocalizeResult. */
 export type LocalizeOutcome = 'localized' | 'skipped' | 'failed';
 
 /**
  * Localize one image row into one language — the core both entry points share
- * (`localizeImages` prefetches the per-language maps; `localizeOneImage`
+ * (`localizeImages` prefetches the per-language maps; `localizeImageLanguage`
  * fetches per row). Never throws for a bad image — the url row is marked
  * failed and the outcome says so, because one bad image degrades the article,
  * never blocks it.
@@ -150,7 +157,7 @@ async function localizeRowForLanguage(
   bucket: R2Bucket,
   images: ImagesBinding,
   apiKey: string,
-  row: ImageRow,
+  row: LocalizableImage,
   target: TargetLanguage,
   /** The row's `text` translation and prior localized-by model, prefetched. */
   seen: {
@@ -295,7 +302,7 @@ export async function localizeImageLanguage(
   bucket: R2Bucket,
   images: ImagesBinding,
   apiKey: string,
-  row: ImageRow,
+  row: LocalizableImage,
   target: TargetLanguage,
 ): Promise<LocalizeOutcome> {
   const translated = await getImageTranslations(

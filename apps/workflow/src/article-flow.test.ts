@@ -14,6 +14,7 @@
  * synthetic blocks.
  */
 
+import { Temporal } from 'temporal-polyfill';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getEnabledLanguages, getImagesByKeys } from '@hiroba/db';
@@ -263,6 +264,30 @@ describe('article flow — news + topics on the shared fragments', () => {
     expect(doNames).toContain(`images/${IMG_KEY}/start`);
     expect(doNames).toContain(`localizeImages/${IMG_KEY}:en/start`);
     expect(doNames).toContain(`localizeImages/${IMG_KEY}:ko/start`);
+  });
+
+  it('memoizes only plain pairs as localize units, never the image rows', async () => {
+    // A real `images` row carries a Temporal.Instant updatedAt, which the
+    // engine cannot persist — the memoized unit set must be projected down
+    // to plain data before it hits step storage. Since DQX-27 the units are
+    // (key, lang) pairs and the child re-reads its row from D1; pin that no
+    // row field leaks back into the list step's return.
+    vi.mocked(getImagesByKeys).mockResolvedValue([
+      { ...IMG_ROW, updatedAt: Temporal.Now.instant() },
+    ] as never);
+
+    const result = await runFlowInline(
+      ArticleFlow,
+      (f, params) => runArticleFlow(f, params, env),
+      { itemType: 'topic', itemId: TOPIC_ID },
+      { joins: makeJoins().joins },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.memo.get('localizeImages/list')).toEqual([
+      { key: IMG_KEY, lang: 'en' },
+      { key: IMG_KEY, lang: 'ko' },
+    ]);
   });
 
   it('no-ops the image joins for an image-free news body', async () => {
