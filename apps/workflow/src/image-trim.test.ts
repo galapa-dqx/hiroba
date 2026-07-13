@@ -2,10 +2,13 @@ import { encode } from 'fast-png';
 import { describe, expect, it } from 'vitest';
 
 import {
+  alphaContentBox,
   contentBox,
   crop,
   fitAspect,
   imageDimensions,
+  originalGeometry,
+  restoreMargins,
   trimToAspect,
   type Raster,
 } from './image-trim';
@@ -14,6 +17,16 @@ import {
 function whiteRaster(width: number, height: number): Raster {
   const data = new Uint8Array(width * height * 4).fill(255);
   return { data, width, height, channels: 4 };
+}
+
+/** Fully transparent RGBA raster (zeroed). */
+function transparentRaster(width: number, height: number): Raster {
+  return {
+    data: new Uint8Array(width * height * 4),
+    width,
+    height,
+    channels: 4,
+  };
 }
 
 function fillRect(
@@ -149,6 +162,131 @@ describe('crop', () => {
   });
 });
 
+describe('alphaContentBox', () => {
+  it('finds the visible box of an RGBA raster', () => {
+    const r = transparentRaster(10, 6);
+    fillRect(r, 2, 1, 5, 3, [30, 60, 90]);
+    expect(alphaContentBox({ ...r, depth: 8 })).toEqual({
+      x: 2,
+      y: 1,
+      width: 5,
+      height: 3,
+    });
+  });
+
+  it('reads indexed transparency through the tRNS table', () => {
+    // 4×2 indexed raster: index 0 transparent, index 1 opaque
+    const data = Uint8Array.from([0, 1, 1, 0, 0, 1, 0, 0]);
+    expect(
+      alphaContentBox({
+        data,
+        width: 4,
+        height: 2,
+        channels: 1,
+        depth: 8,
+        palette: [
+          [0, 0, 0],
+          [255, 0, 0],
+        ],
+        transparency: Uint16Array.from([0, 255]),
+      }),
+    ).toEqual({ x: 1, y: 0, width: 2, height: 2 });
+  });
+
+  it('returns null when there is no alpha to measure', () => {
+    const rgb: Raster = {
+      data: new Uint8Array(4 * 4 * 3),
+      width: 4,
+      height: 4,
+      channels: 3,
+    };
+    expect(alphaContentBox({ ...rgb, depth: 8 })).toBeNull();
+    expect(
+      alphaContentBox({ ...transparentRaster(4, 4), depth: 8 }),
+    ).toBeNull();
+  });
+});
+
+describe('originalGeometry', () => {
+  it('reports transparent edge margins as a content box', () => {
+    const r = transparentRaster(20, 4);
+    fillRect(r, 0, 1, 8, 2, [10, 20, 30]); // artwork hugs the left edge
+    expect(originalGeometry(pngOf(r))).toEqual({
+      width: 20,
+      height: 4,
+      content: { x: 0, y: 1, width: 8, height: 2 },
+    });
+  });
+
+  it('reports no content box for an opaque image', () => {
+    expect(originalGeometry(pngOf(whiteRaster(8, 4)))).toEqual({
+      width: 8,
+      height: 4,
+      content: null,
+    });
+  });
+});
+
+describe('restoreMargins', () => {
+  it('re-adds the original margins scaled to the content growth', () => {
+    // original: 20×4 canvas, content at (0,1) 8×2 → margins L0 T1 R12 B1.
+    // localized content came back 2× (16×4) → margins L0 T2 R24 B2.
+    const content = { x: 0, y: 1, width: 8, height: 2 };
+    const localized = whiteRaster(16, 4);
+    const padded = restoreMargins(localized, { width: 20, height: 4 }, content);
+    expect([padded.width, padded.height]).toEqual([40, 8]);
+    expect(padded.data[3]).toBe(0); // top-left margin transparent
+    expect(padded.data[(2 * 40 + 0) * 4 + 3]).toBe(255); // content row opaque
+    expect(padded.data[(2 * 40 + 20) * 4 + 3]).toBe(0); // right margin transparent
+  });
+
+  it('scales each axis independently when content growth is uneven', () => {
+    // content 8×2 came back 16×5 (sx 2, sy 2.5 — aspect drift fitAspect kept):
+    // horizontal margins scale by 2, vertical by 2.5.
+    const content = { x: 2, y: 1, width: 8, height: 2 };
+    const localized = whiteRaster(16, 5);
+    const padded = restoreMargins(localized, { width: 20, height: 4 }, content);
+    // L 2×2=4, R 10×2=20 → width 40; T 1×2.5→3, B 1×2.5→3 → height 11
+    expect([padded.width, padded.height]).toEqual([40, 11]);
+  });
+
+  it('promotes gray+alpha input to RGBA', () => {
+    // 2×1 gray+alpha raster: one mid-gray opaque pixel, one semi-transparent
+    const grayAlpha: Raster = {
+      data: Uint8Array.from([100, 255, 200, 128]),
+      width: 2,
+      height: 1,
+      channels: 2,
+    };
+    const padded = restoreMargins(
+      grayAlpha,
+      { width: 4, height: 1 },
+      { x: 1, y: 0, width: 2, height: 1 },
+    );
+    expect([padded.width, padded.height, padded.channels]).toEqual([4, 1, 4]);
+    expect([...padded.data.slice(4, 12)]).toEqual([
+      100, 100, 100, 255, 200, 200, 200, 128,
+    ]);
+  });
+
+  it('promotes RGB input to RGBA with opaque content', () => {
+    const rgb: Raster = {
+      data: new Uint8Array(2 * 2 * 3).fill(9),
+      width: 2,
+      height: 2,
+      channels: 3,
+    };
+    const padded = restoreMargins(
+      rgb,
+      { width: 4, height: 2 },
+      { x: 1, y: 0, width: 2, height: 2 },
+    );
+    expect([padded.width, padded.height, padded.channels]).toEqual([4, 2, 4]);
+    expect(padded.data[3]).toBe(0); // left margin transparent
+    expect([padded.data[4], padded.data[7]]).toEqual([9, 255]); // content, opaque
+  });
+});
+
 describe('imageDimensions', () => {
   it('reads PNG dimensions from the header', () => {
     const png = pngOf(whiteRaster(12, 7));
@@ -173,5 +311,21 @@ describe('trimToAspect', () => {
     fillRect(full, 0, 0, 6, 6, [10, 10, 10]); // content fills the frame
     const png = pngOf(full);
     expect(trimToAspect(png, pngOf(whiteRaster(6, 6)))).toBe(png);
+  });
+
+  it('fits a transparency-padded original by content aspect and restores its margins', () => {
+    // Original like ttl_online.png: 20×4 canvas, artwork only at (0,1) 8×2 —
+    // canvas aspect 5.0, content aspect 4.0. The matte round trip returns just
+    // the artwork (2× scale, transparent padding); fitting that against the
+    // canvas aspect would crop into it.
+    const original = transparentRaster(20, 4);
+    fillRect(original, 0, 1, 8, 2, [10, 20, 30]);
+
+    const recovered = transparentRaster(24, 8);
+    fillRect(recovered, 4, 2, 16, 4, [10, 20, 30]);
+
+    const result = trimToAspect(pngOf(recovered), pngOf(original));
+    // content kept whole (16×4), margins re-inserted at 2×: L0 T2 R24 B2
+    expect(imageDimensions(result)).toEqual({ width: 40, height: 8 });
   });
 });
