@@ -15,6 +15,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import {
   createDb,
@@ -30,9 +31,8 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-export const PUT: APIRoute = async ({ locals, params, request }) => {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  const db = createDb(runtime.env.DB);
+export const PUT: APIRoute = async ({ params, request }) => {
+  const db = createDb(env.DB);
 
   const id = Number(params.id);
   if (!Number.isInteger(id)) return json({ error: 'Invalid id' }, 400);

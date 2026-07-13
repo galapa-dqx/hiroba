@@ -4,14 +4,15 @@
   "type": "module",
   "scripts": {
     "dev": "dotenv -e ../../.env -- astro dev --port 4321",
-    "build": "astro build",
+    "build": "wrangler types && astro build",
     "preview": "astro preview",
-    "deploy": "wrangler pages deploy dist",
+    "deploy": "wrangler deploy",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "types": "wrangler types"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^12.6.13",
+    "@astrojs/cloudflare": "^13.7.0",
     "@hiroba/db": "workspace:*",
     "@hiroba/flow": "workspace:*",
     "@hiroba/flows": "workspace:*",
@@ -20,7 +21,7 @@
     "@hiroba/shared": "workspace:*",
     "@hiroba/ui": "workspace:*",
     "@sentry/cloudflare": "^10.34.0",
-    "astro": "^5.18.2",
+    "astro": "^6.4.8",
     "drizzle-orm": "1.0.0-beta.6-cd45bda",
     "temporal-polyfill": "^0.3.0"
   },

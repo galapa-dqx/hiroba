@@ -5,6 +5,8 @@
  * is gone; run status is the progress signal).
  */
 
+import { env } from 'cloudflare:workers';
+
 import type { ItemType } from '@hiroba/db';
 import type { Snapshot } from '@hiroba/flow';
 // Type-only: the /hub entry's runtime half imports cloudflare:workers, which
@@ -13,8 +15,6 @@ import type { RunInfo } from '@hiroba/flow/hub';
 import { itemFlowKey, itemFlowStart, TitleBackfillFlow } from '@hiroba/flows';
 
 type ArticleType = Extract<ItemType, 'news' | 'topic' | 'playguide'>;
-
-type Runtime = App.Locals['runtime'];
 
 /**
  * Minimum gap between page-driven pipeline re-triggers for one article. A
@@ -34,14 +34,13 @@ const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
  * and throttles page-driven re-triggers of settled runs via the cooldown.
  */
 export function triggerWorkflow(
-  runtime: Runtime,
   itemType: ArticleType,
   id: string,
   options: { force?: boolean } = {},
 ): void {
   try {
     const start = itemFlowStart(itemType, id);
-    const ns = runtime.env.FLOW_HUB;
+    const ns = env.FLOW_HUB;
     const stub = ns.get(ns.idFromName('hub'));
     stub.fetch('http://internal/start', {
       method: 'POST',
@@ -69,13 +68,12 @@ export function triggerWorkflow(
  * alone) rather than failing the render.
  */
 export async function getItemRun(
-  runtime: Runtime,
   itemType: ArticleType,
   id: string,
 ): Promise<{ run: RunInfo | null; snapshot: Snapshot | null }> {
   try {
     const { flow, key } = itemFlowKey(itemType, id);
-    const ns = runtime.env.FLOW_HUB;
+    const ns = env.FLOW_HUB;
     const stub = ns.get(ns.idFromName('hub'));
     const res = await stub.fetch(
       `http://internal/run?flow=${encodeURIComponent(flow)}&key=${encodeURIComponent(key)}`,
@@ -121,9 +119,9 @@ const BACKFILL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
  * never doubled. Mirrors triggerWorkflow: failures are logged, never thrown —
  * the list still renders its JA fallbacks.
  */
-export function triggerTitleBackfill(runtime: Runtime, language: string): void {
+export function triggerTitleBackfill(language: string): void {
   try {
-    const ns = runtime.env.FLOW_HUB;
+    const ns = env.FLOW_HUB;
     const stub = ns.get(ns.idFromName('hub'));
     stub.fetch('http://internal/start', {
       method: 'POST',
@@ -146,12 +144,11 @@ export function triggerTitleBackfill(runtime: Runtime, language: string): void {
  * so a caught-up language never fires it.
  */
 export function maybeTriggerTitleBackfill(
-  runtime: Runtime,
   language: string,
   items: ReadonlyArray<{ titleEn: string | null }>,
 ): void {
   const missing = items.reduce((n, i) => (i.titleEn === null ? n + 1 : n), 0);
   if (missing >= BACKFILL_TITLE_THRESHOLD) {
-    triggerTitleBackfill(runtime, language);
+    triggerTitleBackfill(language);
   }
 }

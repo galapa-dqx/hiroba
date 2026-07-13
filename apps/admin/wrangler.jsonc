@@ -1,9 +1,15 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "hiroba-admin",
-  "pages_build_output_dir": "./dist",
+  // Astro 6 / @astrojs/cloudflare v13 ships a Worker (Pages support dropped).
+  // The adapter's entrypoint serves SSR + the static assets bound below.
+  "main": "@astrojs/cloudflare/entrypoints/server",
   "compatibility_date": "2026-07-08",
   "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+  },
   "d1_databases": [
     {
       "binding": "DB",

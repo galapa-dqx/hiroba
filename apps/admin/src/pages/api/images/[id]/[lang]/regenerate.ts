@@ -11,8 +11,9 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
-export const POST: APIRoute = async ({ locals, params, request }) => {
+export const POST: APIRoute = async ({ params, request }) => {
   const id = params.id!;
   const lang = params.lang!;
   // Optional quality tier chosen in the editor; the workflow worker validates
@@ -21,7 +22,7 @@ export const POST: APIRoute = async ({ locals, params, request }) => {
     quality?: unknown;
   };
 
-  const res = await locals.runtime.env.WORKFLOW.fetch(
+  const res = await env.WORKFLOW.fetch(
     'http://internal/regenerate-image',
     {
       method: 'POST',

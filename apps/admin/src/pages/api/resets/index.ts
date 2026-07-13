@@ -6,6 +6,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { RRuleTemporal } from 'rrule-temporal';
 import { Temporal } from 'temporal-polyfill';
 
@@ -27,9 +28,8 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-export const GET: APIRoute = async ({ locals }) => {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  const db = createDb(runtime.env.DB);
+export const GET: APIRoute = async () => {
+  const db = createDb(env.DB);
 
   const [resets, languages] = await Promise.all([
     listResetMilestones(db),
@@ -45,9 +45,8 @@ export const GET: APIRoute = async ({ locals }) => {
   });
 };
 
-export const POST: APIRoute = async ({ locals, request }) => {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  const db = createDb(runtime.env.DB);
+export const POST: APIRoute = async ({ request }) => {
+  const db = createDb(env.DB);
 
   const body = (await request.json()) as {
     id?: unknown;

@@ -14,6 +14,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 const isAllowedHost = (host: string): boolean =>
   host === 'dqx.jp' || host.endsWith('.dqx.jp');
@@ -32,9 +33,8 @@ const CACHE_CONTROL = 'public, max-age=604800, immutable';
 // originals. The ETag makes the revalidation a cheap 304 in practice.
 const MUTABLE_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
 
-export const GET: APIRoute = async ({ params, locals, request }) => {
+export const GET: APIRoute = async ({ params, request }) => {
   const path = params.path ?? '';
-  const runtime = locals.runtime as { env: { IMAGES_BUCKET: R2Bucket } };
 
   const localized = path.startsWith('l10n/');
   let rel = path;
@@ -53,7 +53,7 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     return new Response('Forbidden', { status: 403 });
   }
 
-  const bucket = runtime.env.IMAGES_BUCKET;
+  const bucket = env.IMAGES_BUCKET;
   const originalKey = `${host}/${rest}`;
 
   const preferred = localized ? await bucket.get(path) : null;

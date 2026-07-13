@@ -2,8 +2,11 @@ name: Deploy
 
 # Deploy the whole stack to Cloudflare on every push to main (or manually via
 # the Actions tab). Verifies first, applies prod D1 migrations, then ships the
-# workflow worker and both Pages projects. Requires two repo secrets:
-#   CLOUDFLARE_API_TOKEN   — scoped token: Workers Scripts + Pages + D1 (Edit)
+# workflow worker and the web/admin Workers (Astro 6 / @astrojs/cloudflare v13
+# — no longer Pages). Requires two repo secrets:
+#   CLOUDFLARE_API_TOKEN   — scoped token: Workers Scripts + D1 + Workers KV
+#                            Storage (Edit) — KV is needed for the adapter's
+#                            auto-provisioned SESSION namespace
 #   CLOUDFLARE_ACCOUNT_ID  — the account the resources live in
 on:
   push:
@@ -31,7 +34,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Astro 6 / Vite 7 need Node >= 22.15; pinned via .tool-versions.
+          node-version-file: .tool-versions
           cache: pnpm
 
       - name: Install
@@ -43,7 +47,7 @@ jobs:
       - name: Test
         run: pnpm test
 
-      # Builds workspace packages and the web/admin Astro dist/ that Pages ships.
+      # Builds workspace packages and the web/admin Astro dist/ the Workers serve.
       - name: Build
         run: pnpm build
 
@@ -60,11 +64,11 @@ jobs:
       # bindings first — otherwise the workflow deploy fails with error 10061.
       # The bindings they reference (FlowHub) already exist on the live worker,
       # so deploying them first is safe.
-      - name: Deploy web (Pages)
-        run: pnpm --filter @hiroba/web exec wrangler pages deploy dist --branch=main
+      - name: Deploy web (Worker)
+        run: pnpm --filter @hiroba/web exec wrangler deploy
 
-      - name: Deploy admin (Pages)
-        run: pnpm --filter @hiroba/admin exec wrangler pages deploy dist --branch=main
+      - name: Deploy admin (Worker)
+        run: pnpm --filter @hiroba/admin exec wrangler deploy
 
       - name: Deploy workflow worker
         run: pnpm --filter @hiroba/workflow exec wrangler deploy

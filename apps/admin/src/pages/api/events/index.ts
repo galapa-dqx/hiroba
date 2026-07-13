@@ -4,13 +4,13 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { and, desc, eq, like } from 'drizzle-orm';
 
 import { createDb, events, translations } from '@hiroba/db';
 
-export const GET: APIRoute = async ({ locals, url }) => {
-  const runtime = locals.runtime;
-  const db = createDb(runtime.env.DB);
+export const GET: APIRoute = async ({ url }) => {
+  const db = createDb(env.DB);
 
   const limit = parseInt(url.searchParams.get('limit') || '100');
   const type = url.searchParams.get('type') || undefined;

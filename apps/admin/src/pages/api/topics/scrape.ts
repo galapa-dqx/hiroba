@@ -1,15 +1,13 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 
 import { scrapeTopicsBatch } from '../../../lib/db-operations';
 import { enqueueTitleTranslation } from '../../../lib/enqueue-titles';
 
-export const POST: APIRoute = async ({ locals, request }) => {
-  const runtime = locals.runtime as {
-    env: { DB: D1Database; FLOW_HUB: DurableObjectNamespace };
-  };
-  const db = createDb(runtime.env.DB);
+export const POST: APIRoute = async ({ request }) => {
+  const db = createDb(env.DB);
 
   const url = new URL(request.url);
   const cursorParam = url.searchParams.get('cursor');
@@ -22,7 +20,7 @@ export const POST: APIRoute = async ({ locals, request }) => {
 
   // Eagerly translate the titles just discovered (mirrors the hourly cron).
   const enqueued = await enqueueTitleTranslation(
-    runtime.env.FLOW_HUB,
+    env.FLOW_HUB,
     'topic',
     newItemIds,
   );

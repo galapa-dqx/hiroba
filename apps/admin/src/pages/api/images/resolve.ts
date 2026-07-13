@@ -10,6 +10,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb, getImagesByKeys } from '@hiroba/db';
 
@@ -20,9 +21,8 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-export const GET: APIRoute = async ({ locals, url }) => {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  const db = createDb(runtime.env.DB);
+export const GET: APIRoute = async ({ url }) => {
+  const db = createDb(env.DB);
 
   const key = url.searchParams.get('key');
   if (!key) return json({ error: 'Missing key' }, 400);

@@ -1,4 +1,6 @@
 ---
+import { env } from "cloudflare:workers";
+
 import ArticlePage from "../../../components/ArticlePage.astro";
 import LocalTime from "../../../components/LocalTime.astro";
 import CategoryDot from "@hiroba/ui/CategoryDot.astro";
@@ -19,8 +21,7 @@ if (!id) {
 	return Astro.redirect(`/${lang}`);
 }
 
-const runtime = Astro.locals.runtime;
-const db = createDb(runtime.env.DB);
+const db = createDb(env.DB);
 
 // News items are seeded by list scraping, so an unknown id is a real 404
 // (unlike topics, which are fetched on first view).
@@ -39,7 +40,7 @@ const isTranslated = !!localizedBlocks;
 // content present and no run in flight (DQX-28: the gate reads the item's
 // hub run, not D1 state columns). Until then the page shows the processing
 // notice and the run's SSE stream drives progress + reload.
-const { run, snapshot } = await getItemRun(runtime, "news", id);
+const { run, snapshot } = await getItemRun("news", id);
 const view = resolveArticleView(!!localizedTitle && !!localizedBlocks, run);
 
 // Cache by readiness: a still-processing page is never cached (the SSE stream
@@ -51,7 +52,7 @@ Astro.response.headers.set("Cache-Control", view.cacheControl);
 // on missing content, the throttled cooldown for background heals of
 // degraded or failed settles.
 if (view.trigger) {
-	triggerWorkflow(runtime, "news", id, { force: view.trigger === "force" });
+	triggerWorkflow("news", id, { force: view.trigger === "force" });
 }
 
 const title = localizedTitle ?? item.titleJa;
@@ -60,7 +61,7 @@ const blocks: Block[] = localizedBlocks ?? (item.blocksJa as Block[] | null) ?? 
 const imageSrc = await hydrateArticleImages(db, blocks, {
 	isTranslated,
 	language: lang,
-	imageBase: runtime.env.IMAGE_BASE,
+	imageBase: env.IMAGE_BASE,
 });
 const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHref });
 

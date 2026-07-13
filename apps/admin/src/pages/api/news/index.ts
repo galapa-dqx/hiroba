@@ -2,14 +2,14 @@
  * GET /api/news - Lightweight news list for the admin UI.
  */
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 
 import { listNewsAdmin } from '../../../lib/db-operations';
 
-export const GET: APIRoute = async ({ locals, url }) => {
-  const runtime = locals.runtime;
-  const db = createDb(runtime.env.DB);
+export const GET: APIRoute = async ({ url }) => {
+  const db = createDb(env.DB);
 
   const category = url.searchParams.get('category') || undefined;
   const limit = Math.min(Number(url.searchParams.get('limit')) || 50, 100);

@@ -8,5 +8,4 @@ import type { APIRoute } from 'astro';
 
 import { proxyHubSse } from '../../../lib/sse';
 
-export const GET: APIRoute = ({ locals, url }) =>
-  proxyHubSse(locals.runtime.env, url.search);
+export const GET: APIRoute = ({ url }) => proxyHubSse(url.search);

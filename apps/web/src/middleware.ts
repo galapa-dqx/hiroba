@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/cloudflare';
 import type { APIContext, MiddlewareNext } from 'astro';
 import { defineMiddleware } from 'astro:middleware';
+import { env, waitUntil } from 'cloudflare:workers';
 
 import { createDb, FALLBACK_LANGUAGE, getEnabledLanguages } from '@hiroba/db';
 
@@ -18,16 +19,23 @@ const isLegacyContentPath = (pathname: string): boolean =>
 const looksLikeLanguage = (segment: string): boolean =>
   /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/i.test(segment);
 
+// Adapter v13 no longer exposes the ExecutionContext on locals; the
+// cloudflare:workers module's request-scoped waitUntil fills the one hole
+// Sentry needs (flushing events past the response). passThroughOnException
+// isn't available at module level — a no-op keeps default error semantics.
+const executionCtx = {
+  waitUntil,
+  passThroughOnException: () => {},
+} as ExecutionContext;
+
 export const onRequest = defineMiddleware((context, next) => {
-  const runtime = context.locals.runtime;
   // Bind the whole request (middleware + page render reached via next()) into a
   // Sentry request scope so captureException calls anywhere downstream attach to
-  // it and flush via the execution context's waitUntil. The Cloudflare adapter
-  // exposes env + ctx on locals.runtime.
+  // it and flush via the execution context's waitUntil.
   return Sentry.wrapRequestHandler(
     {
       options: {
-        dsn: runtime.env.SENTRY_DSN,
+        dsn: env.SENTRY_DSN,
         environment: 'production',
         // Sample 5% of requests for tracing — this is the public front-end, so
         // full tracing would be heavy on span quota.
@@ -48,7 +56,7 @@ export const onRequest = defineMiddleware((context, next) => {
       request: context.request as Parameters<
         typeof Sentry.wrapRequestHandler
       >[0]['request'],
-      context: runtime.ctx,
+      context: executionCtx,
     },
     () => handleRequest(context, next),
   );
@@ -88,7 +96,7 @@ const handleRequest = async (
   // 500ing every page.
   let languages: App.SiteLanguage[];
   try {
-    languages = await getEnabledLanguages(createDb(locals.runtime.env.DB));
+    languages = await getEnabledLanguages(createDb(env.DB));
   } catch (err) {
     console.error('middleware: getEnabledLanguages failed', err);
     Sentry.captureException(err, { tags: { site_area: 'languages' } });

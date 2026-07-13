@@ -1,4 +1,6 @@
 ---
+import { env } from "cloudflare:workers";
+
 import ArticlePage from "../../../components/ArticlePage.astro";
 import LocalTime from "../../../components/LocalTime.astro";
 import { createDb, getArticleTranslations, getEventsForSource, getTopic } from "@hiroba/db";
@@ -16,8 +18,7 @@ if (!id) {
 	return Astro.redirect(`/${lang}/topics`);
 }
 
-const runtime = Astro.locals.runtime;
-const db = createDb(runtime.env.DB);
+const db = createDb(env.DB);
 
 // fetch-body creates the row, so a never-seen id is valid — no 404.
 const topic = await getTopic(db, id);
@@ -29,7 +30,7 @@ const isTranslated = !!localizedBlocks;
 // content present and no run in flight (DQX-28: the gate reads the item's
 // hub run, not D1 state columns). Until then the page shows the processing
 // notice and the run's SSE stream drives progress + reload.
-const { run, snapshot } = await getItemRun(runtime, "topic", id);
+const { run, snapshot } = await getItemRun("topic", id);
 const view = resolveArticleView(!!localizedTitle && !!localizedBlocks, run);
 
 // Cache by readiness: a still-processing page is never cached (the SSE stream
@@ -41,7 +42,7 @@ Astro.response.headers.set("Cache-Control", view.cacheControl);
 // on missing content, the throttled cooldown for background heals of
 // degraded or failed settles.
 if (view.trigger) {
-	triggerWorkflow(runtime, "topic", id, { force: view.trigger === "force" });
+	triggerWorkflow("topic", id, { force: view.trigger === "force" });
 }
 
 const title = localizedTitle ?? topic?.titleJa ?? t("article.loadingTopic");
@@ -50,7 +51,7 @@ const blocks: Block[] = localizedBlocks ?? (topic?.blocksJa as Block[] | null) ?
 const imageSrc = await hydrateArticleImages(db, blocks, {
 	isTranslated,
 	language: lang,
-	imageBase: runtime.env.IMAGE_BASE,
+	imageBase: env.IMAGE_BASE,
 });
 const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHref });
 

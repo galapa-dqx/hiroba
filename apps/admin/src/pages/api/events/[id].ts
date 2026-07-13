@@ -3,13 +3,13 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { and, eq } from 'drizzle-orm';
 
 import { createDb, events, translations } from '@hiroba/db';
 
-export const DELETE: APIRoute = async ({ locals, params }) => {
-  const runtime = locals.runtime;
-  const db = createDb(runtime.env.DB);
+export const DELETE: APIRoute = async ({ params }) => {
+  const db = createDb(env.DB);
   const id = params.id!;
 
   // Delete translations first

@@ -11,19 +11,20 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { ArticleFlow, PlayguideFlow } from '@hiroba/flows';
 
 const PUBLIC_FLOWS = new Set<string>([ArticleFlow.name, PlayguideFlow.name]);
 
-export const GET: APIRoute = async ({ locals, url }) => {
+export const GET: APIRoute = async ({ url }) => {
   const flow = url.searchParams.get('flow') ?? '';
   const key = url.searchParams.get('key') ?? '';
   if (!PUBLIC_FLOWS.has(flow) || !key) {
     return new Response('unknown stream', { status: 404 });
   }
 
-  const ns = locals.runtime.env.FLOW_HUB;
+  const ns = env.FLOW_HUB;
   const stub = ns.get(ns.idFromName('hub'));
   const res = await stub.fetch(
     `http://internal/sse?flow=${encodeURIComponent(flow)}&key=${encodeURIComponent(key)}`,

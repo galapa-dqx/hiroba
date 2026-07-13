@@ -7,6 +7,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb, listLanguages } from '@hiroba/db';
 
@@ -19,20 +20,17 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-export const POST: APIRoute = async ({ locals, params }) => {
-  const runtime = locals.runtime as {
-    env: { DB: D1Database; FLOW_HUB: DurableObjectNamespace };
-  };
+export const POST: APIRoute = async ({ params }) => {
   const code = params.code!;
 
   // Only backfill a whitelisted language — a stray code would just spin up a
   // workflow that finds nothing.
-  const known = (await listLanguages(createDb(runtime.env.DB))).some(
+  const known = (await listLanguages(createDb(env.DB))).some(
     (l) => l.code === code,
   );
   if (!known) return json({ error: 'Not found' }, 404);
 
-  const started = await backfillLanguageTitles(runtime.env.FLOW_HUB, code);
+  const started = await backfillLanguageTitles(env.FLOW_HUB, code);
   if (!started) return json({ error: 'Failed to start backfill' }, 502);
   return json({ success: true, code });
 };

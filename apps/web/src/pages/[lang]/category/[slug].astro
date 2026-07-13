@@ -1,4 +1,6 @@
 ---
+import { env } from "cloudflare:workers";
+
 import Layout from "../../../layouts/Layout.astro";
 import ArticleList from "../../../components/ArticleList.astro";
 import BackLink from "../../../components/BackLink.astro";
@@ -22,8 +24,7 @@ if (!slug || !CATEGORIES.includes(slug as Category)) {
 const category = slug as Category;
 const cursor = Astro.url.searchParams.get("cursor") ?? undefined;
 
-const runtime = Astro.locals.runtime;
-const db = createDb(runtime.env.DB);
+const db = createDb(env.DB);
 
 let items: LocalizedNewsItem[] = [];
 let hasMore = false;
@@ -35,7 +36,7 @@ try {
 	hasMore = result.hasMore;
 	nextCursor = result.nextCursor;
 	// If this language is meaningfully behind on titles, backfill the archive.
-	maybeTriggerTitleBackfill(runtime, lang, items);
+	maybeTriggerTitleBackfill(lang, items);
 } catch (err) {
 	// Show empty list on error — but surface the (previously swallowed) cause.
 	console.error(`category ${category}: getNewsItems threw`, err);
@@ -50,7 +51,7 @@ try {
 // deploy is conclusive. Best-effort; never affects the render.
 if (items.length === 0 && !cursor) {
 	try {
-		const probe = await runtime.env.DB.prepare(
+		const probe = await env.DB.prepare(
 			"SELECT COUNT(*) AS n FROM news_items WHERE category = ?",
 		)
 			.bind(category)

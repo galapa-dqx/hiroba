@@ -1,4 +1,5 @@
 ---
+import { env } from "cloudflare:workers";
 import { Temporal } from "temporal-polyfill";
 import Layout from "../../layouts/Layout.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
@@ -22,8 +23,7 @@ Astro.response.headers.set(
 	cacheCalendar(Temporal.Now.instant().epochMilliseconds / 1000),
 );
 
-const runtime = Astro.locals.runtime;
-const db = createDb(runtime.env.DB);
+const db = createDb(env.DB);
 
 // "Today" is the current calendar day on the game server (JST).
 const today = Temporal.Now.zonedDateTimeISO(AGENDA_ZONE).toPlainDate();

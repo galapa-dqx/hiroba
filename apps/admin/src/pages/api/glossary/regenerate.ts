@@ -11,6 +11,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import type { StartResult } from '@hiroba/flow/hub';
 import { GlossaryRegenFlow } from '@hiroba/flows';
@@ -24,7 +25,7 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-export const POST: APIRoute = async ({ locals, request }) => {
+export const POST: APIRoute = async ({ request }) => {
   let body: { sourceText?: unknown };
   try {
     body = (await request.json()) as { sourceText?: unknown };
@@ -40,11 +41,9 @@ export const POST: APIRoute = async ({ locals, request }) => {
 
   let result: StartResult;
   try {
-    result = await startFlowViaHub(
-      locals.runtime.env.FLOW_HUB,
-      GlossaryRegenFlow.name,
-      { sourceText },
-    );
+    result = await startFlowViaHub(env.FLOW_HUB, GlossaryRegenFlow.name, {
+      sourceText,
+    });
   } catch (err) {
     return json(
       {
