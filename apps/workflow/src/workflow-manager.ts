@@ -197,13 +197,16 @@ export class WorkflowManager extends DurableObject<Env> {
           const maxPolls = 300; // 5 minutes
 
           // Whether the run driving this item has settled — playguides run on
-          // the flow framework (DQX-24), so their status lives at the hub; a
-          // vanished hub run counts as finished (nothing will advance the
-          // snapshot further). News/topics ask the Workflows engine.
+          // the flow framework (DQX-24), so their status lives at the hub.
+          // News/topics ask the Workflows engine.
           const runFinished = async (run: Active): Promise<boolean> => {
             if (run.itemType === 'playguide') {
               const info = await getFlowHub(this.env).getRun(run.instanceId);
-              return !info || !isActiveStatus(info.status);
+              if (info) return !isActiveStatus(info.status);
+              // Unknown to the hub: the one way that happens is a
+              // pre-cutover ArticleWorkflow instance this (not-yet-restarted)
+              // DO still remembers in memory — fall through and ask the old
+              // engine about it rather than declaring a live straggler done.
             }
             const instance = await this.env.ARTICLE_WORKFLOW.get(
               run.instanceId,
@@ -543,6 +546,22 @@ export class WorkflowManager extends DurableObject<Env> {
   private async handleStatus(itemId: string): Promise<Response> {
     const active = this.activeWorkflows.get(itemId);
     if (!active) return Response.json({ status: 'idle' });
+
+    // Playguide handles are hub run ids (DQX-24), not engine instances.
+    if (active.itemType === 'playguide') {
+      const info = await getFlowHub(this.env).getRun(active.instanceId);
+      if (!info) {
+        this.activeWorkflows.delete(itemId);
+        return Response.json({ status: 'idle' });
+      }
+      return Response.json({
+        // The hub's one non-engine status name, mapped to this wire type's.
+        status: info.status === 'failed' ? 'errored' : info.status,
+        instanceId: active.instanceId,
+        output: info.output,
+        error: info.error ?? undefined,
+      });
+    }
 
     try {
       const instance = await this.env.ARTICLE_WORKFLOW.get(active.instanceId);
