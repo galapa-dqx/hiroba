@@ -273,8 +273,20 @@ const alternates = [
 					onSettled: (snapshot) => {
 						// The stale run's replay: re-arm the pipeline and keep waiting
 						// for the new run to take over the flow-key stream (each retry
-						// reconnects, so its frames arrive as soon as it exists).
-						if (staleRunId && snapshot.runId === staleRunId) {
+						// reconnects, so its frames arrive as soon as it exists). Two
+						// guards, because the server can fail to name the stale run (a
+						// hub /run hiccup at render time): the flagged id, and a
+						// once-per-run reload memo — a run that already caused a reload
+						// and STILL left the page processing is stale by definition.
+						const reloadedKey = `hiroba-reloaded:${snapshot.runId}`;
+						const alreadyReloaded = (() => {
+							try {
+								return sessionStorage.getItem(reloadedKey) !== null;
+							} catch {
+								return false;
+							}
+						})();
+						if ((staleRunId && snapshot.runId === staleRunId) || alreadyReloaded) {
 							retrigger();
 							setTimeout(follow, 5000);
 							return;
@@ -286,6 +298,11 @@ const alternates = [
 							notice.classList.remove("callout--busy");
 							notice.classList.add("callout--complete");
 							if (statusEl) statusEl.textContent = i18n.doneReloading ?? "Done! Reloading…";
+							try {
+								sessionStorage.setItem(reloadedKey, "1");
+							} catch {
+								// Private-mode storage failure just loses the loop guard.
+							}
 							setTimeout(() => location.reload(), 500);
 							return;
 						}

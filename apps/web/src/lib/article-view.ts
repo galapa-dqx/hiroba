@@ -76,7 +76,13 @@ export function resolveArticleView(
 
   if (hasContent) {
     // Terminal or no run at all: the content is what it is. Grade the settle
-    // for cache TTL + whether a background heal is worth arming.
+    // for cache TTL + whether a background heal is worth arming. A PRUNED
+    // run (health null — the hub keeps runs a week) reads as complete even
+    // if its settle was degraded: by then the item has had a week of
+    // cooldown-armed heal attempts, so page views stop retrying and the
+    // admin/recheck paths own whatever is still broken. Deliberate — the
+    // alternative is re-deriving image health from D1 state rows, which is
+    // exactly the machinery DQX-28 retired.
     const complete = health === null || health === 'complete';
     return {
       phase: complete ? 'ready-complete' : 'ready-degraded',

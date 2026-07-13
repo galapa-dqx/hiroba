@@ -6,7 +6,7 @@ import {
   triggerPlayguideWorkflow,
   type PlayguideItem,
 } from '../lib/api';
-import { subscribeItemRun } from '../lib/flow-stream';
+import { useItemRunStreams } from '../lib/use-item-run';
 import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /**
@@ -16,6 +16,7 @@ import { usePrimaryLanguage } from '../lib/use-primary-language';
  * render in the sidebar's primary target language, falling back to Japanese.
  */
 export default function PlayguideList() {
+  const followItemRun = useItemRunStreams();
   const lang = usePrimaryLanguage();
   const [items, setItems] = useState<PlayguideItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,7 +99,7 @@ export default function PlayguideList() {
 
       const setStatus = (line: string) =>
         setWorkflowStatus((prev) => new Map(prev).set(slug, line));
-      subscribeItemRun('playguide', slug, {
+      followItemRun('playguide', slug, {
         onProgress: setStatus,
         onDone: () => {
           setStatus('Done!');

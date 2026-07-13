@@ -17,7 +17,8 @@ import {
   type ArticleTypeStats,
   type NewsItem,
 } from '../lib/api';
-import { subscribeFlowRun, subscribeItemRun } from '../lib/flow-stream';
+import { subscribeFlowRun } from '../lib/flow-stream';
+import { useItemRunStreams } from '../lib/use-item-run';
 import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /** Matches the server-side cap in lib/trigger-recent.ts. */
@@ -83,6 +84,7 @@ function BackfillProgress({
 
 export default function NewsList() {
   const lang = usePrimaryLanguage();
+  const followItemRun = useItemRunStreams();
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
@@ -252,7 +254,7 @@ export default function NewsList() {
 
       const setStatus = (line: string) =>
         setWorkflowStatus((prev) => new Map(prev).set(id, line));
-      subscribeItemRun('news', id, {
+      followItemRun('news', id, {
         onProgress: setStatus,
         onDone: () => {
           setStatus('Done!');
