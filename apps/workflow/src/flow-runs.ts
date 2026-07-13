@@ -34,6 +34,14 @@ import type { Env, ItemType } from './types';
  *  retains them for a week). */
 const SETTLED_VISIBLE_HOURS = 24;
 
+/**
+ * How deep a page to ask the hub for when the caller doesn't say. The hub's
+ * default (100 newest) could drop a long-running active run behind a burst of
+ * newer ones — the visibility filter below trims to active + a day of settled
+ * anyway, so over-fetch generously and let it cut the listing down.
+ */
+const DEFAULT_HUB_PAGE = 500;
+
 /** One hub /runs entry: the run row plus its current segment snapshot. */
 type HubRunEntry = RunInfo & { snapshot: Snapshot | null };
 
@@ -46,7 +54,9 @@ export async function listFlowRuns(env: Env, url: URL): Promise<Response> {
   // The hub's /runs route embeds each run's segment snapshot — one DO call
   // for the whole paint. (Its fetch surface exists for exactly this kind of
   // cross-script caller; see the hub module.)
-  const hubRes = await getFlowHub(env).fetch(`http://hub/runs${url.search}`);
+  const search = new URLSearchParams(url.search);
+  if (!search.has('limit')) search.set('limit', String(DEFAULT_HUB_PAGE));
+  const hubRes = await getFlowHub(env).fetch(`http://hub/runs?${search}`);
   if (!hubRes.ok) {
     return Response.json(
       { error: `Hub listing failed (${hubRes.status})` },
