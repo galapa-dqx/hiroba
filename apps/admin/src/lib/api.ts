@@ -376,8 +376,8 @@ export async function updateArticleTranslation(
 
 /**
  * One tracker listing entry: the hub run row, its current segment snapshot,
- * and — for the article/playguide flows — the per-item domain enrichment
- * (title, D1 pipeline snapshot, image detail).
+ * and — for the article/playguide flows — the per-item identity enrichment
+ * (which item the run is about, and its titles).
  */
 export type FlowRunEntry = RunInfo & {
   snapshot: Snapshot | null;

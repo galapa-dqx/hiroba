@@ -98,7 +98,7 @@ describe('ArticleFlow on the hub — keyed per (itemType, itemId)', () => {
         extractEvents: { count: 1, eventIds: ['ev1'] },
         tagEvents: { tagged: true, timeTags: 1, eventTags: 1, retried: false },
         mirror: { mirrored: 0, skipped: 0, failed: 0 },
-        transcribe: { imagesTranscribed: 0 },
+        transcribe: { imagesTranscribed: 0, failed: 0 },
         translate: { success: true, fieldsTranslated: 2 },
         localize: { localized: 0, skipped: 0, failed: 0 },
       });

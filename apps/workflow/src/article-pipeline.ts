@@ -25,8 +25,8 @@
  * code instead of implicit D1 row states: mapJoin is always SETTLED — a
  * failed child becomes a failed outcome in the collected results, counted
  * into the tail's totals, and the run carries on. The children's step workers
- * still mark the image's D1 rows failed rather than throw, which is why
- * computeSnapshot and the web SSE don't care which flow ran the work.
+ * still mark the image's D1 rows failed rather than throw, so the admin
+ * image panels don't care which flow ran the work.
  *
  * Platform-free on purpose (no cloudflare:workers import): flow shells live in
  * *-workflow.ts files, and these helpers run under runFlowInline in
@@ -317,11 +317,12 @@ export async function imageAndOutputPipeline(
   // for domain failures, so this means real trouble) counts into the same
   // `failed` buckets a failed image always filled: degrade, don't block.
   const mirror: MirrorResult = { mirrored: 0, skipped: 0, failed: 0 };
-  let imagesTranscribed = 0;
+  const transcribe: TranscribeResult = { imagesTranscribed: 0, failed: 0 };
   for (const outcome of ingested) {
     if (outcome.status === 'complete' && outcome.output) {
       mirror[outcome.output.mirror]++;
-      if (outcome.output.transcribed) imagesTranscribed++;
+      if (outcome.output.transcribed) transcribe.imagesTranscribed++;
+      if (outcome.output.transcribeFailed) transcribe.failed++;
     } else {
       mirror.failed++;
     }
@@ -335,5 +336,5 @@ export async function imageAndOutputPipeline(
     }
   }
 
-  return { mirror, transcribe: { imagesTranscribed }, translate, localize };
+  return { mirror, transcribe, translate, localize };
 }

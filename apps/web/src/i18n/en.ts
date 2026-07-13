@@ -140,16 +140,14 @@ export const en = {
   'banner.choose': 'Choose banner',
   'banner.dot': 'Banner {n}',
 
-  // Processing-callout pipeline status (templates: {count}/{total}/{failed})
+  // Processing-callout pipeline status ({progress} = the step's unit counter)
   'status.fetchFailed': 'Failed to fetch the article.',
-  'status.fetching': 'Fetching content…',
-  'status.downloadingImages': 'Downloading images ({count}/{total})…',
-  'status.readingImageText': 'Reading image text ({count}/{total})…',
   'status.translationFailed': 'Translation failed.',
+  'status.fetching': 'Fetching content…',
+  'status.extractingEvents': 'Extracting events…',
+  'status.processingImages': 'Processing images ({progress})…',
   'status.translating': 'Translating…',
-  'status.translatingImages': 'Translating images ({count}/{total})…',
-  'status.imagesFailedOne': 'Done — {failed} image could not be localized.',
-  'status.imagesFailedOther': 'Done — {failed} images could not be localized.',
+  'status.translatingImages': 'Translating images ({progress})…',
   'status.finishing': 'Finishing up…',
   'status.doneReloading': 'Done! Reloading…',
   'status.errorPrefix': 'Error: {error}',

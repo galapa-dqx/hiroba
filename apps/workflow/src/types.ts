@@ -237,7 +237,13 @@ export type ImageIngestWorkflowParams = {
 export type ImageIngestWorkflowOutput = {
   imageKey: string;
   mirror: MirrorOutcome;
+  /** Freshly transcribed this run (false for skips AND failures — see
+   *  `transcribeFailed` for the distinction). */
   transcribed: boolean;
+  /** The transcription attempt failed (row marked failed) — parents count
+   *  this into their degraded verdict. Optional on the wire: outputs from
+   *  children deployed before this field simply read as "no failure". */
+  transcribeFailed?: boolean;
 };
 
 /**
@@ -310,6 +316,9 @@ export type TagEventsResult = {
 /** Result of the transcribe-images step. */
 export type TranscribeResult = {
   imagesTranscribed: number;
+  /** Images whose transcription attempt failed this run — reads as degraded
+   *  in the run-health verdict (itemRunHealth in @hiroba/flows). */
+  failed: number;
 };
 
 /**
@@ -336,7 +345,3 @@ export type ArticleWorkflowOutput = {
   translate: TranslateResult;
   localize: LocalizeResult;
 };
-
-// The SSE wire protocol (machine-readable state snapshots) is shared with the
-// web/admin clients — see @hiroba/shared's pipeline-state module.
-export type { SSEEvent, StateSnapshot } from '@hiroba/shared';

@@ -2,13 +2,14 @@
 import ArticlePage from "../../../components/ArticlePage.astro";
 import LocalTime from "../../../components/LocalTime.astro";
 import CategoryDot from "@hiroba/ui/CategoryDot.astro";
-import { computeSnapshot, createDb, getArticleTranslations, getEventsForSource, getNewsItem } from "@hiroba/db";
+import { createDb, getArticleTranslations, getEventsForSource, getNewsItem } from "@hiroba/db";
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
-import { describeSnapshot, isSnapshotComplete, isSnapshotSettled, type Category } from "@hiroba/shared";
+import type { Category } from "@hiroba/shared";
 import { hydrateArticleImages } from "../../../lib/article-images";
-import { triggerWorkflow } from "../../../lib/workflow";
-import { CACHE_ARTICLE_COMPLETE, CACHE_ARTICLE_DEGRADED, CACHE_NONE } from "../../../lib/cache";
-import { categoryLabel, statusStrings, useTranslations } from "../../../i18n";
+import { resolveArticleView } from "../../../lib/article-view";
+import { getItemRun, triggerWorkflow } from "../../../lib/workflow";
+import { CACHE_NONE } from "../../../lib/cache";
+import { categoryLabel, useTranslations } from "../../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
@@ -34,27 +35,23 @@ if (!item) {
 const { title: localizedTitle, blocks: localizedBlocks, translatedAt } = await getArticleTranslations(db, "news", id, lang);
 const isTranslated = !!localizedBlocks;
 
-// The article displays only once its pipeline has settled — fetched and
-// translated (news has no image steps, so its snapshot carries images: null).
-// Until then the page shows the processing notice and the SSE stream drives
-// progress + reload.
-const snapshot = await computeSnapshot(db, "news", id, lang);
-const ready = isSnapshotSettled(snapshot);
-const complete = isSnapshotComplete(snapshot);
+// The article displays only once its pipeline has settled — translated
+// content present and no run in flight (DQX-28: the gate reads the item's
+// hub run, not D1 state columns). Until then the page shows the processing
+// notice and the run's SSE stream drives progress + reload.
+const { run, snapshot } = await getItemRun(runtime, "news", id);
+const view = resolveArticleView(!!localizedTitle && !!localizedBlocks, run);
 
 // Cache by readiness: a still-processing page is never cached (the SSE stream
 // drives it), a complete article caches hard (and is purged on change), a
 // settled-but-degraded one stays short so a background heal surfaces on its own.
-Astro.response.headers.set(
-	"Cache-Control",
-	!ready ? CACHE_NONE : complete ? CACHE_ARTICLE_COMPLETE : CACHE_ARTICLE_DEGRADED,
-);
+Astro.response.headers.set("Cache-Control", view.cacheControl);
 
-// Fire the pipeline unless everything already finished cleanly — a
-// degraded-but-settled article displays now and retries its failures in the
-// background.
-if (!complete) {
-	triggerWorkflow(runtime, "news", id);
+// (Re)arm the pipeline as the gate decided: `force` when a viewer is waiting
+// on missing content, the throttled cooldown for background heals of
+// degraded or failed settles.
+if (view.trigger) {
+	triggerWorkflow(runtime, "news", id, { force: view.trigger === "force" });
 }
 
 const title = localizedTitle ?? item.titleJa;
@@ -68,7 +65,7 @@ const imageSrc = await hydrateArticleImages(db, blocks, {
 const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHref });
 
 // Events extracted from this article (only meaningful once the body is shown).
-const events = ready ? await getEventsForSource(db, "news", id, lang) : [];
+const events = view.ready ? await getEventsForSource(db, "news", id, lang) : [];
 
 const category = item.category as Category;
 const label = categoryLabel(lang, category);
@@ -79,8 +76,9 @@ const label = categoryLabel(lang, category);
 	category={category}
 	itemType="news"
 	itemId={id}
-	ready={ready}
-	statusText={describeSnapshot(snapshot, statusStrings(lang))}
+	view={view}
+	snapshot={snapshot}
+	runError={run?.error}
 	contentHtml={contentHtml}
 	events={events}
 	originalUrl={`https://hiroba.dqx.jp/sc/news/detail/${id}/`}

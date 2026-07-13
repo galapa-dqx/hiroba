@@ -16,4 +16,15 @@ export { ImageIngestFlow } from './image-ingest';
 export { ImageLocalizeFlow } from './image-localize';
 export { NewsBackfillFlow, type NewsBackfillOutput } from './news-backfill';
 export { PlayguideFlow } from './playguide';
+export {
+  DEFAULT_ITEM_RUN_STRINGS,
+  describeItemRun,
+  itemFlowKey,
+  itemFlowStart,
+  itemRunHealth,
+  type ItemFlowType,
+  type ItemRunHealth,
+  type ItemRunLike,
+  type ItemRunStrings,
+} from './progress';
 export { TitleBackfillFlow, TitleFlow } from './titles';

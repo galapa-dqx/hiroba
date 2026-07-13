@@ -25,7 +25,6 @@ import {
   saveChangedBody,
   setBodyChecked,
   setImageTranscribeState,
-  setItemFetchState,
   setTranslationStates,
   syncBanners,
   upsertImageTranscription,
@@ -805,26 +804,6 @@ describe('recheck scheduling', () => {
 });
 
 describe('pipeline state transitions', () => {
-  it('tracks fetch state on items and backfills done via the fetched-body path', async () => {
-    await upsertListItems(ctx.db, [listItem(1, 1)]);
-
-    await setItemFetchState(ctx.db, 'news', hex(1), 'running');
-    let row = await ctx.db
-      .select()
-      .from(newsItems)
-      .where(eq(newsItems.id, hex(1)))
-      .get();
-    expect(row?.fetchState).toBe('running');
-
-    await setItemFetchState(ctx.db, 'news', hex(1), 'done');
-    row = await ctx.db
-      .select()
-      .from(newsItems)
-      .where(eq(newsItems.id, hex(1)))
-      .get();
-    expect(row?.fetchState).toBe('done');
-  });
-
   it('creates translation rows on first touch and reports missing rows as pending', async () => {
     const states = await getTranslationStates(ctx.db, 'topic', hex(1), 'en', [
       'title',
@@ -910,9 +889,8 @@ describe('pipeline state transitions', () => {
     ).rejects.toThrow();
   });
 
-  it('failPipelineStates settles running fetch + in-flight translations, not done ones', async () => {
+  it('failPipelineStates settles in-flight translations, not done ones', async () => {
     await upsertListItems(ctx.db, [listItem(1, 1)]);
-    await setItemFetchState(ctx.db, 'news', hex(1), 'running');
     await setTranslationStates(ctx.db, {
       itemType: 'news',
       itemId: hex(1),
@@ -940,13 +918,6 @@ describe('pipeline state transitions', () => {
       'en',
       'step exhausted retries',
     );
-
-    const item = await ctx.db
-      .select()
-      .from(newsItems)
-      .where(eq(newsItems.id, hex(1)))
-      .get();
-    expect(item?.fetchState).toBe('failed');
 
     const states = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
       'title',

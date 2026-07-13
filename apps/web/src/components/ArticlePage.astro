@@ -1,15 +1,19 @@
 ---
 /**
  * ArticlePage — the shared shell of the news and topic detail pages: header
- * (meta line + title), processing callout with live SSE progress, the article
+ * (meta line + title), processing callout with live run progress, the article
  * body beside its events rail, the translation footer, and the back link.
  *
  * The pages differ only in how they load their data; everything rendered runs
- * through here. The body displays only once the pipeline has settled (`ready`)
- * — until then the callout shows `statusText` and the SSE stream drives
- * progress updates and the reload on completion.
+ * through here. The body displays only once the pipeline has settled
+ * (`view.ready`) — until then the callout narrates the item's hub run
+ * (DQX-28): the initial line renders server-side from the run snapshot, and
+ * the client follows the run's SSE stream for progress updates and the
+ * reload on completion.
  */
 import type { EventWithTitle } from "@hiroba/db";
+import type { Snapshot } from "@hiroba/flow";
+import { describeItemRun, itemFlowKey } from "@hiroba/flows";
 import type { Category } from "@hiroba/shared";
 import Rosette from "@hiroba/ui/Rosette.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
@@ -17,7 +21,8 @@ import Layout from "../layouts/Layout.astro";
 import BackLink from "./BackLink.astro";
 import EventsRail from "./EventsRail.astro";
 import LocalTime from "./LocalTime.astro";
-import { statusStrings, useTranslations } from "../i18n";
+import type { ArticleView } from "../lib/article-view";
+import { itemRunStrings, useTranslations } from "../i18n";
 import "@hiroba/ui/styles/article-body.css";
 
 interface Props {
@@ -27,10 +32,14 @@ interface Props {
 	category?: Category;
 	itemType: "news" | "topic" | "playguide";
 	itemId: string;
-	/** Whether the pipeline has settled enough to show the body. */
-	ready: boolean;
-	/** Processing-callout text for the current pipeline state. */
-	statusText: string;
+	/** The render gate's verdict (lib/article-view) for this item + language. */
+	view: ArticleView;
+	/** The latest run's segment snapshot, when one exists — seeds the initial
+	 *  callout line so the first paint matches what the stream will say. */
+	snapshot?: Snapshot | null;
+	/** The latest run's failure message, surfaced when `view.phase` is
+	 *  `run-failed`. */
+	runError?: string | null;
 	contentHtml: string;
 	events: EventWithTitle[];
 	/** The source article on hiroba.dqx.jp. */
@@ -46,8 +55,9 @@ const {
 	category,
 	itemType,
 	itemId,
-	ready,
-	statusText,
+	view,
+	snapshot,
+	runError,
 	contentHtml,
 	events,
 	originalUrl,
@@ -56,6 +66,8 @@ const {
 	backLabel,
 } = Astro.props;
 
+const ready = view.ready;
+
 // Set by the middleware, which validated the /<lang>/ prefix.
 const lang = Astro.locals.lang ?? "en";
 const languages = Astro.locals.languages ?? [
@@ -63,10 +75,14 @@ const languages = Astro.locals.languages ?? [
 ];
 const t = useTranslations(lang);
 
-// Detail route + SSE proxy segment per item type (news uses plural "news",
-// topics "topics", playguides "playguide").
+// Detail route segment per item type (news uses plural "news", topics
+// "topics", playguides "playguide").
 const detailPath = itemType === "topic" ? "topics" : itemType === "playguide" ? "playguide" : "news";
-const sseUrl = `/api/${detailPath}/${itemId}/sse?language=${encodeURIComponent(lang)}`;
+
+// The item's run on the hub, addressed by the flow's dedup key — the client
+// follows its snapshot stream while the pipeline is processing.
+const { flow, key } = itemFlowKey(itemType, itemId);
+const sseUrl = `/api/flow/sse?flow=${encodeURIComponent(flow)}&key=${encodeURIComponent(key)}`;
 const originalNoun = t(
 	itemType === "topic"
 		? "article.noun.topic"
@@ -76,13 +92,32 @@ const originalNoun = t(
 );
 
 // Localized copy for the SSE-driven processing callout, handed to the client
-// script as JSON: the pipeline status templates plus the two completion lines.
+// script as JSON: the pipeline status templates plus the terminal lines.
+const runStrings = itemRunStrings(lang);
 const calloutStrings = {
-	...statusStrings(lang),
+	...runStrings,
+	fetchFailed: t("status.fetchFailed"),
+	translationFailed: t("status.translationFailed"),
 	doneReloading: t("status.doneReloading"),
 	errorPrefix: t("status.errorPrefix"),
 	unknownError: t("status.unknownError"),
 };
+
+// The callout's first paint, derived server-side from the same run the client
+// will follow. `processing` narrates the snapshot (or the generic opening
+// line while the run is still being created); the terminal failures show
+// their error and don't stream — the pipeline is only re-armed on the
+// trigger cooldown, so there is nothing live to watch.
+const follow = view.phase === "processing";
+const statusText = follow
+	? snapshot
+		? describeItemRun(snapshot, runStrings)
+		: runStrings.fetching
+	: view.phase === "fetch-failed"
+		? t("status.fetchFailed")
+		: view.phase === "translate-failed"
+			? t("status.translationFailed")
+			: t("status.errorPrefix", { error: runError ?? t("status.unknownError") });
 
 // This is a translated republish of the Hiroba original, so we canonicalize to
 // the source (cross-domain) rather than compete with it in search. hreflang
@@ -114,7 +149,16 @@ const alternates = [
 		</header>
 
 		{!ready && (
-			<div class="callout callout--busy" id="processing-notice" data-sse-url={sseUrl} data-i18n={JSON.stringify(calloutStrings)} role="status">
+			<div
+				class={`callout ${follow ? "callout--busy" : "callout--error"}`}
+				id="processing-notice"
+				data-sse-url={follow ? sseUrl : undefined}
+				data-stale-run={follow ? view.staleRunId : undefined}
+				data-item-type={itemType}
+				data-item-id={itemId}
+				data-i18n={JSON.stringify(calloutStrings)}
+				role="status"
+			>
 				<Rosette class="callout__glyph" />
 				<p id="processing-status">{statusText}</p>
 			</div>
@@ -183,42 +227,108 @@ const alternates = [
 </style>
 
 <script>
-	import { describeSnapshot } from "@hiroba/shared";
+	import { followRun } from "@hiroba/flow/client";
+	import { describeItemRun, itemRunHealth } from "@hiroba/flows";
 	import "../scripts/localize-times";
 
 	const notice = document.getElementById("processing-notice");
 	if (notice?.dataset.sseUrl) {
+		const sseUrl = notice.dataset.sseUrl;
+		// The already-terminal run the server gated on (the "ran before this
+		// language" case): its replayed terminal frame is old news, not fresh
+		// completion — reloading on it would loop until the forced run starts.
+		const staleRunId = notice.dataset.staleRun;
 		const statusEl = document.getElementById("processing-status");
-		// Localized copy embedded by the server (pipeline templates + completion
+		// Localized copy embedded by the server (pipeline templates + terminal
 		// lines), so the callout speaks the reader's language client-side too.
 		const i18n = JSON.parse(notice.dataset.i18n || "{}");
-		const evtSource = new EventSource(notice.dataset.sseUrl);
 
-		evtSource.onmessage = (event) => {
-			const data = JSON.parse(event.data);
-			if (data.type === "state" && statusEl) {
-				statusEl.textContent = describeSnapshot(data.snapshot, i18n);
-			}
-			if (data.type === "complete") {
-				evtSource.close();
-				notice.classList.remove("callout--busy");
-				notice.classList.add("callout--complete");
-				if (statusEl) statusEl.textContent = i18n.doneReloading ?? "Done! Reloading…";
-				setTimeout(() => location.reload(), 500);
-			}
-			if (data.type === "error") {
-				evtSource.close();
-				notice.classList.remove("callout--busy");
-				notice.classList.add("callout--error");
-				if (statusEl) {
-					const template = i18n.errorPrefix ?? "Error: {error}";
-					statusEl.textContent = template.replace(
-						"{error}",
-						data.error || i18n.unknownError || "Unknown error",
-					);
-				}
-			}
+		const showError = (message: string) => {
+			notice.classList.remove("callout--busy");
+			notice.classList.add("callout--error");
+			if (statusEl) statusEl.textContent = message;
 		};
-		evtSource.onerror = () => evtSource.close();
+
+		// Re-arm the pipeline from the client — the SSR trigger is
+		// fire-and-forget and can be lost, so the stale-run wait would
+		// otherwise spin forever on a run that nothing is replacing.
+		const retrigger = () => {
+			void fetch("/api/flow/trigger", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					itemType: notice.dataset.itemType,
+					itemId: notice.dataset.itemId,
+				}),
+			}).catch(() => {});
+		};
+
+		const follow = () =>
+			followRun(
+				sseUrl,
+				{
+					onSnapshot: (snapshot) => {
+						if (statusEl) statusEl.textContent = describeItemRun(snapshot, i18n);
+					},
+					onSettled: (snapshot) => {
+						// The stale run's replay: re-arm the pipeline and keep waiting
+						// for the new run to take over the flow-key stream (each retry
+						// reconnects, so its frames arrive as soon as it exists). Two
+						// guards, because the server can fail to name the stale run (a
+						// hub /run hiccup at render time): the flagged id, and a
+						// once-per-run reload memo — a run that already caused a reload
+						// and STILL left the page processing is stale by definition.
+						const reloadedKey = `hiroba-reloaded:${snapshot.runId}`;
+						const alreadyReloaded = (() => {
+							try {
+								return sessionStorage.getItem(reloadedKey) !== null;
+							} catch {
+								return false;
+							}
+						})();
+						if ((staleRunId && snapshot.runId === staleRunId) || alreadyReloaded) {
+							retrigger();
+							setTimeout(follow, 5000);
+							return;
+						}
+						// Same settled policy as the server gate: content landed (even
+						// degraded) → the reload paints the body; a dead end shows why.
+						const health = itemRunHealth(snapshot);
+						if (health === "complete" || health === "degraded") {
+							notice.classList.remove("callout--busy");
+							notice.classList.add("callout--complete");
+							if (statusEl) statusEl.textContent = i18n.doneReloading ?? "Done! Reloading…";
+							try {
+								sessionStorage.setItem(reloadedKey, "1");
+							} catch {
+								// Private-mode storage failure just loses the loop guard.
+							}
+							setTimeout(() => location.reload(), 500);
+							return;
+						}
+						if (health === "fetch-failed") {
+							showError(i18n.fetchFailed ?? "Failed to fetch the article.");
+							return;
+						}
+						if (health === "translate-failed") {
+							showError(i18n.translationFailed ?? "Translation failed.");
+							return;
+						}
+						const template = i18n.errorPrefix ?? "Error: {error}";
+						showError(
+							template.replace("{error}", snapshot.error || i18n.unknownError || "Unknown error"),
+						);
+					},
+					onUnavailable: () => {
+						const template = i18n.errorPrefix ?? "Error: {error}";
+						showError(template.replace("{error}", i18n.unknownError || "Unknown error"));
+					},
+				},
+				// The page's fire-and-forget trigger may still be creating the run
+				// when we first connect — tolerate a longer 404 window than the
+				// admin's follow-a-known-run default.
+				{ maxFramelessConnects: 10 },
+			);
+		follow();
 	}
 </script>

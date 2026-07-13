@@ -1,33 +1,26 @@
 /**
- * Client-side consumer for one hub flow run's SSE stream (DQX-23).
+ * Admin-side consumers for hub flow-run SSE streams. The transport lifecycle
+ * (reconnects, silence watchdog, seq dedup, run hopping) lives in
+ * @hiroba/flow/client's `followRun`; this module binds it to the admin's
+ * proxy route and folds terminal frames into the shapes the panels want:
  *
- * The hub's per-run stream speaks full `Snapshot` frames (seq-ordered, closed
- * server-side after the terminal frame) — a different wire protocol from the
- * domain `SSEEvent` streams job-stream.ts consumes. This is the one
- * place that folds those frames into a progress/done/error lifecycle for
- * fire-and-follow UI (e.g. the scrape backfill button); the FlowRuns panel
- * keeps its own consumer because it merges SSE with polling across many runs.
- *
- * Built for lossless resume, so it never gives up on a transport blip: every
- * (re)connect replays the run's full latest snapshot, connecting runs the
- * hub's lazy reconciler, and `seq` dedups replays. A dropped connection
- * reopens with a delay; a stream that goes silent too long is proactively
- * reopened (the reconnect doubles as the liveness probe — a run whose
- * terminal report was lost is settled by the reconciler and the fresh
- * connect delivers the terminal frame instead of leaving the caller hanging
- * forever). `onError` therefore means the RUN failed — transport trouble is
- * only surfaced after several consecutive connects yield no frame at all
- * (e.g. the run was pruned).
+ *   - `subscribeFlowRun` — one known run by id (fire-and-follow UI like the
+ *     scrape backfill button). `onError` means the RUN failed; transport
+ *     trouble surfaces only after every retry yields nothing.
+ *   - `subscribeItemRun` — an article/playguide pipeline by item identity
+ *     (the list pages' per-item trigger buttons), addressed by the flow's
+ *     dedup key so no run id is needed, with the item settled policy
+ *     (degraded images still count as done) applied to the terminal frame.
  */
 
-import { isTerminalRunStatus, type Snapshot } from '@hiroba/flow';
-
-/** Reopen a stream that has said nothing for this long — liveness probe. */
-const SILENCE_REOPEN_MS = 30_000;
-/** Delay before reopening after a hard transport close. */
-const RECONNECT_DELAY_MS = 5_000;
-/** Consecutive frameless connects before declaring the stream unavailable. */
-const MAX_FRAMELESS_CONNECTS = 5;
+import type { Snapshot } from '@hiroba/flow';
+import { followRun } from '@hiroba/flow/client';
+import {
+  describeItemRun,
+  itemFlowKey,
+  itemRunHealth,
+  type ItemFlowType,
+} from '@hiroba/flows';
 
 export type FlowRunHandlers = {
   /** A fresh snapshot of a still-active run. */
@@ -35,7 +28,7 @@ export type FlowRunHandlers = {
   /** Terminal success, with the run's output (the flow body's return value). */
   onDone?: (output: unknown) => void;
   /** The run failed (a `failed` frame), or the stream stayed unreachable
-   *  across every retry. */
+   *  across every retry (e.g. the run was pruned). */
   onError?: (message: string) => void;
 };
 
@@ -48,82 +41,51 @@ export function subscribeFlowRun(
   runId: string,
   handlers: FlowRunHandlers,
 ): () => void {
-  let stopped = false;
-  let lastSeq = -1;
-  let framelessConnects = 0;
-  let gotFrameThisConnect = false;
-  let source: EventSource | null = null;
-  let silenceTimer: ReturnType<typeof setTimeout> | null = null;
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  return followRun(`/api/flow-runs/stream?runId=${encodeURIComponent(runId)}`, {
+    onSnapshot: handlers.onSnapshot,
+    onSettled: (snapshot) => {
+      if (snapshot.status === 'complete') handlers.onDone?.(snapshot.output);
+      else handlers.onError?.(snapshot.error ?? 'flow failed');
+    },
+    onUnavailable: () => handlers.onError?.('Progress stream unavailable'),
+  });
+}
 
-  const stop = () => {
-    stopped = true;
-    if (silenceTimer !== null) clearTimeout(silenceTimer);
-    if (reconnectTimer !== null) clearTimeout(reconnectTimer);
-    source?.close();
-    source = null;
-  };
+export type ItemRunHandlers = {
+  /** The "latest step" progress line for the item's live run. */
+  onProgress: (label: string) => void;
+  /** The run settled with displayable content (degraded images included). */
+  onDone?: () => void;
+  /** The run settled as a dead end, or the stream stayed unreachable. */
+  onError?: (message: string) => void;
+};
 
-  const scheduleReopen = (delayMs: number) => {
-    if (stopped || reconnectTimer !== null) return;
-    if (silenceTimer !== null) clearTimeout(silenceTimer);
-    source?.close();
-    source = null;
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      open();
-    }, delayMs);
-  };
-
-  const armSilenceWatchdog = () => {
-    if (silenceTimer !== null) clearTimeout(silenceTimer);
-    silenceTimer = setTimeout(() => scheduleReopen(0), SILENCE_REOPEN_MS);
-  };
-
-  const open = () => {
-    if (stopped) return;
-    gotFrameThisConnect = false;
-    source = new EventSource(
-      `/api/flow-runs/stream?runId=${encodeURIComponent(runId)}`,
-    );
-    armSilenceWatchdog();
-
-    source.onmessage = (event) => {
-      gotFrameThisConnect = true;
-      framelessConnects = 0;
-      armSilenceWatchdog();
-      const snapshot = JSON.parse(event.data as string) as Snapshot;
-      // seq is monotonic per run — drop reconnect replays and stale frames.
-      if (snapshot.seq <= lastSeq) return;
-      lastSeq = snapshot.seq;
-
-      if (isTerminalRunStatus(snapshot.status)) {
-        stop();
-        if (snapshot.status === 'complete') handlers.onDone?.(snapshot.output);
-        else handlers.onError?.(snapshot.error ?? 'flow failed');
-        return;
-      }
-      handlers.onSnapshot(snapshot);
-    };
-
-    // EventSource retries CONNECTING states on its own; a CLOSED readyState
-    // is a hard stop (the hub 404ing a pruned run, a proxy refusing the
-    // route). Reopen ourselves with a delay — unless connect after connect
-    // yields nothing, which means the run is not streamable at all.
-    source.onerror = () => {
-      if (stopped || source?.readyState !== EventSource.CLOSED) return;
-      if (!gotFrameThisConnect) {
-        framelessConnects += 1;
-        if (framelessConnects >= MAX_FRAMELESS_CONNECTS) {
-          stop();
-          handlers.onError?.('Progress stream unavailable');
-          return;
-        }
-      }
-      scheduleReopen(RECONNECT_DELAY_MS);
-    };
-  };
-
-  open();
-  return stop;
+/**
+ * Follow an item pipeline's latest run by (flow, key) — the trigger that
+ * started it races this subscribe, so the 404 window is widened rather than
+ * treated as unavailability.
+ */
+export function subscribeItemRun(
+  itemType: ItemFlowType,
+  itemId: string,
+  handlers: ItemRunHandlers,
+): () => void {
+  const { flow, key } = itemFlowKey(itemType, itemId);
+  return followRun(
+    `/api/flow-runs/stream?flow=${encodeURIComponent(flow)}&key=${encodeURIComponent(key)}`,
+    {
+      onSnapshot: (snapshot) => handlers.onProgress(describeItemRun(snapshot)),
+      onSettled: (snapshot) => {
+        const health = itemRunHealth(snapshot);
+        if (health === 'complete' || health === 'degraded') handlers.onDone?.();
+        else if (health === 'fetch-failed')
+          handlers.onError?.('body fetch found no content');
+        else if (health === 'translate-failed')
+          handlers.onError?.('translation failed');
+        else handlers.onError?.(snapshot.error ?? 'run failed');
+      },
+      onUnavailable: () => handlers.onError?.('Progress stream unavailable'),
+    },
+    { maxFramelessConnects: 10 },
+  );
 }

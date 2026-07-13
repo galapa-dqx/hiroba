@@ -47,7 +47,7 @@ const IMG_KEY = 'cache.hiroba.dqx.jp/dq_resource/img/hero.png';
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(mirrorOneImage).mockResolvedValue('mirrored');
-  vi.mocked(transcribeOneImage).mockResolvedValue(true);
+  vi.mocked(transcribeOneImage).mockResolvedValue('transcribed');
 });
 
 describe('image ingest flow — one shared child per image', () => {
@@ -64,6 +64,7 @@ describe('image ingest flow — one shared child per image', () => {
       imageKey: IMG_KEY,
       mirror: 'mirrored',
       transcribed: true,
+      transcribeFailed: false,
     });
     expect(result.snapshot.order).toEqual(['mirror', 'transcribe']);
 
@@ -93,6 +94,7 @@ describe('image ingest flow — one shared child per image', () => {
       imageKey: IMG_KEY,
       mirror: 'mirrored',
       transcribed: false,
+      transcribeFailed: false,
     });
     expect(result.snapshot.steps.transcribe.state).toBe('skipped');
     expect(vi.mocked(transcribeOneImage)).not.toHaveBeenCalled();
@@ -100,7 +102,7 @@ describe('image ingest flow — one shared child per image', () => {
 
   it('still transcribes when the mirror failed (CDN fallback), reporting the degrade', async () => {
     vi.mocked(mirrorOneImage).mockResolvedValue('failed');
-    vi.mocked(transcribeOneImage).mockResolvedValue(false);
+    vi.mocked(transcribeOneImage).mockResolvedValue('failed');
 
     const result = await runFlowInline(
       ImageIngestFlow,
@@ -116,6 +118,7 @@ describe('image ingest flow — one shared child per image', () => {
       imageKey: IMG_KEY,
       mirror: 'failed',
       transcribed: false,
+      transcribeFailed: true,
     });
     expect(vi.mocked(transcribeOneImage)).toHaveBeenCalledTimes(1);
   });
