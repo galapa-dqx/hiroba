@@ -23,11 +23,15 @@ export const CACHE_LIST =
   'public, max-age=60, s-maxage=600, stale-while-revalidate=3600';
 
 /**
- * A fully-complete article: static until it's re-translated or edited, and
- * purged by URL when that happens — so cache it hard at the edge.
+ * A fully-complete article: static until it's re-translated, edited, or one of
+ * its images is re-rendered — and purged by URL when any of those happen, so
+ * cache it hard at the edge. The 6h `s-maxage` (not longer) bounds how long a
+ * *missed* purge can pin the page — and with it the previous versioned image
+ * URLs it embeds; the 5min `max-age` is what makes a successful purge reach
+ * returning readers within minutes.
  */
 export const CACHE_ARTICLE_COMPLETE =
-  'public, max-age=300, s-maxage=86400, stale-while-revalidate=86400';
+  'public, max-age=300, s-maxage=21600, stale-while-revalidate=21600';
 
 /**
  * A settled-but-degraded article (e.g. an image that failed to localize) still

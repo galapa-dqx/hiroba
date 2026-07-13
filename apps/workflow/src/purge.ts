@@ -12,6 +12,12 @@
  * language URLs ourselves.
  */
 
+import {
+  getArticlesByImageKey,
+  isBannerImage,
+  type Database,
+} from '@hiroba/db';
+
 import type { Env, ItemType } from './types';
 
 /** The slice of the worker env purging reads — narrow so flow bodies holding
@@ -115,18 +121,34 @@ export async function purgeArticle(
 }
 
 /**
- * Purge one localized image object, served from the R2 bucket's public host.
- * `localizedKey` is the R2 key recorded on the translation row (`l10n/<lang>/…`).
+ * Purge every page that renders a given image in a given language — the
+ * fan-out after an admin regenerates or uploads a localized image. Localized
+ * images live at versioned immutable URLs, so the image itself never needs
+ * purging; what's stale is the HTML embedding the *previous* version's URL:
+ * the article pages carrying the image (via the article_images reverse index)
+ * and the home page when it backs a rotation banner. Only the target
+ * language's pages change, so only they are purged.
  */
-export async function purgeImage(
+export async function purgeImagePages(
   env: PurgeEnv,
-  localizedKey: string,
+  db: Database,
+  imageKey: string,
+  language: string,
   log?: PurgeLog,
 ): Promise<void> {
-  if (!env.IMAGE_BASE) {
-    log?.warn('Cache purge skipped (IMAGE_BASE unset)');
+  if (!env.WEB_BASE_URL) {
+    log?.warn('Cache purge skipped (WEB_BASE_URL unset)');
     return;
   }
-  const base = env.IMAGE_BASE.replace(/\/+$/, '');
-  await purgeUrls(env, [`${base}/${localizedKey.replace(/^\/+/, '')}`], log);
+  const base = env.WEB_BASE_URL.replace(/\/+$/, '');
+  const articles = await getArticlesByImageKey(db, imageKey);
+  const urls = articles.map(
+    (a) => `${base}/${language}/${ARTICLE_PATH[a.itemType]}/${a.itemId}`,
+  );
+  if (await isBannerImage(db, imageKey)) {
+    // The home page renders the banner carousel; purge both slash variants
+    // since the edge caches whichever shape was requested.
+    urls.push(`${base}/${language}`, `${base}/${language}/`);
+  }
+  await purgeUrls(env, urls, log);
 }

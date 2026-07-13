@@ -22,7 +22,7 @@ import {
 } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
-import type { Block } from '@hiroba/richtext';
+import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 import {
   ACTIVE_RUN_STATUSES,
   getNextCheckTime,
@@ -37,6 +37,7 @@ import {
   RESET_SOURCE_TYPE,
   type ResetTitleMap,
 } from './reset-events';
+import { articleImages } from './schema/article-images';
 import { banners, type Banner } from './schema/banners';
 import {
   events,
@@ -721,6 +722,8 @@ export async function upsertTopic(
     .insert(topics)
     .values(topic)
     .onConflictDoUpdate({ target: topics.id, set });
+  if (topic.blocksJa)
+    await syncArticleImages(db, 'topic', topic.id, topic.blocksJa);
 }
 
 /**
@@ -733,6 +736,7 @@ export async function updateTopicBlocks(
   blocks: Block[],
 ): Promise<void> {
   await db.update(topics).set({ blocksJa: blocks }).where(eq(topics.id, id));
+  await syncArticleImages(db, 'topic', id, blocks);
 }
 
 /**
@@ -758,6 +762,9 @@ export async function updateArticleSource(
     .set(set)
     .where(eq(table.id, id))
     .returning({ id: table.id });
+  if (result.length > 0 && patch.blocksJa) {
+    await syncArticleImages(db, itemType, id, patch.blocksJa);
+  }
   return result.length > 0;
 }
 
@@ -1088,6 +1095,9 @@ export async function upsertPlayguide(
     .insert(playguides)
     .values(pg)
     .onConflictDoUpdate({ target: playguides.id, set });
+  if (pg.blocksJa) {
+    await syncArticleImages(db, 'playguide', pg.id, pg.blocksJa);
+  }
 }
 
 /** Get a single playguide by slug. */
@@ -1113,6 +1123,7 @@ export async function updatePlayguideBlocks(
     .update(playguides)
     .set({ blocksJa: blocks })
     .where(eq(playguides.id, id));
+  await syncArticleImages(db, 'playguide', id, blocks);
 }
 
 /** A playguide plus its resolved current-language title (null ⇒ show titleJa). */
@@ -2194,6 +2205,109 @@ export async function upsertImageTranscription(
     })
     .returning({ id: images.id });
   return rows[0].id;
+}
+
+/**
+ * Replace an article's rows in the article_images reverse index from its block
+ * tree. Called by every blocks_ja writer so the index can't drift. Only
+ * block-level images are indexed (the localizable ones — see the schema doc);
+ * delete-then-insert, since the per-article set is tiny.
+ */
+export async function syncArticleImages(
+  db: Database,
+  itemType: ArticleType,
+  itemId: string,
+  blocks: Block[],
+): Promise<void> {
+  const keys = [
+    ...new Set(
+      collectImages(blocks)
+        .map((i) => imageKey(i.src))
+        .filter((k): k is string => !!k),
+    ),
+  ];
+  await db
+    .delete(articleImages)
+    .where(
+      and(
+        eq(articleImages.itemType, itemType),
+        eq(articleImages.itemId, itemId),
+      ),
+    );
+  // Insert in slices to respect D1's per-query bind-parameter cap.
+  for (let i = 0; i < keys.length; i += 30) {
+    await db.insert(articleImages).values(
+      keys.slice(i, i + 30).map((key) => ({
+        itemType,
+        itemId,
+        imageKey: key,
+      })),
+    );
+  }
+}
+
+/**
+ * Backfill one page of the article_images index for one item type — for
+ * articles written before the index existed (new writes keep it current via
+ * syncArticleImages). Cursor-paginated by id; idempotent, so re-running over
+ * already-indexed articles is harmless.
+ */
+export async function backfillArticleImages(
+  db: Database,
+  itemType: ArticleType,
+  cursor: string | null,
+  limit = 100,
+): Promise<{ processed: number; nextCursor: string | null }> {
+  const table = articleTable(itemType);
+  const rows = await db
+    .select({ id: table.id, blocksJa: table.blocksJa })
+    .from(table)
+    .where(cursor ? gt(table.id, cursor) : undefined)
+    .orderBy(asc(table.id))
+    .limit(limit)
+    .all();
+  for (const row of rows) {
+    if (row.blocksJa) {
+      await syncArticleImages(db, itemType, row.id, row.blocksJa);
+    }
+  }
+  return {
+    processed: rows.length,
+    nextCursor: rows.length === limit ? rows[rows.length - 1].id : null,
+  };
+}
+
+/**
+ * Whether an image backs a rotation banner (banners.imageKey = key) — banner
+ * images render on the home page, so the purge fan-out includes it.
+ */
+export async function isBannerImage(
+  db: Database,
+  key: string,
+): Promise<boolean> {
+  const row = await db
+    .select({ one: sql`1` })
+    .from(banners)
+    .where(eq(banners.imageKey, key))
+    .get();
+  return !!row;
+}
+
+/**
+ * Every article whose block tree embeds the given image — the purge fan-out
+ * for a regenerated/uploaded localized image (its versioned URL changed, so
+ * the pages carrying it must be re-rendered).
+ */
+export async function getArticlesByImageKey(
+  db: Database,
+  key: string,
+): Promise<Array<{ itemType: ArticleType; itemId: string }>> {
+  const rows = await db
+    .select({ itemType: articleImages.itemType, itemId: articleImages.itemId })
+    .from(articleImages)
+    .where(eq(articleImages.imageKey, key))
+    .all();
+  return rows as Array<{ itemType: ArticleType; itemId: string }>;
 }
 
 /** Look up image rows by their natural keys (imageKey). */

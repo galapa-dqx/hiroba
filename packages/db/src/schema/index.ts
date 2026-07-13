@@ -4,6 +4,7 @@
  * All tables for the Hiroba news translation system.
  */
 
+export * from './article-images';
 export * from './news-items';
 export * from './topics';
 export * from './playguides';

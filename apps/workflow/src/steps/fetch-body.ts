@@ -15,6 +15,7 @@ import {
   getTopic,
   newsItems,
   setItemFetchState,
+  syncArticleImages,
   upsertPlayguide,
   upsertTopic,
   type Database,
@@ -87,6 +88,7 @@ export async function fetchAndSaveNewsBody(
         fetchState: blocks.length > 0 ? 'done' : 'failed',
       })
       .where(eq(newsItems.id, itemId));
+    await syncArticleImages(db, 'news', itemId, blocks);
 
     return { success: blocks.length > 0, blockCount: blocks.length };
   } catch (error) {

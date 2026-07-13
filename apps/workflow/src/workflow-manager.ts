@@ -53,7 +53,7 @@ import {
   type WorkflowRunStatus,
 } from '@hiroba/shared';
 
-import { purgeImage } from './purge';
+import { purgeImagePages } from './purge';
 import { localizeImages } from './steps/localize-images';
 import type { Env, ItemType } from './types';
 
@@ -111,6 +111,9 @@ export class WorkflowManager extends DurableObject<Env> {
     }
     if (url.pathname === '/regenerate-image' && request.method === 'POST') {
       return this.handleRegenerateImage(request);
+    }
+    if (url.pathname === '/purge-image-pages' && request.method === 'POST') {
+      return this.handlePurgeImagePages(request);
     }
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
@@ -305,11 +308,11 @@ export class WorkflowManager extends DurableObject<Env> {
     const state = states.get(imageId) ?? null;
     const localizedKey = values.get(imageId) ?? null;
 
-    // The localized image lives at a stable URL, so a browser/edge copy of the
-    // old raster would otherwise linger past this edit. Bust it now for an
-    // immediate refresh (best-effort; no-ops until purge is configured).
+    // The fresh render lives at a NEW versioned URL; what's stale is every
+    // cached page still embedding the previous version's URL. Purge them for
+    // an immediate refresh (best-effort; no-ops until purge is configured).
     if (result.localized > 0 && localizedKey) {
-      await purgeImage(this.env, localizedKey, {
+      await purgeImagePages(this.env, db, image.key, language, {
         warn: (m) => console.warn(m),
         debug: () => {},
       });
@@ -320,6 +323,33 @@ export class WorkflowManager extends DurableObject<Env> {
       state,
       localizedKey,
     });
+  }
+
+  /**
+   * Purge the pages rendering one image in one language, on behalf of the
+   * admin worker — a manual upload writes the versioned R2 object and the D1
+   * row itself but has no zone id or purge token, so it proxies the page bust
+   * here. Best-effort like every purge: a failure means cached pages keep the
+   * previous version until their TTL, never a failed upload.
+   */
+  private async handlePurgeImagePages(request: Request): Promise<Response> {
+    const body = (await request.json()) as {
+      imageKey?: unknown;
+      language?: unknown;
+    };
+    const imageKey = typeof body.imageKey === 'string' ? body.imageKey : '';
+    const language = typeof body.language === 'string' ? body.language : '';
+    if (!imageKey || !language) {
+      return Response.json(
+        { error: 'imageKey (string) and language (string) required' },
+        { status: 400 },
+      );
+    }
+    await purgeImagePages(this.env, createDb(this.env.DB), imageKey, language, {
+      warn: (m) => console.warn(m),
+      debug: () => {},
+    });
+    return Response.json({ ok: true });
   }
 
   /**
