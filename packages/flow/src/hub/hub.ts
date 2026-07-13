@@ -622,12 +622,21 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
             `FlowHub: engine probe for run ${run.runId} failed (attempt ${failures}) — keeping status '${run.status}'`,
             err,
           );
+          // Touch only a still-active row — a report that landed during the
+          // probe await must keep both its status and its retention clock.
           this.sql.exec(
-            `UPDATE runs SET updated_at = ? WHERE run_id = ?`,
+            `UPDATE runs SET updated_at = ?
+             WHERE run_id = ? AND status IN ('queued','running')`,
             Date.now(),
             run.runId,
           );
-          return { ...run, updatedAt: Date.now() };
+          // Answer with DB truth, not the pre-await snapshot, for the same
+          // reason as the CAS path below: a terminal report may have settled
+          // the row while we awaited the engine.
+          const row = this.sql
+            .exec(`SELECT * FROM runs WHERE run_id = ?`, run.runId)
+            .toArray()[0];
+          return row ? this.rowToRun(row) : run;
         }
         this.probeFailures.delete(run.runId);
         next = 'unknown';
