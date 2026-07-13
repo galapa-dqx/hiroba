@@ -97,11 +97,16 @@ export const POST: APIRoute = async ({ locals, params, request }) => {
   // path), so proxy there — best-effort: a purge failure must not fail the
   // upload (pages then refresh on their own TTL).
   try {
-    await env.WORKFLOW.fetch('http://internal/purge-image-pages', {
+    const res = await env.WORKFLOW.fetch('http://internal/purge-image-pages', {
       method: 'POST',
       body: JSON.stringify({ imageKey: image.key, language: lang }),
       headers: { 'Content-Type': 'application/json' },
     });
+    if (!res.ok) {
+      console.warn(
+        `upload: page purge failed for ${image.key} (${res.status}): ${await res.text().catch(() => '')}`,
+      );
+    }
   } catch (err) {
     console.warn(`upload: page purge failed for ${image.key}:`, err);
   }
