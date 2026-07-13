@@ -153,6 +153,9 @@ importers:
       '@hiroba/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@hiroba/flows':
+        specifier: workspace:*
+        version: link:../../packages/flows
       '@hiroba/richtext':
         specifier: workspace:*
         version: link:../../packages/richtext

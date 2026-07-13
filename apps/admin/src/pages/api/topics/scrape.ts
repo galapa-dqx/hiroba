@@ -7,7 +7,7 @@ import { enqueueTitleTranslation } from '../../../lib/enqueue-titles';
 
 export const POST: APIRoute = async ({ locals, request }) => {
   const runtime = locals.runtime as {
-    env: { DB: D1Database; WORKFLOW_MANAGER: DurableObjectNamespace };
+    env: { DB: D1Database; FLOW_HUB: DurableObjectNamespace };
   };
   const db = createDb(runtime.env.DB);
 
@@ -22,7 +22,7 @@ export const POST: APIRoute = async ({ locals, request }) => {
 
   // Eagerly translate the titles just discovered (mirrors the hourly cron).
   const enqueued = await enqueueTitleTranslation(
-    runtime.env.WORKFLOW_MANAGER,
+    runtime.env.FLOW_HUB,
     'topic',
     newItemIds,
   );

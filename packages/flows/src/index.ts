@@ -10,3 +10,4 @@
 
 export { BannerFlow } from './banner';
 export { GlossaryRegenFlow } from './glossary-regen';
+export { TitleBackfillFlow, TitleFlow } from './titles';

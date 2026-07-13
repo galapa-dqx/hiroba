@@ -9,7 +9,11 @@ import { newsScrapeStreamKey } from '../../lib/sse';
 
 export const POST: APIRoute = async ({ locals, request }) => {
   const runtime = locals.runtime as {
-    env: { DB: D1Database; WORKFLOW_MANAGER: DurableObjectNamespace };
+    env: {
+      DB: D1Database;
+      WORKFLOW_MANAGER: DurableObjectNamespace;
+      FLOW_HUB: DurableObjectNamespace;
+    };
   };
 
   const url = new URL(request.url);
@@ -48,7 +52,7 @@ export const POST: APIRoute = async ({ locals, request }) => {
   const db = createDb(runtime.env.DB);
   const { newItemIds, ...result } = await triggerScrape(db, { full, category });
   const enqueued = await enqueueTitleTranslation(
-    runtime.env.WORKFLOW_MANAGER,
+    runtime.env.FLOW_HUB,
     'news',
     newItemIds,
   );

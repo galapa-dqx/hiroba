@@ -6,6 +6,7 @@
  */
 
 import type { ItemType } from '@hiroba/db';
+import { TitleBackfillFlow } from '@hiroba/flows';
 
 type ArticleType = Extract<ItemType, 'news' | 'topic' | 'playguide'>;
 
@@ -49,20 +50,37 @@ export function triggerWorkflow(
 export const BACKFILL_TITLE_THRESHOLD = 5;
 
 /**
- * Fire-and-forget the language's title backfill via its dedicated
- * `title-backfill:<lang>` DO instance (which dedupes concurrent runs). Mirrors
- * triggerWorkflow: failures are logged, never thrown — the list still renders
- * its JA fallbacks.
+ * Minimum gap between page-driven backfill starts for one language. A run in
+ * flight is always attached to regardless (the hub dedupes on the language
+ * key); this throttles SETTLED runs — a completed scan that left stragglers
+ * the model kept dropping (still over the threshold, so every organic list
+ * view would otherwise start a fresh scan), and, deliberately, a FAILED one:
+ * a backfill that exhausted its retries means the translation backend is
+ * down, and re-launching a whole-archive scan per page view during an outage
+ * only amplifies it (the old DO path restarted immediately; this is the fix,
+ * not a regression). Lists stay on their JA fallbacks either way, the next
+ * window self-heals, and the admin pre-warm bypasses with `force`. Mirrors
+ * the article pipeline's re-trigger cooldown.
+ */
+const BACKFILL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Fire-and-forget the language's title backfill via the FlowHub, which dedupes
+ * on the flow's language key: a backfill already in flight is attached to,
+ * never doubled. Mirrors triggerWorkflow: failures are logged, never thrown —
+ * the list still renders its JA fallbacks.
  */
 export function triggerTitleBackfill(runtime: Runtime, language: string): void {
   try {
-    const doId = runtime.env.WORKFLOW_MANAGER.idFromName(
-      `title-backfill:${language}`,
-    );
-    const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
-    stub.fetch('http://internal/backfill-titles', {
+    const ns = runtime.env.FLOW_HUB;
+    const stub = ns.get(ns.idFromName('hub'));
+    stub.fetch('http://internal/start', {
       method: 'POST',
-      body: JSON.stringify({ language }),
+      body: JSON.stringify({
+        flow: TitleBackfillFlow.name,
+        params: { language },
+        cooldownMs: BACKFILL_COOLDOWN_MS,
+      }),
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {

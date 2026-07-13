@@ -28,7 +28,7 @@ import {
   type ListItem,
 } from '@hiroba/db';
 import { getFlowHub } from '@hiroba/flow/hub';
-import { BannerFlow } from '@hiroba/flows';
+import { BannerFlow, TitleFlow } from '@hiroba/flows';
 import { imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   crawlPlayguides,
@@ -483,13 +483,14 @@ async function refreshGlossary(db: Database, log: Logger): Promise<void> {
 }
 
 /**
- * Enqueue the durable TitleWorkflow for a run's newly-discovered items — the
- * only processing discovery does. The heavy ArticleWorkflow is lazy: it's
- * triggered on first view (the web/admin detail pages), not here. Best-effort:
- * a failure to enqueue is logged, never fails the refresh.
+ * Start the TitleFlow over a run's newly-discovered items — the only
+ * processing discovery does. The heavy ArticleWorkflow is lazy: it's triggered
+ * on first view (the web/admin detail pages), not here. Started via the hub
+ * with the flow's RANDOM key: every batch is its own disjoint id set, so
+ * concurrent starts must never attach to each other. Best-effort: a failure to
+ * enqueue is logged, never fails the refresh.
  */
 async function enqueueTitleTranslation(
-  db: Database,
   env: Env,
   log: Logger,
   itemType: ItemType,
@@ -497,13 +498,9 @@ async function enqueueTitleTranslation(
 ): Promise<void> {
   if (items.length === 0) return;
   try {
-    const languages = await getEnabledLanguages(db);
-    await env.TITLE_WORKFLOW.create({
-      params: {
-        itemType,
-        itemIds: items.map((i) => i.id),
-        languages: languages.map((l) => l.code),
-      },
+    await getFlowHub(env).start(TitleFlow.name, {
+      itemType,
+      itemIds: items.map((i) => i.id),
     });
     log.info(
       `Enqueued title translation for ${items.length} new ${itemType} item(s)`,
@@ -545,7 +542,7 @@ async function refreshNews(db: Database, env: Env, log: Logger): Promise<void> {
     }
   }
 
-  await enqueueTitleTranslation(db, env, log, 'news', newItems);
+  await enqueueTitleTranslation(env, log, 'news', newItems);
 
   log.info(
     `Scheduled refresh complete: ${totalNew} new items, ${errors} errors`,
@@ -580,7 +577,7 @@ async function refreshTopics(
     log.error('Failed to scrape topics:', error);
   }
 
-  await enqueueTitleTranslation(db, env, log, 'topic', newItems);
+  await enqueueTitleTranslation(env, log, 'topic', newItems);
 
   log.info(`Topics refresh complete: ${totalNew} new topics`);
 }
@@ -610,7 +607,7 @@ async function refreshPlayguides(
         sortOrder: c.sortOrder,
       })),
     );
-    await enqueueTitleTranslation(db, env, log, 'playguide', inserted);
+    await enqueueTitleTranslation(env, log, 'playguide', inserted);
     log.info(
       `Playguides refresh complete: ${crawled.length} crawled, ${inserted.length} new`,
     );
