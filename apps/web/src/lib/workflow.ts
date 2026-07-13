@@ -6,7 +6,7 @@
  */
 
 import type { ItemType } from '@hiroba/db';
-import { TitleBackfillFlow } from '@hiroba/flows';
+import { PlayguideFlow, TitleBackfillFlow } from '@hiroba/flows';
 
 type ArticleType = Extract<ItemType, 'news' | 'topic' | 'playguide'>;
 
@@ -19,9 +19,22 @@ function workflowStub(runtime: Runtime, itemType: ArticleType, id: string) {
 }
 
 /**
- * Fire-and-forget trigger for an article's pipeline (the DO ignores the
- * trigger when a run is already in flight). Failures are logged, not thrown —
- * the page still renders whatever content it has.
+ * Minimum gap between page-driven pipeline re-triggers for one playguide. A
+ * settled-but-degraded guide is not complete, so every organic view would
+ * otherwise start a fresh pipeline. Mirrors the WorkflowManager DO's
+ * RETRIGGER_COOLDOWN_MS, which still guards the news/topic path.
+ */
+const PLAYGUIDE_RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Fire-and-forget trigger for an article's pipeline. Failures are logged, not
+ * thrown — the page still renders whatever content it has.
+ *
+ * Playguides run on the flow framework (DQX-24): the start goes to the
+ * FlowHub, which dedupes on the slug key (a run in flight is attached to,
+ * never doubled) and throttles page-driven re-triggers of settled runs via
+ * the cooldown. News and topics stay on the WorkflowManager DO path, whose
+ * per-item DO carries the same dedup + cooldown.
  */
 export function triggerWorkflow(
   runtime: Runtime,
@@ -29,6 +42,20 @@ export function triggerWorkflow(
   id: string,
 ): void {
   try {
+    if (itemType === 'playguide') {
+      const ns = runtime.env.FLOW_HUB;
+      const stub = ns.get(ns.idFromName('hub'));
+      stub.fetch('http://internal/start', {
+        method: 'POST',
+        body: JSON.stringify({
+          flow: PlayguideFlow.name,
+          params: { slug: id },
+          cooldownMs: PLAYGUIDE_RETRIGGER_COOLDOWN_MS,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return;
+    }
     const stub = workflowStub(runtime, itemType, id);
     stub.fetch('http://internal/trigger', {
       method: 'POST',

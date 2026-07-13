@@ -81,6 +81,11 @@ export type Env = {
    *  cap). Instances are created only by the FlowHub — triggers go through
    *  hub.start('glossary-regen'), keyed per term. */
   GLOSSARY_REGENERATE_WORKFLOW: WorkflowBinding<GlossaryRegenerateWorkflowParams>;
+  /** The playguide pipeline (PlayguideFlow, DQX-24): fetch → per-image ingest
+   *  → translate → per-image localize → purge. Instances are created only by
+   *  the FlowHub — triggers go through hub.start('playguide'), keyed by slug
+   *  so concurrent triggers attach. News/topics stay on ARTICLE_WORKFLOW. */
+  PLAYGUIDE_WORKFLOW: WorkflowBinding<PlayguideWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
@@ -193,6 +198,29 @@ export type GlossaryRegenerateWorkflowOutput = {
   sourceText: string;
   triggered: number;
   imagesRetranslated: number;
+};
+
+/**
+ * Parameters for the PlayguideWorkflow (PlayguideFlow, DQX-24). Just the
+ * guide's slug — it is also the hub's dedup key, replacing the old
+ * `playguide:<slug>` WorkflowManager DO name as the one-run-per-guide point.
+ */
+export type PlayguideWorkflowParams = {
+  slug: string;
+};
+
+/**
+ * Overall PlayguideWorkflow output — the ArticleWorkflow shape minus the event
+ * steps, which PlayguideFlow never declares (playguides are static reference
+ * pages with no dated events).
+ */
+export type PlayguideWorkflowOutput = {
+  slug: string;
+  fetchBody: FetchBodyResult;
+  mirror: MirrorResult;
+  transcribe: TranscribeResult;
+  translate: TranslateResult;
+  localize: LocalizeResult;
 };
 
 /** Result of the fetch-body step (scrape + parse → blocks_ja). */

@@ -132,6 +132,202 @@ async function loadOriginal(
   }
 }
 
+/** One image row from the shared `images` table. */
+type ImageRow = Awaited<ReturnType<typeof getImagesByKeys>>[number];
+
+/** One image's fate through `localizeRowForLanguage` — the unit of LocalizeResult. */
+type LocalizeOutcome = 'localized' | 'skipped' | 'failed';
+
+/**
+ * Localize one image row into one language — the core both entry points share
+ * (`localizeImages` prefetches the per-language maps; `localizeOneImage`
+ * fetches per row). Never throws for a bad image — the url row is marked
+ * failed and the outcome says so, because one bad image degrades the article,
+ * never blocks it.
+ */
+async function localizeRowForLanguage(
+  db: Database,
+  bucket: R2Bucket,
+  images: ImagesBinding,
+  apiKey: string,
+  row: ImageRow,
+  target: TargetLanguage,
+  /** The row's `text` translation and prior localized-by model, prefetched. */
+  seen: {
+    translatedJson: string | undefined;
+    localizedModel: string | undefined;
+  },
+  force: boolean,
+  /** The model to stamp on the produced `url` row (its later skip identity). */
+  model: string,
+): Promise<LocalizeOutcome> {
+  const language = target.code;
+
+  /** Record a terminal failure on the image's `url` row. */
+  const markFailed = async (error: string): Promise<LocalizeOutcome> => {
+    await setTranslationStates(db, {
+      itemType: 'image',
+      itemId: String(row.id),
+      language,
+      fields: ['url'],
+      state: 'failed',
+      error,
+    });
+    return 'failed';
+  };
+
+  const isCandidate = !!row.textsJa && hasJapanese(row.textsJa);
+  if (!seen.translatedJson) {
+    // No translated spans. Fine for text-free images — but a Japanese-bearing
+    // image here means its translation never landed; fail the url row
+    // explicitly so the pipeline snapshot settles instead of waiting forever.
+    if (isCandidate) {
+      return markFailed('image text was never translated');
+    }
+    return 'skipped';
+  }
+  // Skip images already settled for this language — either localized by the
+  // current model, or carrying a hand-supplied manual override. An explicit
+  // admin regeneration passes `force` to redo them anyway.
+  if (
+    !force &&
+    (seen.localizedModel === IMAGE_MODEL ||
+      seen.localizedModel === MANUAL_IMAGE_MODEL)
+  ) {
+    return 'skipped';
+  }
+
+  const translatedSpans = JSON.parse(seen.translatedJson) as string[];
+  const jaSpans = row.textsJa ?? [];
+  const pairs = jaSpans
+    .map((ja, i) => ({ ja, translated: translatedSpans[i] ?? ja }))
+    .filter((p) => hasJapanese([p.ja]));
+  if (pairs.length === 0) {
+    return 'skipped';
+  }
+
+  await setTranslationStates(db, {
+    itemType: 'image',
+    itemId: String(row.id),
+    language,
+    fields: ['url'],
+    state: 'running',
+  });
+
+  try {
+    const original = await loadOriginal(bucket, row.key);
+    if (!original) {
+      return markFailed('failed to load original image');
+    }
+
+    // gpt-image-2 only ingests jpeg/png/webp; re-encode anything else (GIF, …).
+    const editable = await toEditableImage(images, {
+      bytes: original.bytes,
+      mimeType: original.mimeType,
+    });
+    if (!editable) {
+      return markFailed('image could not be transcoded for editing');
+    }
+
+    // gpt-image-2 can't round-trip transparency; matte onto white + pad via
+    // the Images binding and ask for a stacked black/white two-up, then solve
+    // for alpha differentially (see image-matte). Opaque images stay on the
+    // plain edit path untouched.
+    const matted =
+      editable.mimeType === 'image/png' &&
+      hasMeaningfulTransparency(editable.bytes);
+    let editInput = editable;
+    if (matted) {
+      const padded = await matteAndPadForTwoUp(images, editable.bytes);
+      if (!padded) {
+        return markFailed('image could not be matted for editing');
+      }
+      editInput = { bytes: padded, mimeType: 'image/png' };
+    }
+
+    const edited = await editImage(apiKey, {
+      imageBytes: editInput.bytes,
+      mimeType: editInput.mimeType,
+      prompt: buildPrompt(target.label, pairs, matted),
+    });
+    if (!edited) {
+      return markFailed('image edit failed');
+    }
+
+    // Recover transparency from the two-up (matted images only), then trim
+    // the padding gpt-image-2 adds back to the original's aspect ratio.
+    const restored = matted ? recoverAlphaFromTwoUp(edited) : edited;
+    if (!restored) {
+      return markFailed('two-up alpha recovery failed');
+    }
+    const localizedBytes = trimToAspect(restored, original.bytes);
+
+    const localizedKey = `${localizedPrefix(language)}/${row.key}`;
+    await bucket.put(localizedKey, localizedBytes, {
+      httpMetadata: { contentType: 'image/png', cacheControl: CACHE_CONTROL },
+    });
+    await upsertImageTranslation(db, {
+      imageId: row.id,
+      language,
+      field: 'url',
+      value: localizedKey,
+      model,
+    });
+    return 'localized';
+  } catch (err) {
+    // One bad image shouldn't wedge the step or strand its row in 'running'
+    // (shared rows aren't covered by the workflow's mark-failed).
+    console.error(`Failed to localize ${row.key} (${language}):`, err);
+    return markFailed(err instanceof Error ? err.message : 'unknown');
+  }
+}
+
+/**
+ * Localize one image row into every target language (the per-unit worker
+ * behind the flow framework's per-image `map` units — the batch entry point
+ * below prefetches per-language maps instead). Idempotent per
+ * (language, model), like the batch path.
+ */
+export async function localizeOneImage(
+  db: Database,
+  bucket: R2Bucket,
+  images: ImagesBinding,
+  apiKey: string,
+  row: ImageRow,
+  targetLanguages: TargetLanguage[],
+): Promise<LocalizeResult> {
+  const result: LocalizeResult = { localized: 0, skipped: 0, failed: 0 };
+  for (const target of targetLanguages) {
+    const translated = await getImageTranslations(
+      db,
+      [row.id],
+      target.code,
+      'text',
+    );
+    const localizedBy = await getLocalizedImageModels(
+      db,
+      [row.id],
+      target.code,
+    );
+    const outcome = await localizeRowForLanguage(
+      db,
+      bucket,
+      images,
+      apiKey,
+      row,
+      target,
+      {
+        translatedJson: translated.get(row.id),
+        localizedModel: localizedBy.get(row.id),
+      },
+      false,
+      IMAGE_MODEL,
+    );
+    result[outcome]++;
+  }
+  return result;
+}
+
 /**
  * Localize every text-bearing image referenced by `blocks` into one language.
  * Idempotent per (language, model).
@@ -141,7 +337,7 @@ async function localizeImagesForLanguage(
   bucket: R2Bucket,
   images: ImagesBinding,
   apiKey: string,
-  rows: Awaited<ReturnType<typeof getImagesByKeys>>,
+  rows: ImageRow[],
   target: TargetLanguage,
   force: boolean,
   /** The model to stamp on the produced `url` row (its later skip identity). */
@@ -152,141 +348,25 @@ async function localizeImagesForLanguage(
   const translatedText = await getImageTranslations(db, ids, language, 'text');
   const localizedBy = await getLocalizedImageModels(db, ids, language);
 
-  let localized = 0;
-  let skipped = 0;
-  let failed = 0;
-
-  /** Record a terminal failure on the image's `url` row (and count it). */
-  const markFailed = async (imageId: number, error: string) => {
-    failed++;
-    await setTranslationStates(db, {
-      itemType: 'image',
-      itemId: String(imageId),
-      language,
-      fields: ['url'],
-      state: 'failed',
-      error,
-    });
-  };
-
+  const result: LocalizeResult = { localized: 0, skipped: 0, failed: 0 };
   await mapWithConcurrency(rows, LOCALIZE_CONCURRENCY, async (row) => {
-    const isCandidate = !!row.textsJa && hasJapanese(row.textsJa);
-    const translatedJson = translatedText.get(row.id);
-    if (!translatedJson) {
-      // No translated spans. Fine for text-free images — but a Japanese-bearing
-      // image here means its translation never landed; fail the url row
-      // explicitly so the pipeline snapshot settles instead of waiting forever.
-      if (isCandidate) {
-        await markFailed(row.id, 'image text was never translated');
-      } else {
-        skipped++;
-      }
-      return;
-    }
-    // Skip images already settled for this language — either localized by the
-    // current model, or carrying a hand-supplied manual override. An explicit
-    // admin regeneration passes `force` to redo them anyway.
-    const localizedModel = localizedBy.get(row.id);
-    if (
-      !force &&
-      (localizedModel === IMAGE_MODEL || localizedModel === MANUAL_IMAGE_MODEL)
-    ) {
-      skipped++;
-      return;
-    }
-
-    const translatedSpans = JSON.parse(translatedJson) as string[];
-    const jaSpans = row.textsJa ?? [];
-    const pairs = jaSpans
-      .map((ja, i) => ({ ja, translated: translatedSpans[i] ?? ja }))
-      .filter((p) => hasJapanese([p.ja]));
-    if (pairs.length === 0) {
-      skipped++;
-      return;
-    }
-
-    await setTranslationStates(db, {
-      itemType: 'image',
-      itemId: String(row.id),
-      language,
-      fields: ['url'],
-      state: 'running',
-    });
-
-    try {
-      const original = await loadOriginal(bucket, row.key);
-      if (!original) {
-        await markFailed(row.id, 'failed to load original image');
-        return;
-      }
-
-      // gpt-image-2 only ingests jpeg/png/webp; re-encode anything else (GIF, …).
-      const editable = await toEditableImage(images, {
-        bytes: original.bytes,
-        mimeType: original.mimeType,
-      });
-      if (!editable) {
-        await markFailed(row.id, 'image could not be transcoded for editing');
-        return;
-      }
-
-      // gpt-image-2 can't round-trip transparency; matte onto white + pad via
-      // the Images binding and ask for a stacked black/white two-up, then solve
-      // for alpha differentially (see image-matte). Opaque images stay on the
-      // plain edit path untouched.
-      const matted =
-        editable.mimeType === 'image/png' &&
-        hasMeaningfulTransparency(editable.bytes);
-      let editInput = editable;
-      if (matted) {
-        const padded = await matteAndPadForTwoUp(images, editable.bytes);
-        if (!padded) {
-          await markFailed(row.id, 'image could not be matted for editing');
-          return;
-        }
-        editInput = { bytes: padded, mimeType: 'image/png' };
-      }
-
-      const edited = await editImage(apiKey, {
-        imageBytes: editInput.bytes,
-        mimeType: editInput.mimeType,
-        prompt: buildPrompt(target.label, pairs, matted),
-      });
-      if (!edited) {
-        await markFailed(row.id, 'image edit failed');
-        return;
-      }
-
-      // Recover transparency from the two-up (matted images only), then trim
-      // the padding gpt-image-2 adds back to the original's aspect ratio.
-      const restored = matted ? recoverAlphaFromTwoUp(edited) : edited;
-      if (!restored) {
-        await markFailed(row.id, 'two-up alpha recovery failed');
-        return;
-      }
-      const localizedBytes = trimToAspect(restored, original.bytes);
-
-      const localizedKey = `${localizedPrefix(language)}/${row.key}`;
-      await bucket.put(localizedKey, localizedBytes, {
-        httpMetadata: { contentType: 'image/png', cacheControl: CACHE_CONTROL },
-      });
-      await upsertImageTranslation(db, {
-        imageId: row.id,
-        language,
-        field: 'url',
-        value: localizedKey,
-        model,
-      });
-      localized++;
-    } catch (err) {
-      // One bad image shouldn't wedge the step or strand its row in 'running'
-      // (shared rows aren't covered by the workflow's mark-failed).
-      console.error(`Failed to localize ${row.key} (${language}):`, err);
-      await markFailed(row.id, err instanceof Error ? err.message : 'unknown');
-    }
+    const outcome = await localizeRowForLanguage(
+      db,
+      bucket,
+      images,
+      apiKey,
+      row,
+      target,
+      {
+        translatedJson: translatedText.get(row.id),
+        localizedModel: localizedBy.get(row.id),
+      },
+      force,
+      model,
+    );
+    result[outcome]++;
   });
-
-  return { localized, skipped, failed };
+  return result;
 }
 
 /**

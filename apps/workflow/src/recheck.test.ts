@@ -6,8 +6,13 @@ import {
   setBodyChecked,
   type Database,
 } from '@hiroba/db';
+import { getFlowHub } from '@hiroba/flow/hub';
 import type { Block } from '@hiroba/richtext';
-import { fetchNewsBody, fetchTopicBody } from '@hiroba/scraper';
+import {
+  fetchNewsBody,
+  fetchPlayguideBody,
+  fetchTopicBody,
+} from '@hiroba/scraper';
 
 import type { Logger } from './logger';
 import { processRechecks } from './recheck';
@@ -19,8 +24,15 @@ vi.mock('@hiroba/db', () => ({
   setBodyChecked: vi.fn(),
 }));
 
+// The hub entry pulls cloudflare:workers, which doesn't exist on this plain-
+// node tier — and the RPC surface is exactly what this suite asserts against.
+vi.mock('@hiroba/flow/hub', () => ({
+  getFlowHub: vi.fn(),
+}));
+
 vi.mock('@hiroba/scraper', () => ({
   fetchNewsBody: vi.fn(),
+  fetchPlayguideBody: vi.fn(),
   fetchTopicBody: vi.fn(),
 }));
 
@@ -39,6 +51,12 @@ const env = {
     get: vi.fn(() => ({ fetch: doFetch })),
   },
 } as unknown as Env;
+
+const hubStart = vi.fn(async () => ({
+  runId: 'run-1',
+  created: true,
+  status: 'queued',
+}));
 
 const PARA = (text: string): Block => ({ type: 'paragraph', children: [text] });
 
@@ -65,6 +83,9 @@ function dueItem(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(getFlowHub).mockReturnValue({
+    start: hubStart,
+  } as unknown as ReturnType<typeof getFlowHub>);
 });
 
 describe('processRechecks', () => {
@@ -127,6 +148,32 @@ describe('processRechecks', () => {
       `topic:${'a'.repeat(32)}`,
     );
     expect(doFetch).toHaveBeenCalledOnce();
+  });
+
+  it('re-triggers a changed playguide via the hub, not the DO', async () => {
+    vi.mocked(getDueRechecks).mockResolvedValue([
+      dueItem({ itemType: 'playguide' as never, id: 'guide07' }),
+    ]);
+    vi.mocked(fetchPlayguideBody).mockResolvedValue({
+      titleJa: 'ガイド',
+      specificTitle: null,
+      blocks: [PARA('更新後の本文')],
+    });
+
+    await processRechecks(db, env, log);
+
+    expect(saveChangedBody).toHaveBeenCalledWith(db, 'playguide', 'guide07', {
+      blocks: [PARA('更新後の本文')],
+      titleJa: undefined,
+    });
+    // Playguides run on the flow framework (DQX-24): started at the hub,
+    // keyed by slug — the WorkflowManager DO is never touched.
+    expect(hubStart).toHaveBeenCalledWith(
+      'playguide',
+      { slug: 'guide07' },
+      { force: true },
+    );
+    expect(doFetch).not.toHaveBeenCalled();
   });
 
   it('caps pipeline re-triggers per run, deferring the rest', async () => {

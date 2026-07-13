@@ -28,7 +28,7 @@ import {
   type ListItem,
 } from '@hiroba/db';
 import { getFlowHub } from '@hiroba/flow/hub';
-import { BannerFlow, TitleFlow } from '@hiroba/flows';
+import { BannerFlow, PlayguideFlow, TitleFlow } from '@hiroba/flows';
 import { imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   crawlPlayguides,
@@ -48,6 +48,7 @@ import { transcribeImages } from './steps/transcribe-images';
 import { translateImageTexts } from './steps/translate-image-texts';
 import { translateTitleChunk } from './steps/translate-titles';
 import type { Env, ItemType } from './types';
+import { RETRIGGER_COOLDOWN_MS } from './workflow-manager';
 
 // Export the Durable Object and Workflow classes
 export { FlowHub } from './flow-hub';
@@ -58,6 +59,7 @@ export { TitleBackfillWorkflow } from './title-backfill-workflow';
 export { NewsBackfillWorkflow } from './news-backfill-workflow';
 export { BannerWorkflow } from './banner-workflow';
 export { GlossaryRegenerateWorkflow } from './glossary-regenerate-workflow';
+export { PlayguideWorkflow } from './playguide-workflow';
 
 export default Sentry.withSentry(
   (env: Env) => ({
@@ -159,8 +161,30 @@ export default Sentry.withSentry(
           `trigger received: ${itemType} ${itemId}`,
         );
 
+        // Playguides run on the flow framework (DQX-24): start via the hub,
+        // which dedupes on the slug key. Mirrors the DO trigger contract —
+        // the caller's `force` bypasses the page-view re-trigger cooldown,
+        // and `probe` verifies a stale-looking active run against the engine
+        // before attaching — and the DO response shape.
+        if (itemType === 'playguide') {
+          const result = await getFlowHub(env).start(
+            PlayguideFlow.name,
+            { slug: itemId },
+            {
+              force: body.force ?? false,
+              cooldownMs: RETRIGGER_COOLDOWN_MS,
+              probe: true,
+            },
+          );
+          return Response.json(
+            result.throttled
+              ? { status: 'throttled' }
+              : { status: 'started', instanceId: result.runId },
+          );
+        }
+
         // Route to the DO for this item, namespaced by type so ids don't collide
-        // (news = bare id; topic/playguide = `<type>:<id>`).
+        // (news = bare id; topic = `topic:<id>`).
         const doName = itemType === 'news' ? itemId : `${itemType}:${itemId}`;
         const doId = env.WORKFLOW_MANAGER.idFromName(doName);
         const stub = env.WORKFLOW_MANAGER.get(doId);

@@ -37,6 +37,11 @@
       "binding": "NEWS_BACKFILL_WORKFLOW",
       "class_name": "NewsBackfillWorkflow",
     },
+    {
+      "name": "playguide-workflow",
+      "binding": "PLAYGUIDE_WORKFLOW",
+      "class_name": "PlayguideWorkflow",
+    },
   ],
   "d1_databases": [
     {

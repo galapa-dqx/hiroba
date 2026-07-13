@@ -136,6 +136,17 @@ name = "glossary-regenerate-workflow"
 binding = "GLOSSARY_REGENERATE_WORKFLOW"
 class_name = "GlossaryRegenerateWorkflow"
 
+# PlayguideFlow (DQX-24): the playguide pipeline, split out of ArticleWorkflow
+# — fetch-body → per-image mirror+transcribe units → size-gated translate →
+# per-image localize units → edge purge (no event steps; guides are static).
+# Started only via the FlowHub (hub.start('playguide'), keyed by slug so
+# concurrent triggers attach) from the admin re-run, the web detail page, the
+# self-healing SSE stream, and the hourly recheck heal.
+[[workflows]]
+name = "playguide-workflow"
+binding = "PLAYGUIDE_WORKFLOW"
+class_name = "PlayguideWorkflow"
+
 # Scheduled triggers. The nightly work is staggered into separate invocations
 # so each job gets its own subrequest/CPU budget and can't starve the next
 # (the playguide crawl alone fetches ~130 pages):

@@ -41,6 +41,8 @@ import {
   recordWorkflowRun,
   updateWorkflowRunStatus,
 } from '@hiroba/db';
+import { getFlowHub, isActiveStatus } from '@hiroba/flow/hub';
+import { PlayguideFlow } from '@hiroba/flows';
 import { imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   describeSnapshot,
@@ -70,7 +72,7 @@ const SETTLED_RETAINED_HOURS = 24 * 7;
  * Genuine self-healing still happens (just not on every hit); admin and cron
  * bypass this with `force`.
  */
-const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+export const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 type Active = { instanceId: string; itemType: ItemType };
 
@@ -191,9 +193,31 @@ export class WorkflowManager extends DurableObject<Env> {
             }
           }
 
-          const workflow = this.env.ARTICLE_WORKFLOW;
           const pollInterval = 1000;
           const maxPolls = 300; // 5 minutes
+
+          // Whether the run driving this item has settled — playguides run on
+          // the flow framework (DQX-24), so their status lives at the hub.
+          // News/topics ask the Workflows engine.
+          const runFinished = async (run: Active): Promise<boolean> => {
+            if (run.itemType === 'playguide') {
+              const info = await getFlowHub(this.env).getRun(run.instanceId);
+              if (info) return !isActiveStatus(info.status);
+              // Unknown to the hub: the one way that happens is a
+              // pre-cutover ArticleWorkflow instance this (not-yet-restarted)
+              // DO still remembers in memory — fall through and ask the old
+              // engine about it rather than declaring a live straggler done.
+            }
+            const instance = await this.env.ARTICLE_WORKFLOW.get(
+              run.instanceId,
+            );
+            const status = await instance.status();
+            return (
+              status.status === 'complete' ||
+              status.status === 'errored' ||
+              status.status === 'terminated'
+            );
+          };
 
           for (let i = 0; i < maxPolls; i++) {
             await new Promise((resolve) => setTimeout(resolve, pollInterval));
@@ -205,16 +229,10 @@ export class WorkflowManager extends DurableObject<Env> {
               return;
             }
 
-            const instance = await workflow.get(active.instanceId);
-            const status = await instance.status();
-            if (
-              status.status === 'complete' ||
-              status.status === 'errored' ||
-              status.status === 'terminated'
-            ) {
+            if (await runFinished(active)) {
               // The workflow is finished; whatever the snapshot says now is
               // all it will ever say (errored workflows settle their states in
-              // their mark-failed step before reaching this point).
+              // their failure handler before reaching this point).
               snapshot = await computeSnapshot(db, itemType, itemId, language);
               emit(snapshot);
               finish(snapshot);
@@ -325,6 +343,24 @@ export class WorkflowManager extends DurableObject<Env> {
     itemType: ItemType,
     { force = false }: { force?: boolean } = {},
   ): Promise<Active | null> {
+    // Playguides run on the flow framework (DQX-24). The hub owns dedup (one
+    // active run per slug key), the re-trigger cooldown, and the run registry
+    // — everything the durable path below does for news/topics — so this is a
+    // straight delegation, outside blockConcurrencyWhile (the hub start is
+    // itself race-safe). `probe` verifies a stale-looking active run against
+    // the engine before attaching: this path is only hit from the self-healing
+    // SSE stream and stray internal triggers, where someone is watching.
+    if (itemType === 'playguide') {
+      const result = await getFlowHub(this.env).start(
+        PlayguideFlow.name,
+        { slug: itemId },
+        { force, cooldownMs: RETRIGGER_COOLDOWN_MS, probe: true },
+      );
+      if (result.throttled) return null;
+      const active: Active = { instanceId: result.runId, itemType };
+      this.activeWorkflows.set(itemId, active);
+      return active;
+    }
     return this.ctx.blockConcurrencyWhile(async () => {
       const workflow = this.env.ARTICLE_WORKFLOW;
       const db = createDb(this.env.DB);
@@ -511,6 +547,23 @@ export class WorkflowManager extends DurableObject<Env> {
     const active = this.activeWorkflows.get(itemId);
     if (!active) return Response.json({ status: 'idle' });
 
+    // Playguide handles are hub run ids (DQX-24), not engine instances. A
+    // hub miss falls through to the legacy engine lookup below — the same
+    // straggler posture as the SSE stream's runFinished (a warm DO can still
+    // be tracking a pre-cutover ArticleWorkflow instance).
+    if (active.itemType === 'playguide') {
+      const info = await getFlowHub(this.env).getRun(active.instanceId);
+      if (info) {
+        return Response.json({
+          // The hub's one non-engine status name, mapped to this wire type's.
+          status: info.status === 'failed' ? 'errored' : info.status,
+          instanceId: active.instanceId,
+          output: info.output,
+          error: info.error ?? undefined,
+        });
+      }
+    }
+
     try {
       const instance = await this.env.ARTICLE_WORKFLOW.get(active.instanceId);
       const status = await instance.status();
@@ -544,9 +597,34 @@ export class WorkflowManager extends DurableObject<Env> {
       db,
       now.subtract({ hours: SETTLED_RETAINED_HOURS }),
     );
-    const runs = await listWorkflowRuns(db, {
-      settledSince: now.subtract({ hours: SETTLED_VISIBLE_HOURS }),
-    });
+    const settledSince = now.subtract({ hours: SETTLED_VISIBLE_HOURS });
+    // Playguide registry rows are legacy (DQX-24 moved the type to the hub;
+    // nothing records new ones): keep them only while still active — the
+    // pre-deploy in-flight instances the cutover tolerates — and let settled
+    // ones defer to the hub listing below instead of shadowing it for a day.
+    const runs = (await listWorkflowRuns(db, { settledSince })).filter(
+      (run) => run.itemType !== 'playguide' || isRunActive(run.status),
+    );
+
+    // Playguide runs live at the FlowHub (DQX-24), not in the workflow_runs
+    // registry — merge them in with the same visibility window so the edit
+    // page's run tracking and this panel keep working unchanged. The hub
+    // reconciles its own stale actives lazily; no engine polling here.
+    let playguideRuns: Awaited<
+      ReturnType<ReturnType<typeof getFlowHub>['listRuns']>
+    > = [];
+    try {
+      const hubRuns = await getFlowHub(this.env).listRuns({
+        flow: PlayguideFlow.name,
+      });
+      playguideRuns = hubRuns.filter(
+        (r) =>
+          isActiveStatus(r.status) ||
+          r.updatedAt >= settledSince.epochMilliseconds,
+      );
+    } catch (error) {
+      console.error('Failed to list playguide flow runs:', error);
+    }
 
     // Batch the translated titles per item type (cheap title-row-only reads).
     const titleEn = new Map<string, string>();
@@ -554,6 +632,9 @@ export class WorkflowManager extends DurableObject<Env> {
       const ids = runs
         .filter((r) => r.itemType === itemType)
         .map((r) => r.itemId);
+      if (itemType === 'playguide') {
+        ids.push(...playguideRuns.map((r) => r.key));
+      }
       const titles = await getTitleTranslations(db, itemType, ids, 'en');
       for (const [id, title] of titles) titleEn.set(`${itemType}:${id}`, title);
     }
@@ -619,6 +700,37 @@ export class WorkflowManager extends DurableObject<Env> {
         images,
       });
     }
+
+    for (const run of playguideRuns) {
+      const slug = run.key;
+      const item = await getPlayguide(db, slug);
+      const snapshot = await computeSnapshot(db, 'playguide', slug, 'en');
+      const images = item
+        ? await computeImageDetail(db, item.blocksJa, 'en')
+        : [];
+      entries.push({
+        instanceId: run.runId,
+        itemType: 'playguide',
+        itemId: slug,
+        titleJa: item?.titleJa ?? null,
+        titleEn: titleEn.get(`playguide:${slug}`) ?? null,
+        // The hub's one non-engine status name: its 'failed' is the engine's
+        // (and this wire type's) 'errored'.
+        status: run.status === 'failed' ? 'errored' : run.status,
+        error: run.error,
+        startedAt: Temporal.Instant.fromEpochMilliseconds(
+          run.createdAt,
+        ).toString(),
+        updatedAt: Temporal.Instant.fromEpochMilliseconds(
+          run.updatedAt,
+        ).toString(),
+        snapshot,
+        images,
+      });
+    }
+
+    // Registry rows come back newest-first; keep that order across the merge.
+    entries.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
 
     return Response.json({ runs: entries });
   }

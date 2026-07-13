@@ -24,6 +24,8 @@ import {
   setBodyChecked,
   type Database,
 } from '@hiroba/db';
+import { getFlowHub } from '@hiroba/flow/hub';
+import { PlayguideFlow } from '@hiroba/flows';
 import {
   serializeToRtml,
   stripTimeEventTags,
@@ -52,13 +54,26 @@ const MAX_RETRIGGERS_PER_RUN = 5;
 const comparable = (blocks: Block[]): string =>
   serializeToRtml({ title: '', blocks: stripTimeEventTags(blocks) });
 
-/** Fire the ArticleWorkflow for an item via its WorkflowManager DO (the same
+/** Re-run an item's pipeline. Playguides run on the flow framework (DQX-24) —
+ * started via the hub, keyed by slug so a run in flight is attached to; news
+ * and topics fire their ArticleWorkflow via the WorkflowManager DO (the same
  * path the public /trigger endpoint takes). */
 async function triggerArticleWorkflow(
   env: Env,
   itemType: ItemType,
   itemId: string,
 ): Promise<void> {
+  if (itemType === 'playguide') {
+    // System-initiated heal — `force` keeps the contract explicit (the hub
+    // only throttles when a caller opts into cooldownMs, but this start must
+    // never be swallowed regardless of how that evolves).
+    await getFlowHub(env).start(
+      PlayguideFlow.name,
+      { slug: itemId },
+      { force: true },
+    );
+    return;
+  }
   const doName = itemType === 'news' ? itemId : `${itemType}:${itemId}`;
   const stub = env.WORKFLOW_MANAGER.get(
     env.WORKFLOW_MANAGER.idFromName(doName),

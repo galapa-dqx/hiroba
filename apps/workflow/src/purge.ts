@@ -14,6 +14,13 @@
 
 import type { Env, ItemType } from './types';
 
+/** The slice of the worker env purging reads — narrow so flow bodies holding
+ *  a Pick of Env (the platform-free test seam) can purge too. */
+export type PurgeEnv = Pick<
+  Env,
+  'CF_ZONE_ID' | 'CF_PURGE_TOKEN' | 'WEB_BASE_URL' | 'IMAGE_BASE'
+>;
+
 /** Web detail-page path segment per item type (topics is plural in the route). */
 const ARTICLE_PATH: Record<ItemType, string> = {
   news: 'news',
@@ -47,7 +54,7 @@ export function articleUrls(
  * triggered it; it just means the content refreshes on its TTL instead.
  */
 export async function purgeUrls(
-  env: Env,
+  env: PurgeEnv,
   urls: string[],
   log?: PurgeLog,
 ): Promise<void> {
@@ -90,7 +97,7 @@ export async function purgeUrls(
 
 /** Purge an article's detail page across every enabled language. */
 export async function purgeArticle(
-  env: Env,
+  env: PurgeEnv,
   itemType: ItemType,
   id: string,
   languages: ReadonlyArray<{ code: string }>,
@@ -112,7 +119,7 @@ export async function purgeArticle(
  * `localizedKey` is the R2 key recorded on the translation row (`l10n/<lang>/…`).
  */
 export async function purgeImage(
-  env: Env,
+  env: PurgeEnv,
   localizedKey: string,
   log?: PurgeLog,
 ): Promise<void> {
