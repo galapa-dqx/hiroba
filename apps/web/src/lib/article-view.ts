@@ -30,6 +30,8 @@ export type ArticlePhase =
   | 'processing'
   /** The scrape found no article body; nothing to show until a retry. */
   | 'fetch-failed'
+  /** The body landed but translation didn't; nothing to show until a retry. */
+  | 'translate-failed'
   /** The last run died without producing this language's content. */
   | 'run-failed';
 
@@ -42,6 +44,11 @@ export type ArticleView = {
    *  (a viewer is waiting on missing content), `cooldown` is the throttled
    *  background heal, null leaves a healthy item alone. */
   trigger: 'force' | 'cooldown' | null;
+  /** Set when `processing` was decided over an ALREADY-TERMINAL run (one that
+   *  ran before this language existed): the client must not treat this run's
+   *  replayed terminal frame as fresh completion, or it reload-loops until
+   *  the newly-forced run wins the flow-key stream. */
+  staleRunId?: string;
 };
 
 /**
@@ -80,11 +87,20 @@ export function resolveArticleView(
   }
 
   // No content for this language yet.
-  if (health === 'fetch-failed' || health === 'failed') {
+  if (
+    health === 'fetch-failed' ||
+    health === 'translate-failed' ||
+    health === 'failed'
+  ) {
     // The last attempt is a known dead end — retry on the cooldown so page
     // views during an outage don't hammer the pipeline.
     return {
-      phase: health === 'fetch-failed' ? 'fetch-failed' : 'run-failed',
+      phase:
+        health === 'fetch-failed'
+          ? 'fetch-failed'
+          : health === 'translate-failed'
+            ? 'translate-failed'
+            : 'run-failed',
       ready: false,
       cacheControl: CACHE_NONE,
       trigger: 'cooldown',
@@ -93,11 +109,13 @@ export function resolveArticleView(
 
   // Never ran, or ran before this language existed (a complete/degraded run
   // with no content for the viewer's language): a viewer is waiting — start
-  // (or attach to) a run past the cooldown and follow it live.
+  // (or attach to) a run past the cooldown and follow it live. The old run's
+  // terminal frame will replay on the flow-key stream — mark it stale.
   return {
     phase: 'processing',
     ready: false,
     cacheControl: CACHE_NONE,
     trigger: 'force',
+    ...(run ? { staleRunId: run.runId } : null),
   };
 }

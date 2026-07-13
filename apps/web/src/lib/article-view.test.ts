@@ -43,8 +43,16 @@ describe('itemRunHealth', () => {
       ),
     ).toBe('degraded');
     expect(
+      itemRunHealth(
+        run('complete', { ...CLEAN_OUTPUT, mirror: { failed: 1 } }),
+      ),
+    ).toBe('degraded');
+    expect(
       itemRunHealth(run('complete', { fetchBody: { success: false } })),
     ).toBe('fetch-failed');
+    expect(
+      itemRunHealth(run('complete', { translate: { success: false } })),
+    ).toBe('translate-failed');
     expect(itemRunHealth(run('failed'))).toBe('failed');
     expect(itemRunHealth(run('unknown' as RunInfo['status']))).toBe('failed');
   });
@@ -95,6 +103,9 @@ describe('resolveArticleView', () => {
       expect(view.phase).toBe('processing');
       expect(view.trigger).toBe('force');
       expect(view.cacheControl).toBe(CACHE_NONE);
+      // The stale terminal run is flagged so the client won't reload on its
+      // replayed terminal frame; with no run there is nothing to flag.
+      expect(view.staleRunId).toBe(r ? r.runId : undefined);
     }
   });
 
@@ -105,6 +116,13 @@ describe('resolveArticleView', () => {
     );
     expect(fetchFailed.phase).toBe('fetch-failed');
     expect(fetchFailed.trigger).toBe('cooldown');
+
+    const untranslated = resolveArticleView(
+      false,
+      run('complete', { translate: { success: false } }),
+    );
+    expect(untranslated.phase).toBe('translate-failed');
+    expect(untranslated.trigger).toBe('cooldown');
 
     const dead = resolveArticleView(false, run('failed'));
     expect(dead.phase).toBe('run-failed');

@@ -80,6 +80,8 @@ export function subscribeItemRun(
         if (health === 'complete' || health === 'degraded') handlers.onDone?.();
         else if (health === 'fetch-failed')
           handlers.onError?.('body fetch found no content');
+        else if (health === 'translate-failed')
+          handlers.onError?.('translation failed');
         else handlers.onError?.(snapshot.error ?? 'run failed');
       },
       onUnavailable: () => handlers.onError?.('Progress stream unavailable'),

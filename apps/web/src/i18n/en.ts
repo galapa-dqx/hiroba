@@ -142,6 +142,7 @@ export const en = {
 
   // Processing-callout pipeline status ({progress} = the step's unit counter)
   'status.fetchFailed': 'Failed to fetch the article.',
+  'status.translationFailed': 'Translation failed.',
   'status.fetching': 'Fetching content…',
   'status.extractingEvents': 'Extracting events…',
   'status.processingImages': 'Processing images ({progress})…',

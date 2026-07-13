@@ -118,6 +118,8 @@ export function describeItemRun(
  *                    a background heal.
  *   - `fetch-failed` — the scrape parsed nothing; the run completed with the
  *                    remaining steps skipped (there is no article to show).
+ *   - `translate-failed` — the body landed but translation didn't; the run
+ *                    completed without content to show.
  *   - `failed`     — the run itself died (or the engine lost it).
  *   - `active`     — not terminal yet.
  */
@@ -125,6 +127,7 @@ export type ItemRunHealth =
   | 'complete'
   | 'degraded'
   | 'fetch-failed'
+  | 'translate-failed'
   | 'failed'
   | 'active';
 
@@ -140,6 +143,7 @@ export type ItemRunLike = {
 type ItemRunOutput = {
   fetchBody?: { success?: boolean };
   translate?: { success?: boolean };
+  mirror?: { failed?: number };
   localize?: { failed?: number };
 };
 
@@ -155,7 +159,10 @@ export function itemRunHealth(run: ItemRunLike): ItemRunHealth {
   if (run.status !== 'complete') return 'failed';
   const output = (run.output ?? {}) as ItemRunOutput;
   if (output.fetchBody?.success === false) return 'fetch-failed';
-  if (output.translate?.success === false) return 'failed';
+  if (output.translate?.success === false) return 'translate-failed';
+  // Either per-image step failing degrades: a failed ingest (mirror) leaves
+  // the image unserved just like a failed localize.
+  if ((output.mirror?.failed ?? 0) > 0) return 'degraded';
   if ((output.localize?.failed ?? 0) > 0) return 'degraded';
   return 'complete';
 }

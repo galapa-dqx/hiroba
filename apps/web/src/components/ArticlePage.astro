@@ -97,6 +97,7 @@ const runStrings = itemRunStrings(lang);
 const calloutStrings = {
 	...runStrings,
 	fetchFailed: t("status.fetchFailed"),
+	translationFailed: t("status.translationFailed"),
 	doneReloading: t("status.doneReloading"),
 	errorPrefix: t("status.errorPrefix"),
 	unknownError: t("status.unknownError"),
@@ -104,7 +105,7 @@ const calloutStrings = {
 
 // The callout's first paint, derived server-side from the same run the client
 // will follow. `processing` narrates the snapshot (or the generic opening
-// line while the run is still being created); the two terminal failures show
+// line while the run is still being created); the terminal failures show
 // their error and don't stream — the pipeline is only re-armed on the
 // trigger cooldown, so there is nothing live to watch.
 const follow = view.phase === "processing";
@@ -114,7 +115,9 @@ const statusText = follow
 		: runStrings.fetching
 	: view.phase === "fetch-failed"
 		? t("status.fetchFailed")
-		: t("status.errorPrefix", { error: runError ?? t("status.unknownError") });
+		: view.phase === "translate-failed"
+			? t("status.translationFailed")
+			: t("status.errorPrefix", { error: runError ?? t("status.unknownError") });
 
 // This is a translated republish of the Hiroba original, so we canonicalize to
 // the source (cross-domain) rather than compete with it in search. hreflang
@@ -150,6 +153,7 @@ const alternates = [
 				class={`callout ${follow ? "callout--busy" : "callout--error"}`}
 				id="processing-notice"
 				data-sse-url={follow ? sseUrl : undefined}
+				data-stale-run={follow ? view.staleRunId : undefined}
 				data-i18n={JSON.stringify(calloutStrings)}
 				role="status"
 			>
@@ -227,6 +231,11 @@ const alternates = [
 
 	const notice = document.getElementById("processing-notice");
 	if (notice?.dataset.sseUrl) {
+		const sseUrl = notice.dataset.sseUrl;
+		// The already-terminal run the server gated on (the "ran before this
+		// language" case): its replayed terminal frame is old news, not fresh
+		// completion — reloading on it would loop until the forced run starts.
+		const staleRunId = notice.dataset.staleRun;
 		const statusEl = document.getElementById("processing-status");
 		// Localized copy embedded by the server (pipeline templates + terminal
 		// lines), so the callout speaks the reader's language client-side too.
@@ -238,41 +247,54 @@ const alternates = [
 			if (statusEl) statusEl.textContent = message;
 		};
 
-		followRun(
-			notice.dataset.sseUrl,
-			{
-				onSnapshot: (snapshot) => {
-					if (statusEl) statusEl.textContent = describeItemRun(snapshot, i18n);
+		const follow = () =>
+			followRun(
+				sseUrl,
+				{
+					onSnapshot: (snapshot) => {
+						if (statusEl) statusEl.textContent = describeItemRun(snapshot, i18n);
+					},
+					onSettled: (snapshot) => {
+						// The stale run's replay: keep waiting for the forced run to
+						// take over the flow-key stream (each retry reconnects, so a
+						// newer run's frames arrive as soon as it exists).
+						if (staleRunId && snapshot.runId === staleRunId) {
+							setTimeout(follow, 5000);
+							return;
+						}
+						// Same settled policy as the server gate: content landed (even
+						// degraded) → the reload paints the body; a dead end shows why.
+						const health = itemRunHealth(snapshot);
+						if (health === "complete" || health === "degraded") {
+							notice.classList.remove("callout--busy");
+							notice.classList.add("callout--complete");
+							if (statusEl) statusEl.textContent = i18n.doneReloading ?? "Done! Reloading…";
+							setTimeout(() => location.reload(), 500);
+							return;
+						}
+						if (health === "fetch-failed") {
+							showError(i18n.fetchFailed ?? "Failed to fetch the article.");
+							return;
+						}
+						if (health === "translate-failed") {
+							showError(i18n.translationFailed ?? "Translation failed.");
+							return;
+						}
+						const template = i18n.errorPrefix ?? "Error: {error}";
+						showError(
+							template.replace("{error}", snapshot.error || i18n.unknownError || "Unknown error"),
+						);
+					},
+					onUnavailable: () => {
+						const template = i18n.errorPrefix ?? "Error: {error}";
+						showError(template.replace("{error}", i18n.unknownError || "Unknown error"));
+					},
 				},
-				onSettled: (snapshot) => {
-					// Same settled policy as the server gate: content landed (even
-					// degraded) → the reload paints the body; a dead end shows why.
-					const health = itemRunHealth(snapshot);
-					if (health === "complete" || health === "degraded") {
-						notice.classList.remove("callout--busy");
-						notice.classList.add("callout--complete");
-						if (statusEl) statusEl.textContent = i18n.doneReloading ?? "Done! Reloading…";
-						setTimeout(() => location.reload(), 500);
-						return;
-					}
-					if (health === "fetch-failed") {
-						showError(i18n.fetchFailed ?? "Failed to fetch the article.");
-						return;
-					}
-					const template = i18n.errorPrefix ?? "Error: {error}";
-					showError(
-						template.replace("{error}", snapshot.error || i18n.unknownError || "Unknown error"),
-					);
-				},
-				onUnavailable: () => {
-					const template = i18n.errorPrefix ?? "Error: {error}";
-					showError(template.replace("{error}", i18n.unknownError || "Unknown error"));
-				},
-			},
-			// The page's fire-and-forget trigger may still be creating the run
-			// when we first connect — tolerate a longer 404 window than the
-			// admin's follow-a-known-run default.
-			{ maxFramelessConnects: 10 },
-		);
+				// The page's fire-and-forget trigger may still be creating the run
+				// when we first connect — tolerate a longer 404 window than the
+				// admin's follow-a-known-run default.
+				{ maxFramelessConnects: 10 },
+			);
+		follow();
 	}
 </script>
