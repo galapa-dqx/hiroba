@@ -48,6 +48,7 @@ import { transcribeImages } from './steps/transcribe-images';
 import { translateImageTexts } from './steps/translate-image-texts';
 import { translateTitleChunk } from './steps/translate-titles';
 import type { Env, ItemType } from './types';
+import { RETRIGGER_COOLDOWN_MS } from './workflow-manager';
 
 // Export the Durable Object and Workflow classes
 export { FlowHub } from './flow-hub';
@@ -161,11 +162,20 @@ export default Sentry.withSentry(
         );
 
         // Playguides run on the flow framework (DQX-24): start via the hub,
-        // which dedupes on the slug key. Mirrors the DO response shape.
+        // which dedupes on the slug key. Mirrors the DO trigger contract —
+        // the caller's `force` bypasses the page-view re-trigger cooldown,
+        // and `probe` verifies a stale-looking active run against the engine
+        // before attaching — and the DO response shape.
         if (itemType === 'playguide') {
-          const result = await getFlowHub(env).start(PlayguideFlow.name, {
-            slug: itemId,
-          });
+          const result = await getFlowHub(env).start(
+            PlayguideFlow.name,
+            { slug: itemId },
+            {
+              force: body.force ?? false,
+              cooldownMs: RETRIGGER_COOLDOWN_MS,
+              probe: true,
+            },
+          );
           return Response.json(
             result.throttled
               ? { status: 'throttled' }

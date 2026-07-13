@@ -72,7 +72,7 @@ const SETTLED_RETAINED_HOURS = 24 * 7;
  * Genuine self-healing still happens (just not on every hit); admin and cron
  * bypass this with `force`.
  */
-const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+export const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 type Active = { instanceId: string; itemType: ItemType };
 
@@ -578,7 +578,13 @@ export class WorkflowManager extends DurableObject<Env> {
       now.subtract({ hours: SETTLED_RETAINED_HOURS }),
     );
     const settledSince = now.subtract({ hours: SETTLED_VISIBLE_HOURS });
-    const runs = await listWorkflowRuns(db, { settledSince });
+    // Playguide registry rows are legacy (DQX-24 moved the type to the hub;
+    // nothing records new ones): keep them only while still active — the
+    // pre-deploy in-flight instances the cutover tolerates — and let settled
+    // ones defer to the hub listing below instead of shadowing it for a day.
+    const runs = (await listWorkflowRuns(db, { settledSince })).filter(
+      (run) => run.itemType !== 'playguide' || isRunActive(run.status),
+    );
 
     // Playguide runs live at the FlowHub (DQX-24), not in the workflow_runs
     // registry — merge them in with the same visibility window so the edit
