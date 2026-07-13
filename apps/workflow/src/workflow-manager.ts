@@ -547,20 +547,21 @@ export class WorkflowManager extends DurableObject<Env> {
     const active = this.activeWorkflows.get(itemId);
     if (!active) return Response.json({ status: 'idle' });
 
-    // Playguide handles are hub run ids (DQX-24), not engine instances.
+    // Playguide handles are hub run ids (DQX-24), not engine instances. A
+    // hub miss falls through to the legacy engine lookup below — the same
+    // straggler posture as the SSE stream's runFinished (a warm DO can still
+    // be tracking a pre-cutover ArticleWorkflow instance).
     if (active.itemType === 'playguide') {
       const info = await getFlowHub(this.env).getRun(active.instanceId);
-      if (!info) {
-        this.activeWorkflows.delete(itemId);
-        return Response.json({ status: 'idle' });
+      if (info) {
+        return Response.json({
+          // The hub's one non-engine status name, mapped to this wire type's.
+          status: info.status === 'failed' ? 'errored' : info.status,
+          instanceId: active.instanceId,
+          output: info.output,
+          error: info.error ?? undefined,
+        });
       }
-      return Response.json({
-        // The hub's one non-engine status name, mapped to this wire type's.
-        status: info.status === 'failed' ? 'errored' : info.status,
-        instanceId: active.instanceId,
-        output: info.output,
-        error: info.error ?? undefined,
-      });
     }
 
     try {

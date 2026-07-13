@@ -64,7 +64,14 @@ async function triggerArticleWorkflow(
   itemId: string,
 ): Promise<void> {
   if (itemType === 'playguide') {
-    await getFlowHub(env).start(PlayguideFlow.name, { slug: itemId });
+    // System-initiated heal — `force` keeps the contract explicit (the hub
+    // only throttles when a caller opts into cooldownMs, but this start must
+    // never be swallowed regardless of how that evolves).
+    await getFlowHub(env).start(
+      PlayguideFlow.name,
+      { slug: itemId },
+      { force: true },
+    );
     return;
   }
   const doName = itemType === 'news' ? itemId : `${itemType}:${itemId}`;

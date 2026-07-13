@@ -168,7 +168,11 @@ describe('processRechecks', () => {
     });
     // Playguides run on the flow framework (DQX-24): started at the hub,
     // keyed by slug — the WorkflowManager DO is never touched.
-    expect(hubStart).toHaveBeenCalledWith('playguide', { slug: 'guide07' });
+    expect(hubStart).toHaveBeenCalledWith(
+      'playguide',
+      { slug: 'guide07' },
+      { force: true },
+    );
     expect(doFetch).not.toHaveBeenCalled();
   });
 
