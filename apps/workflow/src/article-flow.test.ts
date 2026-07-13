@@ -13,6 +13,7 @@
  * blocks.
  */
 
+import { Temporal } from 'temporal-polyfill';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getEnabledLanguages, getImagesByKeys } from '@hiroba/db';
@@ -226,6 +227,31 @@ describe('article flow — news + topics on the shared fragments', () => {
       .map((t) => t.name);
     expect(doNames).toContain(`images/${IMG_KEY}`);
     expect(doNames).toContain(`localizeImages/${IMG_KEY}`);
+  });
+
+  it('feeds localize units only the serializable image-row slice', async () => {
+    // A real `images` row carries a Temporal.Instant updatedAt, which the
+    // engine cannot persist — the localize unit set must be projected down
+    // to plain data before it hits step storage.
+    vi.mocked(getImagesByKeys).mockResolvedValue([
+      { ...IMG_ROW, updatedAt: Temporal.Now.instant() },
+    ] as never);
+
+    const result = await runFlowInline(
+      ArticleFlow,
+      (f, params) => runArticleFlow(f, params, env),
+      { itemType: 'topic', itemId: TOPIC_ID },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(vi.mocked(localizeOneImage)).toHaveBeenCalledWith(
+      expect.anything(),
+      env.IMAGES_BUCKET,
+      env.IMAGES,
+      'openai-key',
+      IMG_ROW, // exactly {id, key, textsJa} — no updatedAt
+      LANGUAGES.map((l) => ({ ...l, nativeLabel: l.label })),
+    );
   });
 
   it('no-ops the image units for an image-free news body', async () => {

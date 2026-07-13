@@ -269,7 +269,10 @@ export async function imageAndOutputPipeline(
             .filter((k): k is string => !!k),
         ),
       ];
-      return keys.length > 0 ? await getImagesByKeys(db, keys) : [];
+      const rows = keys.length > 0 ? await getImagesByKeys(db, keys) : [];
+      // Project to the slice the worker reads: the memoized unit set is
+      // engine-serialized, and the full row's Temporal.Instant updatedAt isn't.
+      return rows.map(({ id, key, textsJa }) => ({ id, key, textsJa }));
     },
     (row) =>
       localizeOneImage(
