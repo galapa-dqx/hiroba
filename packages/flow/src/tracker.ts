@@ -52,6 +52,9 @@ export type EngineStep = {
     fn: () => Promise<T>,
   ): Promise<T>;
   sleep(name: string, duration: string | number): Promise<void>;
+  /** Resolves the engine's WorkflowStepEvent WRAPPER `{ type, payload,
+   *  timestamp }`, never the bare payload — the inline harness matches this
+   *  shape, and consumers (PhaseStep, the hub join port) unwrap `.payload`. */
   waitForEvent(
     name: string,
     options: { type: string; timeout?: string | number },
@@ -252,6 +255,11 @@ export function createFlow<D extends AnyFlowDef>(
 ): Flow<D['steps']> {
   const log = opts.log ?? SILENT_LOG;
   const defaults = opts.defaults ?? DEFAULT_STEP_CONFIG;
+  /** Partial per-step overrides merge OVER the defaults: `{ timeout: '30
+   *  seconds' }` must tighten the timeout without silently reverting retries
+   *  to the platform's 5-attempt default the bounded config exists to cap. */
+  const withDefaults = (config?: EngineStepConfig): EngineStepConfig =>
+    config ? { ...defaults, ...config } : defaults;
 
   /** Best-effort, not awaited on the hot path, never throws: tracking must
    *  not fail work. In-flight reports are tracked so `flush()` can drain them
@@ -328,7 +336,7 @@ export function createFlow<D extends AnyFlowDef>(
 
   const phaseStep = (key: string): PhaseStep => ({
     do: (name, fn, config) =>
-      runBody(`${key}/${name}`, key, config ?? defaults, fn, {}),
+      runBody(`${key}/${name}`, key, withDefaults(config), fn, {}),
     sleep: (name, duration) => engine.sleep(`${key}/${name}`, duration),
     poll: async (name, pollOpts, check, isDone) => {
       if (pollOpts.atMost < 1) {
@@ -348,28 +356,44 @@ export function createFlow<D extends AnyFlowDef>(
       }
       return { value, settled: false };
     },
-    waitForEvent: <T>(
+    waitForEvent: async <T>(
       name: string,
       options: { type: string; timeout?: string | number },
-    ) => engine.waitForEvent(`${key}/${name}`, options) as Promise<T>,
+    ) => {
+      // The engine resolves the WorkflowStepEvent wrapper; flow bodies are
+      // typed against (and want) the payload.
+      const event = (await engine.waitForEvent(`${key}/${name}`, options)) as {
+        payload: T;
+      };
+      return event.payload;
+    },
   });
 
   /** Dispatch `worker` over `items` at bounded concurrency. Rejection is
    *  eager (Promise.all semantics); in-flight losers are not cancelled — they
    *  run to completion and memoize, so the engine's step retry re-runs only
-   *  the unfinished units. Don't "fix" that. */
+   *  the unfinished units. Don't "fix" that. NEW dispatches stop once any
+   *  lane has failed, though: without the flag, surviving lanes would chew
+   *  through the entire remaining list (spend + side effects) in the
+   *  background of a map that already threw. */
   const runPool = async <I>(
     items: I[],
     concurrency: number,
     worker: (item: I, index: number) => Promise<void>,
   ): Promise<void> => {
     let next = 0;
+    let failed = false;
     const lanes = Array.from(
       { length: Math.max(1, Math.min(concurrency, items.length)) },
       async () => {
-        while (next < items.length) {
+        while (!failed && next < items.length) {
           const index = next++;
-          await worker(items[index], index);
+          try {
+            await worker(items[index], index);
+          } catch (err) {
+            failed = true;
+            throw err;
+          }
         }
       },
     );
@@ -402,6 +426,17 @@ export function createFlow<D extends AnyFlowDef>(
         throw new Error(
           `Flow "${def.name}": "${key}" produced duplicate unit id ` +
             `"${unitId}" — unit ids must be unique, stable domain ids`,
+        );
+      }
+      // The unit's engine step is named `<key>/<id>`, and `<key>/list` is the
+      // list step itself — a unit id of "list" would silently replay the
+      // memoized item list as that unit's result.
+      if (unitId === 'list') {
+        report({ kind: 'step', step: key, state: 'failed' });
+        throw new Error(
+          `Flow "${def.name}": "${key}" produced the reserved unit id ` +
+            `"list", which collides with the step's own "${key}/list" ` +
+            `engine step — prefix or rename the domain id`,
         );
       }
       seen.add(unitId);
@@ -440,7 +475,7 @@ export function createFlow<D extends AnyFlowDef>(
   const flow: Flow<D['steps']> = {
     step: (key, fn, config) => {
       assertDeclared(key);
-      return runBody(key, key, config ?? defaults, fn, {
+      return runBody(key, key, withDefaults(config), fn, {
         unit: '1',
         reportStepState: true,
       });

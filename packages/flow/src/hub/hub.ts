@@ -167,6 +167,10 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       string,
       Set<{ send: (snap: Snapshot) => void; close: () => void }>
     >();
+    /** Consecutive failed engine probes per runId — in-memory; an eviction
+     *  resets the count, which only delays the unknown verdict by another
+     *  round of windows. */
+    private readonly probeFailures = new Map<string, number>();
 
     constructor(ctx: DurableObjectState, env: Record<string, unknown>) {
       super(ctx, env);
@@ -314,6 +318,10 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           runId,
         );
         this.fanout(runId);
+        // A parent's startAndWatch can attach and register a waiter during
+        // the create await — settle it like every other terminal path, or it
+        // sits in waitForEvent until its timeout poll.
+        await this.notifyWaiters(runId);
         throw err;
       }
       // Stamped only after a SUCCESSFUL create: the cooldown throttles
@@ -379,13 +387,23 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
             report.step,
           );
           break;
-        case 'status':
+        case 'status': {
           // Output is meaningful ONLY on complete — any other status clears
           // it. A restarted-then-failed run must not keep success-shaped
           // output for joins/getRun to hand out alongside status 'failed'.
-          this.sql.exec(
-            `UPDATE runs SET status = ?, error = ?, output = ?
-             WHERE run_id = ?`,
+          //
+          // A 'running' report must not resurrect a settled row: waiters were
+          // already notified and, if a replacement run for the same key is
+          // active by now, flipping this row back to 'running' would collide
+          // with the runs_active_key partial unique index. Terminal reports
+          // always apply — the producer witnessed the body settle, which
+          // outranks any reconciler verdict and can't touch the index.
+          const cursor = this.sql.exec(
+            report.status === 'running'
+              ? `UPDATE runs SET status = ?, error = ?, output = ?
+                 WHERE run_id = ? AND status IN ('queued','running')`
+              : `UPDATE runs SET status = ?, error = ?, output = ?
+                 WHERE run_id = ?`,
             report.status,
             report.error ?? null,
             report.status === 'complete' && report.output !== undefined
@@ -393,7 +411,14 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
               : null,
             runId,
           );
+          if (report.status === 'running' && cursor.rowsWritten === 0) {
+            console.warn(
+              `FlowHub: 'running' report for settled run ${runId} ignored`,
+            );
+            return;
+          }
           break;
+        }
       }
       this.sql.exec(
         `UPDATE runs SET seq = seq + 1, updated_at = ? WHERE run_id = ?`,
@@ -578,7 +603,33 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
             // Unserializable output is dropped, same as sanitizeOutput.
           }
         }
-      } catch {
+        this.probeFailures.delete(run.runId);
+      } catch (err) {
+        // 'unknown' is a TERMINAL verdict — it notifies waiters as failed and
+        // frees the dedup slot — so a probe failure must not reach it unless
+        // the engine actually disowned the instance. A transient RPC error
+        // (or a probe racing an in-flight create) proves nothing about the
+        // run: touch the row so the next read waits a full window instead of
+        // re-probing immediately, and answer with the status we already had.
+        // The consecutive-failure counter is the backstop for a not-found
+        // whose message we fail to recognize: without it, a dead run whose
+        // probe keeps erroring would hold the dedup slot forever (active
+        // rows are never pruned).
+        const failures = (this.probeFailures.get(run.runId) ?? 0) + 1;
+        if (!/not[ _]?found/i.test(errorMessage(err)) && failures < 3) {
+          this.probeFailures.set(run.runId, failures);
+          console.warn(
+            `FlowHub: engine probe for run ${run.runId} failed (attempt ${failures}) — keeping status '${run.status}'`,
+            err,
+          );
+          this.sql.exec(
+            `UPDATE runs SET updated_at = ? WHERE run_id = ?`,
+            Date.now(),
+            run.runId,
+          );
+          return { ...run, updatedAt: Date.now() };
+        }
+        this.probeFailures.delete(run.runId);
         next = 'unknown';
         error = 'Instance no longer known to the Workflows engine';
       }
@@ -789,13 +840,18 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       // routes) — same reason as /runs above. Errors surface as a 500 with
       // the message rather than a rejected stub.fetch.
       if (url.pathname.endsWith('/start') && request.method === 'POST') {
-        const body = (await request.json()) as {
+        let body: {
           flow?: string;
           params?: unknown;
           cooldownMs?: number;
           force?: boolean;
           probe?: boolean;
         };
+        try {
+          body = (await request.json()) as typeof body;
+        } catch {
+          return Response.json({ error: 'invalid JSON body' }, { status: 400 });
+        }
         if (!body.flow) {
           return Response.json({ error: 'flow required' }, { status: 400 });
         }
@@ -905,6 +961,10 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
           }
         },
         cancel: () => {
+          // close() first: it marks the listener closed and clears the
+          // coalescing timer — without it a frame parked in `pending` would
+          // fire from its setTimeout into the cancelled stream.
+          listener.close();
           this.listeners.get(runId)?.delete(listener);
         },
       });
