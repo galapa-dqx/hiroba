@@ -253,6 +253,38 @@ describe('SSE', () => {
   });
 });
 
+describe('/run', () => {
+  it('resolves the latest run for a (flow, key) with its snapshot', async () => {
+    const key = uniqueKey('run-route');
+    const res = await hub().start('toy-linear', { key });
+    if (res.throttled) throw new Error('throttled');
+    await waitFor(
+      () => hub().getRun(res.runId),
+      (run) => run?.status === 'complete',
+    );
+
+    const response = await hub().fetch(
+      `https://hub/run?flow=toy-linear&key=${encodeURIComponent(key)}`,
+    );
+    expect(response.ok).toBe(true);
+    const body = (await response.json()) as {
+      run: { runId: string; status: string } | null;
+      snapshot: Snapshot | null;
+    };
+    expect(body.run?.runId).toBe(res.runId);
+    expect(body.run?.status).toBe('complete');
+    expect(body.snapshot?.runId).toBe(res.runId);
+  });
+
+  it('answers run: null (not a 404) when no run exists for the key', async () => {
+    const response = await hub().fetch(
+      `https://hub/run?flow=toy-linear&key=${uniqueKey('never-ran')}`,
+    );
+    expect(response.ok).toBe(true);
+    expect(await response.json()).toEqual({ run: null, snapshot: null });
+  });
+});
+
 describe('listRuns', () => {
   it('lists newest-first with terminal statuses', async () => {
     const key = uniqueKey('list');

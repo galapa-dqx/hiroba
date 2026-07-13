@@ -1,9 +1,9 @@
 /**
  * FlowRunCard — one hub flow run as a live status card: the run's identity
  * (for article/playguide runs, the item's translated title linked to its
- * Hiroba source), the hub segment strip painted from `Snapshot` frames, and —
- * when the run carries per-item enrichment (DQX-26) — a human-readable D1
- * pipeline line plus stacked per-image diagnostics.
+ * Hiroba source) and the hub segment strip painted from `Snapshot` frames.
+ * Per-image work shows up as the image child runs (DQX-27); the D1 pipeline
+ * enrichment retired with DQX-28.
  *
  * Shared by the workflow tracker page (all runs) and the article edit page
  * (the run for the article being edited).
@@ -20,14 +20,7 @@ import {
 // must never reach the client bundle. The terminality predicate itself lives
 // in the platform-free core for exactly this reason.
 import type { HubRunStatus } from '@hiroba/flow/hub';
-import {
-  aggregateStates,
-  describeSnapshot,
-  isSnapshotComplete,
-  type FlowRunItem,
-  type ImagePipelineDetail,
-  type PhaseState,
-} from '@hiroba/shared';
+import type { FlowRunItem } from '@hiroba/shared';
 import { formatRelativePast } from '@hiroba/ui/format-date';
 
 import type { FlowRunEntry } from '../lib/api';
@@ -110,56 +103,6 @@ function SegmentStrip({
   );
 }
 
-function StateGlyph({ state, spin }: { state: PhaseState; spin?: boolean }) {
-  if (spin || state === 'running')
-    return <span className="wf-spinner" aria-label="in progress" />;
-  const glyph = { done: '✓', failed: '✕', pending: '·' }[state];
-  return (
-    <span className="wf-glyph" aria-hidden="true">
-      {glyph}
-    </span>
-  );
-}
-
-/** Fold one image's step states into a single display state. */
-function imageState(img: ImagePipelineDetail): PhaseState {
-  const steps = [img.mirror, img.transcribe];
-  // Localize applies only to Japanese-text-bearing images; a missing row on a
-  // known candidate is work not yet picked up.
-  if (img.hasText) steps.push(img.localize ?? 'pending');
-  return aggregateStates(steps);
-}
-
-/**
- * Stacked per-image rows: shown while the run is live (which images are
- * mid-flight) and, on a settled run, whenever an image ended failed
- * (diagnostics).
- */
-function ImageDetail({
-  images,
-  active,
-}: {
-  images: ImagePipelineDetail[];
-  active: boolean;
-}) {
-  if (images.length === 0) return null;
-  const states = images.map(imageState);
-  if (!active && !states.includes('failed')) return null;
-  return (
-    <ul className="wf-substeps">
-      {images.map((img, i) => (
-        <li key={img.key} className={`is-${states[i]}`}>
-          <StateGlyph
-            state={states[i]}
-            spin={active && states[i] === 'running'}
-          />
-          <span>Image {i}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function sourceUrl(item: FlowRunItem): string {
   return item.itemType === 'topic'
     ? `https://hiroba.dqx.jp/sc/topics/detail/${item.itemId}/`
@@ -177,12 +120,6 @@ export default function FlowRunCard({
 }) {
   const active = isActive(run.status);
   const item = run.item;
-  // The D1 pipeline line: live progress while running; on a settled run only
-  // the degraded/failed outcomes are worth a line (status already says done).
-  const pipelineLine =
-    item && (active || !isSnapshotComplete(item.pipeline))
-      ? describeSnapshot(item.pipeline)
-      : null;
   return (
     <article className={`wf-run${active ? '' : ' wf-run--settled'}`}>
       <header className="wf-run__head">
@@ -212,17 +149,11 @@ export default function FlowRunCard({
           Status:{' '}
           <strong className={`wf-status--${run.status}`}>{run.status}</strong>
         </span>
-        {pipelineLine && (
-          <span>
-            Pipeline: <strong>{pipelineLine}</strong>
-          </span>
-        )}
         <span className="wf-run__started">
           updated {formatRelativePast(run.updatedAt)}
         </span>
       </div>
       {snapshot && <SegmentStrip snapshot={snapshot} runStatus={run.status} />}
-      {item && <ImageDetail images={item.images} active={active} />}
       {run.error && <p className="wf-run__error">{run.error}</p>}
     </article>
   );

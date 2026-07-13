@@ -336,7 +336,3 @@ export type ArticleWorkflowOutput = {
   translate: TranslateResult;
   localize: LocalizeResult;
 };
-
-// The SSE wire protocol (machine-readable state snapshots) is shared with the
-// web/admin clients — see @hiroba/shared's pipeline-state module.
-export type { SSEEvent, StateSnapshot } from '@hiroba/shared';

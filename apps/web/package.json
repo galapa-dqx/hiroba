@@ -13,6 +13,7 @@
   "dependencies": {
     "@astrojs/cloudflare": "^12.0.0",
     "@hiroba/db": "workspace:*",
+    "@hiroba/flow": "workspace:*",
     "@hiroba/flows": "workspace:*",
     "@hiroba/richtext": "workspace:*",
     "@hiroba/scraper": "workspace:*",

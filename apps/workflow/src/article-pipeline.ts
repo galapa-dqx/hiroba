@@ -25,8 +25,8 @@
  * code instead of implicit D1 row states: mapJoin is always SETTLED — a
  * failed child becomes a failed outcome in the collected results, counted
  * into the tail's totals, and the run carries on. The children's step workers
- * still mark the image's D1 rows failed rather than throw, which is why
- * computeSnapshot and the web SSE don't care which flow ran the work.
+ * still mark the image's D1 rows failed rather than throw, so the admin
+ * image panels don't care which flow ran the work.
  *
  * Platform-free on purpose (no cloudflare:workers import): flow shells live in
  * *-workflow.ts files, and these helpers run under runFlowInline in

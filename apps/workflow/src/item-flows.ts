@@ -5,7 +5,7 @@
  */
 
 import type { RunInfo } from '@hiroba/flow/hub';
-import { ArticleFlow, PlayguideFlow } from '@hiroba/flows';
+import { ArticleFlow, itemFlowStart, PlayguideFlow } from '@hiroba/flows';
 
 import type { ItemType } from './types';
 
@@ -23,15 +23,9 @@ export function parseItemType(value: string | null | undefined): ItemType {
 export const hasImages = (itemType: ItemType): boolean => itemType !== 'news';
 
 /** The hub start arguments for one item's pipeline — playguides run their own
- *  flow keyed by slug; news/topics run the ArticleFlow keyed by type+id. */
-export function flowStart(
-  itemType: ItemType,
-  itemId: string,
-): { flow: string; params: unknown } {
-  return itemType === 'playguide'
-    ? { flow: PlayguideFlow.name, params: { slug: itemId } }
-    : { flow: ArticleFlow.name, params: { itemId, itemType } };
-}
+ *  flow keyed by slug; news/topics run the ArticleFlow keyed by type+id.
+ *  (The mapping itself lives in @hiroba/flows so web/admin share it.) */
+export const flowStart = itemFlowStart;
 
 /** Whether a hub run is one of the item pipelines (vs a generic flow). */
 export function isItemFlow(flow: string): boolean {

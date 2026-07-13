@@ -6,7 +6,7 @@ import {
   triggerPlayguideWorkflow,
   type PlayguideItem,
 } from '../lib/api';
-import { subscribeJob } from '../lib/job-stream';
+import { subscribeItemRun } from '../lib/flow-stream';
 import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /**
@@ -98,8 +98,8 @@ export default function PlayguideList() {
 
       const setStatus = (line: string) =>
         setWorkflowStatus((prev) => new Map(prev).set(slug, line));
-      subscribeJob(`/api/playguide/${slug}/sse`, {
-        onProgress: (p) => setStatus(p.label),
+      subscribeItemRun('playguide', slug, {
+        onProgress: setStatus,
         onDone: () => {
           setStatus('Done!');
           setTimeout(() => {

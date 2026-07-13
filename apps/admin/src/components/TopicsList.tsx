@@ -13,7 +13,7 @@ import {
   type ArticleTypeStats,
   type TopicItem,
 } from '../lib/api';
-import { subscribeJob } from '../lib/job-stream';
+import { subscribeItemRun } from '../lib/flow-stream';
 import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /** Matches the server-side cap in lib/trigger-recent.ts. */
@@ -159,8 +159,8 @@ export default function TopicsList() {
 
       const setStatus = (line: string) =>
         setWorkflowStatus((prev) => new Map(prev).set(id, line));
-      subscribeJob(`/api/topics/${id}/sse`, {
-        onProgress: (p) => setStatus(p.label),
+      subscribeItemRun('topic', id, {
+        onProgress: setStatus,
         onDone: () => {
           setStatus('Done!');
           setTimeout(() => {

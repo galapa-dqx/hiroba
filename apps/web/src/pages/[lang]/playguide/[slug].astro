@@ -1,12 +1,11 @@
 ---
 import ArticlePage from "../../../components/ArticlePage.astro";
-import { computeSnapshot, createDb, getArticleTranslations, getPlayguide } from "@hiroba/db";
+import { createDb, getArticleTranslations, getPlayguide } from "@hiroba/db";
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
-import { describeSnapshot, isSnapshotComplete, isSnapshotSettled } from "@hiroba/shared";
 import { hydrateArticleImages } from "../../../lib/article-images";
-import { triggerWorkflow } from "../../../lib/workflow";
-import { CACHE_ARTICLE_COMPLETE, CACHE_ARTICLE_DEGRADED, CACHE_NONE } from "../../../lib/cache";
-import { statusStrings, useTranslations } from "../../../i18n";
+import { resolveArticleView } from "../../../lib/article-view";
+import { getItemRun, triggerWorkflow } from "../../../lib/workflow";
+import { useTranslations } from "../../../i18n";
 
 // Validated against the whitelist by the middleware.
 const lang = Astro.params.lang!;
@@ -25,26 +24,23 @@ const playguide = await getPlayguide(db, slug);
 const { title: localizedTitle, blocks: localizedBlocks, translatedAt } = await getArticleTranslations(db, "playguide", slug, lang);
 const isTranslated = !!localizedBlocks;
 
-// The guide displays only once its pipeline has settled — fetched, translated,
-// and every text-bearing image localized (or given up on). Until then the page
-// shows the processing notice and the SSE stream drives progress + reload.
-const snapshot = await computeSnapshot(db, "playguide", slug, lang);
-const ready = isSnapshotSettled(snapshot);
-const complete = isSnapshotComplete(snapshot);
+// The guide displays only once its pipeline has settled — translated content
+// present and no run in flight (DQX-28: the gate reads the guide's hub run,
+// not D1 state columns). Until then the page shows the processing notice and
+// the run's SSE stream drives progress + reload.
+const { run, snapshot } = await getItemRun(runtime, "playguide", slug);
+const view = resolveArticleView(!!localizedTitle && !!localizedBlocks, run);
 
 // Cache by readiness: a still-processing page is never cached (the SSE stream
 // drives it), a complete guide caches hard (and is purged on change), a
 // settled-but-degraded one stays short so a background heal surfaces on its own.
-Astro.response.headers.set(
-	"Cache-Control",
-	!ready ? CACHE_NONE : complete ? CACHE_ARTICLE_COMPLETE : CACHE_ARTICLE_DEGRADED,
-);
+Astro.response.headers.set("Cache-Control", view.cacheControl);
 
-// Fire the pipeline unless everything already finished cleanly — a
-// degraded-but-settled guide displays now and retries its failures in the
-// background.
-if (!complete) {
-	triggerWorkflow(runtime, "playguide", slug);
+// (Re)arm the pipeline as the gate decided: `force` when a viewer is waiting
+// on missing content, the throttled cooldown for background heals of
+// degraded or failed settles.
+if (view.trigger) {
+	triggerWorkflow(runtime, "playguide", slug, { force: view.trigger === "force" });
 }
 
 const title = localizedTitle ?? playguide?.titleJa ?? t("article.loadingGuide");
@@ -62,8 +58,9 @@ const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHre
 	title={title}
 	itemType="playguide"
 	itemId={slug}
-	ready={ready}
-	statusText={describeSnapshot(snapshot, statusStrings(lang))}
+	view={view}
+	snapshot={snapshot}
+	runError={run?.error}
 	contentHtml={contentHtml}
 	events={[]}
 	originalUrl={`https://hiroba.dqx.jp/sc/public/playguide/${slug}`}

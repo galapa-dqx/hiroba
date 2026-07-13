@@ -14,7 +14,6 @@ import {
   getPlayguide,
   getTopic,
   newsItems,
-  setItemFetchState,
   upsertPlayguide,
   upsertTopic,
   type Database,
@@ -63,14 +62,11 @@ export async function fetchAndSaveNewsBody(
     return { success: false, blockCount: 0 };
   }
 
-  // If the block tree already exists, skip fetching (and make sure the state
-  // agrees — a re-run after a mid-pipeline failure lands here).
+  // If the block tree already exists, skip fetching — a re-run after a
+  // mid-pipeline failure lands here.
   if (item.blocksJa !== null) {
-    await setItemFetchState(db, 'news', itemId, 'done');
     return { success: true, blockCount: item.blocksJa.length };
   }
-
-  await setItemFetchState(db, 'news', itemId, 'running');
 
   try {
     // Fetch + parse the detail page into a block tree.
@@ -84,14 +80,12 @@ export async function fetchAndSaveNewsBody(
         blocksJa: blocks,
         bodyFetchedAt: now,
         bodyCheckedAt: now,
-        fetchState: blocks.length > 0 ? 'done' : 'failed',
       })
       .where(eq(newsItems.id, itemId));
 
     return { success: blocks.length > 0, blockCount: blocks.length };
   } catch (error) {
     console.error(`Failed to fetch body for ${itemId}:`, error);
-    await setItemFetchState(db, 'news', itemId, 'failed');
     return { success: false, blockCount: 0 };
   }
 }
@@ -105,8 +99,6 @@ export async function fetchAndSaveTopicBody(
   db: Database,
   itemId: string,
 ): Promise<FetchBodyResult> {
-  // No-op for a topic not yet in D1 — the upsert below settles the state.
-  await setItemFetchState(db, 'topic', itemId, 'running');
   const { titleJa, blocks } = await fetchTopicBody(itemId);
   const existing = await getTopic(db, itemId);
   const now = Temporal.Now.instant();
@@ -118,7 +110,6 @@ export async function fetchAndSaveTopicBody(
     bodyFetchedAt: now,
     // The fetch counts as the first recheck poll.
     bodyCheckedAt: now,
-    fetchState: blocks.length > 0 ? 'done' : 'failed',
   });
   return { success: blocks.length > 0, blockCount: blocks.length };
 }
@@ -134,7 +125,6 @@ export async function fetchAndSavePlayguideBody(
   db: Database,
   itemId: string,
 ): Promise<FetchBodyResult> {
-  await setItemFetchState(db, 'playguide', itemId, 'running');
   const { titleJa, specificTitle, blocks } = await fetchPlayguideBody(itemId);
   const existing = await getPlayguide(db, itemId);
   const now = Temporal.Now.instant();
@@ -145,7 +135,6 @@ export async function fetchAndSavePlayguideBody(
     bodyFetchedAt: now,
     // The fetch counts as the first recheck poll.
     bodyCheckedAt: now,
-    fetchState: blocks.length > 0 ? 'done' : 'failed',
   });
   return { success: blocks.length > 0, blockCount: blocks.length };
 }

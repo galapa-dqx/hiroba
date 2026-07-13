@@ -17,8 +17,7 @@ import {
   type ArticleTypeStats,
   type NewsItem,
 } from '../lib/api';
-import { subscribeFlowRun } from '../lib/flow-stream';
-import { subscribeJob } from '../lib/job-stream';
+import { subscribeFlowRun, subscribeItemRun } from '../lib/flow-stream';
 import { usePrimaryLanguage } from '../lib/use-primary-language';
 
 /** Matches the server-side cap in lib/trigger-recent.ts. */
@@ -253,8 +252,8 @@ export default function NewsList() {
 
       const setStatus = (line: string) =>
         setWorkflowStatus((prev) => new Map(prev).set(id, line));
-      subscribeJob(`/api/news/${id}/sse`, {
-        onProgress: (p) => setStatus(p.label),
+      subscribeItemRun('news', id, {
+        onProgress: setStatus,
         onDone: () => {
           setStatus('Done!');
           setTimeout(() => {
