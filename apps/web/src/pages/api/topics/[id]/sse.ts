@@ -1,5 +1,5 @@
 /**
- * SSE endpoint for topics workflow progress — proxies to the WorkflowManager DO.
+ * SSE endpoint for topics workflow progress — proxies the workflow worker's domain SSE route.
  */
 
 import type { APIRoute } from 'astro';

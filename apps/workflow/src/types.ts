@@ -51,7 +51,6 @@ export type Env = {
   OPENAI_API_KEY: string;
   GEMINI_API_KEY: string;
   SENTRY_DSN: string;
-  WORKFLOW_MANAGER: DurableObjectNamespace;
   /** The flow framework's control plane — one 'hub' instance, one SQLite
    *  database for all runs/steps/units state (src/flow-hub.ts). */
   FLOW_HUB: DurableObjectNamespace;
@@ -129,8 +128,7 @@ export type ArticleItemType = Exclude<ItemType, 'playguide'>;
 /**
  * Parameters passed to the ArticleWorkflow (ArticleFlow, DQX-25). `itemType`
  * selects which table the steps read/write, and together with `itemId` it is
- * the hub's dedup key — replacing the old per-item WorkflowManager DO name as
- * the one-run-per-item point.
+ * the hub's dedup key — the one-run-per-item point.
  */
 export type ArticleWorkflowParams = {
   itemId: string;
@@ -263,8 +261,7 @@ export type ImageLocalizeWorkflowOutput = {
 
 /**
  * Parameters for the PlayguideWorkflow (PlayguideFlow, DQX-24). Just the
- * guide's slug — it is also the hub's dedup key, replacing the old
- * `playguide:<slug>` WorkflowManager DO name as the one-run-per-guide point.
+ * guide's slug — it is also the hub's dedup key, the one-run-per-guide point.
  */
 export type PlayguideWorkflowParams = {
   slug: string;

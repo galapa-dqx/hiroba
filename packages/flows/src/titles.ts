@@ -37,7 +37,7 @@ export const TitleFlow = defineFlow({
  * Keyed by the language: the admin pre-warm and every under-translated list
  * view route through the hub, so a backfill already in flight for the language
  * is attached to, never doubled. This replaces the old `title-backfill:<lang>`
- * WorkflowManager DO instance (its `activeBackfills` map) as the dedup point.
+ * coordinator DO instance (its `activeBackfills` map) as the dedup point.
  */
 export const TitleBackfillFlow = defineFlow({
   name: 'title-backfill',

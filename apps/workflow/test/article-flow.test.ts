@@ -3,8 +3,8 @@
  * FlowEntrypoint shell. Step/unit BODIES are mocked through the pool-workers
  * introspector (they'd hit D1, R2, and three different LLM APIs), so what's
  * under test is what the port changed: the `${itemType}:${itemId}` KEY
- * carrying the one-run-per-item dedup that used to live in the per-item
- * WorkflowManager DO name (news = bare id, topic = prefixed), and the
+ * carrying the one-run-per-item dedup that used to live in the old per-item
+ * coordinator DO's name (news = bare id, topic = prefixed), and the
  * fragment-composed step shape — event segments included — reaching the hub
  * in declaration order.
  */

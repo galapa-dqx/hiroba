@@ -3,7 +3,11 @@
  * No authentication needed - protected by Cloudflare Access at edge.
  */
 
-import type { PhaseState, WorkflowRunEntry } from '@hiroba/shared';
+import type { Snapshot } from '@hiroba/flow';
+// Type-only: the /hub entry's runtime half imports cloudflare:workers, which
+// must never reach the client bundle.
+import type { RunInfo } from '@hiroba/flow/hub';
+import type { FlowRunItem, PhaseState } from '@hiroba/shared';
 
 async function adminFetch<T>(
   path: string,
@@ -368,12 +372,20 @@ export async function updateArticleTranslation(
   });
 }
 
-// Workflow runs API
+// Flow runs API (the workflow tracker)
 
-export async function getWorkflowRuns(): Promise<{
-  runs: WorkflowRunEntry[];
-}> {
-  return adminFetch('/api/workflows');
+/**
+ * One tracker listing entry: the hub run row, its current segment snapshot,
+ * and — for the article/playguide flows — the per-item domain enrichment
+ * (title, D1 pipeline snapshot, image detail).
+ */
+export type FlowRunEntry = RunInfo & {
+  snapshot: Snapshot | null;
+  item: FlowRunItem | null;
+};
+
+export async function getFlowRuns(): Promise<{ runs: FlowRunEntry[] }> {
+  return adminFetch('/api/flow-runs');
 }
 
 export type GlossaryEntry = {

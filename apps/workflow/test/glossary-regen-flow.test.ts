@@ -1,9 +1,9 @@
 /**
  * GlossaryRegenFlow integration — the real engine, the real hub DO, the real
  * FlowEntrypoint shell. Step/unit BODIES are mocked through the pool-workers
- * introspector (they'd hit D1 and the WorkflowManager DOs), so what's under
+ * introspector (they'd hit D1 and remote APIs), so what's under
  * test is what the port changed: keyed dedup at the hub (key = sourceText,
- * replacing the per-term WorkflowManager DO-storage mechanism) and the
+ * replacing the old per-term coordinator-DO-storage mechanism) and the
  * open-handle keyset orchestration driving real engine steps.
  *
  * Unlike BannerFlow's constant key, every test here mints a unique term, so

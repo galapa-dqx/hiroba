@@ -115,37 +115,8 @@ export function isSnapshotComplete(s: StateSnapshot): boolean {
 }
 
 /* ------------------------------------------------------------------ *
- * Workflow run registry — the wire types for the admin tracker.
- * Rows are recorded in D1 when the WorkflowManager DO creates an instance
- * and reconciled against the Workflows engine when listed.
+ * Per-item domain enrichment for the admin flow tracker.
  * ------------------------------------------------------------------ */
-
-/** Instance statuses as reported by the Cloudflare Workflows engine. */
-export const WORKFLOW_RUN_STATUSES = [
-  'queued',
-  'running',
-  'paused',
-  'complete',
-  'errored',
-  'terminated',
-  'unknown',
-] as const;
-
-export type WorkflowRunStatus = (typeof WORKFLOW_RUN_STATUSES)[number];
-
-/**
- * Statuses that can still change — the reconciler keeps polling these.
- * `unknown` is terminal on purpose: it means the engine no longer knows the
- * instance (evicted/expired), so its status will never improve.
- */
-export const ACTIVE_RUN_STATUSES = [
-  'queued',
-  'running',
-  'paused',
-] as const satisfies readonly WorkflowRunStatus[];
-
-export const isRunActive = (s: WorkflowRunStatus): boolean =>
-  (ACTIVE_RUN_STATUSES as readonly WorkflowRunStatus[]).includes(s);
 
 /**
  * Pipeline states of one referenced image, in document order — the per-item
@@ -165,18 +136,18 @@ export type ImagePipelineDetail = {
   localize: PhaseState | null;
 };
 
-/** One tracked run, as served by the workflow worker's /runs endpoint. */
-export type WorkflowRunEntry = {
-  instanceId: string;
+/**
+ * Domain enrichment attached to an article/playguide flow run by the workflow
+ * worker's /flow/runs listing: the item the run is about, its translated
+ * title, and the D1 pipeline ground truth behind the run's segment strip.
+ */
+export type FlowRunItem = {
   itemType: 'news' | 'topic' | 'playguide';
   itemId: string;
   titleJa: string | null;
   titleEn: string | null;
-  status: WorkflowRunStatus;
-  error: string | null;
-  startedAt: string; // ISO-8601 UTC instant
-  updatedAt: string; // ISO-8601 UTC instant
-  snapshot: StateSnapshot;
+  /** The item's D1 pipeline snapshot (computed for English). */
+  pipeline: StateSnapshot;
   /** Per-image detail — empty for item types without an image pipeline. */
   images: ImagePipelineDetail[];
 };

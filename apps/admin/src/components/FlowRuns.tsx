@@ -1,141 +1,24 @@
 /**
- * "Flow runs" panel — the flow-framework side of the workflow tracker
- * (DQX-19). Lists hub runs (poll) and paints each active run's segment strip
- * live from the hub's per-run SSE snapshots. Generic by construction: it
- * renders whatever the flow definition declares (order + steps), so every
- * ported workflow (DQX-20+) appears here with zero panel changes.
- *
- * Coexists with the legacy WorkflowRuns tracker during the migration; the
- * legacy panel is deleted with WorkflowManager (DQX-26).
+ * "Flow runs" panel — THE workflow tracker (DQX-26). Lists hub runs (poll)
+ * and paints each active run's segment strip live from the hub's per-run SSE
+ * snapshots. Generic by construction: it renders whatever the flow definition
+ * declares (order + steps), so every flow appears here with zero panel
+ * changes; the article/playguide runs additionally carry per-item domain
+ * enrichment (title, D1 pipeline snapshot, image detail) rendered by the
+ * shared FlowRunCard.
  */
 
 import { useEffect, useRef, useState } from 'react';
 
-import {
-  isActiveRunStatus as isActive,
-  renderCount,
-  segmentView,
-  type Snapshot,
-  type StepState,
-} from '@hiroba/flow';
-// Type-only: the /hub entry's runtime half imports cloudflare:workers, which
-// must never reach the client bundle. The terminality predicate itself lives
-// in the platform-free core for exactly this reason.
-import type { HubRunStatus, RunInfo } from '@hiroba/flow/hub';
-import { formatRelativePast } from '@hiroba/ui/format-date';
+import { isActiveRunStatus as isActive, type Snapshot } from '@hiroba/flow';
+
+import { getFlowRuns, type FlowRunEntry } from '../lib/api';
+import FlowRunCard from './FlowRunCard';
 
 const POLL_MS = 5000;
 
-function SegmentGlyph({ view, spin }: { view: string; spin: boolean }) {
-  if (spin) return <span className="wf-spinner" aria-label="in progress" />;
-  const glyph =
-    {
-      complete: '✓',
-      failed: '✕',
-      skipped: '↷',
-      interrupted: '△',
-      'not-reached': '·',
-      pending: '·',
-      running: '·',
-    }[view] ?? '·';
-  return (
-    <span className="wf-glyph" aria-hidden="true">
-      {glyph}
-    </span>
-  );
-}
-
-function SegmentStrip({
-  snapshot,
-  runStatus,
-}: {
-  snapshot: Snapshot;
-  /** The polled RunInfo status — authoritative over the snapshot's own copy,
-   *  which can go stale if the SSE dropped before the terminal frame. */
-  runStatus: HubRunStatus;
-}) {
-  const settled = !isActive(runStatus);
-  const dead = runStatus === 'failed' || snapshot.status === 'failed';
-  // "This run is dead" keys off run status, never off a red segment — a step
-  // can flap failed → running across engine retries while the run is fine.
-  // When the run settled without any step stored failed (reconciler verdict,
-  // or the last frames never arrived), the step still marked running is where
-  // it died — use it as the boundary so trailing steps read not-reached.
-  const failedStep = snapshot.order.findIndex(
-    (key) => snapshot.steps[key].state === 'failed',
-  );
-  const failedIndex = dead
-    ? failedStep >= 0
-      ? failedStep
-      : snapshot.order.findIndex(
-          (key) => snapshot.steps[key].state === 'running',
-        )
-    : -1;
-  return (
-    <ol className="wf-stages">
-      {snapshot.order.map((key, i) => {
-        const step: StepState = snapshot.steps[key];
-        const stored = segmentView(step, i, failedIndex);
-        // View-derived, like not-reached: a segment stored `running` on a
-        // settled run isn't running anything — the run ended mid-step.
-        const view = stored === 'running' && settled ? 'interrupted' : stored;
-        const count = renderCount(step);
-        const spin = view === 'running' && isActive(runStatus);
-        return (
-          <li
-            key={key}
-            className={`wf-stage is-${view}${spin ? ' is-active' : ''}`}
-          >
-            <SegmentGlyph view={view} spin={spin} />
-            <span>
-              {key}
-              {count ? ` ${count}` : ''}
-              {step.attempt > 1 ? (
-                <span className="wf-retry" title={`attempt ${step.attempt}`}>
-                  {' '}
-                  ×{step.attempt}
-                </span>
-              ) : null}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function FlowRunCard({ run, snapshot }: { run: RunInfo; snapshot?: Snapshot }) {
-  const active = isActive(run.status);
-  return (
-    <article className={`wf-run${active ? '' : ' wf-run--settled'}`}>
-      <header className="wf-run__head">
-        <span className="wf-run__type">{run.flow}</span>
-        <span className="wf-run__title">{run.key}</span>
-        <span className="wf-run__started">
-          started {formatRelativePast(run.createdAt)}
-        </span>
-      </header>
-      <div className="wf-run__summary">
-        <span>
-          Status:{' '}
-          <strong className={`wf-status--${run.status}`}>{run.status}</strong>
-        </span>
-        <span className="wf-run__started">
-          updated {formatRelativePast(run.updatedAt)}
-        </span>
-      </div>
-      {snapshot && <SegmentStrip snapshot={snapshot} runStatus={run.status} />}
-      {run.error && <p className="wf-run__error">{run.error}</p>}
-    </article>
-  );
-}
-
-/** One /runs listing entry: the run row plus its current snapshot, so the
- *  poll alone paints full segment strips (settled runs included). */
-type RunListEntry = RunInfo & { snapshot: Snapshot | null };
-
 export default function FlowRuns() {
-  const [runs, setRuns] = useState<RunInfo[] | null>(null);
+  const [runs, setRuns] = useState<FlowRunEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const sources = useRef(new Map<string, EventSource>());
@@ -158,9 +41,7 @@ export default function FlowRuns() {
     async function poll() {
       if (document.hidden) return;
       try {
-        const res = await fetch('/api/flow-runs');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { runs: RunListEntry[] };
+        const data = await getFlowRuns();
         if (!cancelled) {
           setRuns(data.runs);
           for (const run of data.runs) {
@@ -236,8 +117,8 @@ export default function FlowRuns() {
   return (
     <div className="flow-runs">
       <p className="page-description">
-        Runs on the unified flow framework (hub-tracked, live via SSE). Flows
-        appear here as workflows are ported onto the hub.
+        Live status of hub-tracked flow runs across every pipeline — refreshes
+        every few seconds. Settled runs stay listed for a day.
       </p>
 
       {error && <p className="error-state">{error}</p>}
@@ -246,16 +127,15 @@ export default function FlowRuns() {
         <p className="loading">Loading…</p>
       ) : runs.length === 0 ? (
         <div className="empty-state">
-          <p>No flow runs yet.</p>
+          <p>No flow runs recorded recently.</p>
           <p className="hint">
-            The hub is mounted and waiting — the first ported workflow will show
-            up here the moment it runs.
+            Trigger one from the News or Topics pages and it will appear here.
           </p>
         </div>
       ) : (
         <>
           <p className="hint">
-            {activeCount} active · {runs.length - activeCount} settled
+            {activeCount} active · {runs.length - activeCount} recently settled
           </p>
           {runs.map((run) => (
             <FlowRunCard
