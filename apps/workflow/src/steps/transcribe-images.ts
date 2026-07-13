@@ -115,6 +115,55 @@ async function transcribeOne(
 }
 
 /**
+ * Transcribe one image key's baked-in text into the `images` table (the
+ * per-unit worker behind `transcribeImages`, exported for the flow framework's
+ * per-image `map` units). Skips a key already transcribed. Never throws for a
+ * bad image — the row is marked failed and `false` returned, because one bad
+ * image degrades the article, never blocks it. Returns whether the image was
+ * newly transcribed this call.
+ */
+export async function transcribeOneImage(
+  db: Database,
+  key: string,
+  apiKey: string,
+  bucket: R2Bucket,
+): Promise<boolean> {
+  const [existing] = await getImagesByKeys(db, [key]);
+  if (existing?.transcribeState === 'done') return false;
+  return transcribeKey(db, createGemini(apiKey), bucket, key);
+}
+
+/** Transcribe a single key, no done-check (both entry points share this). */
+async function transcribeKey(
+  db: Database,
+  client: OpenAI,
+  bucket: R2Bucket,
+  key: string,
+): Promise<boolean> {
+  await setImageTranscribeState(db, key, 'running');
+  try {
+    const dataUrl = await loadByKey(key, bucket);
+    if (!dataUrl) {
+      await setImageTranscribeState(db, key, 'failed');
+      return false;
+    }
+    const spans = await transcribeOne(client, dataUrl);
+    await upsertImageTranscription(db, {
+      key,
+      textsJa: spans,
+      model: GEMINI_MODEL,
+    });
+    return true;
+  } catch (err) {
+    // One bad image shouldn't wedge the whole step (or strand this row in
+    // 'running' — shared rows aren't covered by the workflow's mark-failed).
+    console.error(`Failed to transcribe ${key}:`, err);
+    await setImageTranscribeState(db, key, 'failed');
+    return false;
+  }
+}
+
+/**
  * Transcribe every not-yet-transcribed image referenced by `blocks` into the
  * `images` table. Returns the count transcribed this run.
  */
@@ -146,26 +195,7 @@ export async function transcribeImages(
   let transcribed = 0;
   await mapWithConcurrency(keys, TRANSCRIBE_CONCURRENCY, async (key) => {
     if (done.has(key)) return;
-    await setImageTranscribeState(db, key, 'running');
-    try {
-      const dataUrl = await loadByKey(key, bucket);
-      if (!dataUrl) {
-        await setImageTranscribeState(db, key, 'failed');
-        return;
-      }
-      const spans = await transcribeOne(client, dataUrl);
-      await upsertImageTranscription(db, {
-        key,
-        textsJa: spans,
-        model: GEMINI_MODEL,
-      });
-      transcribed++;
-    } catch (err) {
-      // One bad image shouldn't wedge the whole step (or strand this row in
-      // 'running' — shared rows aren't covered by the workflow's mark-failed).
-      console.error(`Failed to transcribe ${key}:`, err);
-      await setImageTranscribeState(db, key, 'failed');
-    }
+    if (await transcribeKey(db, client, bucket, key)) transcribed++;
   });
   return transcribed;
 }

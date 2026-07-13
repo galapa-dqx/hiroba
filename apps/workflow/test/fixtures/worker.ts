@@ -10,6 +10,7 @@ export { GlossaryRegenerateWorkflow } from '../../src/glossary-regenerate-workfl
 export { TitleWorkflow } from '../../src/title-workflow';
 export { TitleBackfillWorkflow } from '../../src/title-backfill-workflow';
 export { NewsBackfillWorkflow } from '../../src/news-backfill-workflow';
+export { PlayguideWorkflow } from '../../src/playguide-workflow';
 
 export default {
   fetch: (): Response => new Response('workflow test fixture'),

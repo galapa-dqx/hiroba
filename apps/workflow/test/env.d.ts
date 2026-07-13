@@ -10,5 +10,6 @@ declare namespace Cloudflare {
     TITLE_WORKFLOW: Workflow;
     TITLE_BACKFILL_WORKFLOW: Workflow;
     NEWS_BACKFILL_WORKFLOW: Workflow;
+    PLAYGUIDE_WORKFLOW: Workflow;
   }
 }

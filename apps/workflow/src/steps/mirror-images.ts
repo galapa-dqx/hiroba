@@ -43,6 +43,49 @@ export type MirrorResult = {
   failed: number;
 };
 
+/** One image's fate through `mirrorOneImage` — the unit of MirrorResult. */
+export type MirrorOutcome = 'mirrored' | 'skipped' | 'failed';
+
+/**
+ * Mirror a single image key into R2 (the per-unit worker behind
+ * `mirrorImages`, exported for the flow framework's per-image `map` units).
+ * Assumes the key's `images` row exists (ensureImageRows ran). Never throws
+ * for an upstream failure — the row is marked failed and the outcome says so,
+ * because one bad image degrades the article, never blocks it.
+ */
+export async function mirrorOneImage(
+  db: Database,
+  bucket: R2Bucket,
+  key: string,
+): Promise<MirrorOutcome> {
+  if (await bucket.head(key)) {
+    await setImageMirrorState(db, key, 'done');
+    return 'skipped';
+  }
+  await setImageMirrorState(db, key, 'running');
+  try {
+    const res = await fetch(imageUpstreamUrl(key), {
+      headers: FETCH_HEADERS,
+    });
+    if (!res.ok || !res.body) {
+      await setImageMirrorState(db, key, 'failed');
+      return 'failed';
+    }
+    await bucket.put(key, res.body, {
+      httpMetadata: {
+        contentType:
+          res.headers.get('content-type') ?? 'application/octet-stream',
+        cacheControl: CACHE_CONTROL,
+      },
+    });
+    await setImageMirrorState(db, key, 'done');
+    return 'mirrored';
+  } catch {
+    await setImageMirrorState(db, key, 'failed');
+    return 'failed';
+  }
+}
+
 /**
  * Mirror all mirrorable images in `blocks` to `bucket`. Fetches each missing key
  * from the DQX CDN once and streams it into R2 with a content type + long TTL.
@@ -65,40 +108,10 @@ export async function mirrorImages(
 
   await ensureImageRows(db, [...keys]);
 
-  let mirrored = 0;
-  let skipped = 0;
-  let failed = 0;
-
+  const result: MirrorResult = { mirrored: 0, skipped: 0, failed: 0 };
   await mapWithConcurrency([...keys], MIRROR_CONCURRENCY, async (key) => {
-    if (await bucket.head(key)) {
-      skipped++;
-      await setImageMirrorState(db, key, 'done');
-      return;
-    }
-    await setImageMirrorState(db, key, 'running');
-    try {
-      const res = await fetch(imageUpstreamUrl(key), {
-        headers: FETCH_HEADERS,
-      });
-      if (!res.ok || !res.body) {
-        failed++;
-        await setImageMirrorState(db, key, 'failed');
-        return;
-      }
-      await bucket.put(key, res.body, {
-        httpMetadata: {
-          contentType:
-            res.headers.get('content-type') ?? 'application/octet-stream',
-          cacheControl: CACHE_CONTROL,
-        },
-      });
-      mirrored++;
-      await setImageMirrorState(db, key, 'done');
-    } catch {
-      failed++;
-      await setImageMirrorState(db, key, 'failed');
-    }
+    const outcome = await mirrorOneImage(db, bucket, key);
+    result[outcome]++;
   });
-
-  return { mirrored, skipped, failed };
+  return result;
 }

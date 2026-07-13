@@ -1,26 +1,40 @@
+/**
+ * Re-run one playguide's pipeline (DQX-24: PlayguideFlow on the flow
+ * framework). Starts via the FlowHub — keyed by slug, so a run already in
+ * flight is attached to, never doubled. `force` skips the page-view cooldown
+ * (this is an operator action) and `probe` verifies a stale-looking active
+ * run against the engine before attaching, since the operator is watching.
+ */
+
 import type { APIRoute } from 'astro';
 
+import type { StartResult } from '@hiroba/flow/hub';
+import { PlayguideFlow } from '@hiroba/flows';
+
+import { startErrorMessage, startFlowViaHub } from '../../../../lib/start-flow';
+
 export const POST: APIRoute = async ({ locals, params }) => {
-  const runtime = locals.runtime as {
-    env: { WORKFLOW_MANAGER: DurableObjectNamespace };
-  };
-
   const slug = params.slug!;
-  // Namespaced by type so playguide slugs don't collide with news/topic ids.
-  const doId = runtime.env.WORKFLOW_MANAGER.idFromName(`playguide:${slug}`);
-  const stub = runtime.env.WORKFLOW_MANAGER.get(doId);
-
-  const res = await stub.fetch('http://internal/trigger', {
-    method: 'POST',
-    // Admin trigger — force past the page-view re-trigger cooldown.
-    body: JSON.stringify({ itemId: slug, itemType: 'playguide', force: true }),
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  const data = await res.json();
-
-  return new Response(JSON.stringify(data), {
-    status: res.status,
-    headers: { 'Content-Type': 'application/json' },
+  let result: StartResult;
+  try {
+    result = await startFlowViaHub(
+      locals.runtime.env.FLOW_HUB,
+      PlayguideFlow.name,
+      { slug },
+      { force: true, probe: true },
+    );
+  } catch (err) {
+    return Response.json(
+      { error: `Failed to start workflow: ${startErrorMessage(err)}` },
+      { status: 502 },
+    );
+  }
+  if (result.throttled) {
+    // Unreachable under force, but the wire type carries it.
+    return Response.json({ status: 'throttled' });
+  }
+  return Response.json({
+    status: result.created ? 'started' : 'already_running',
+    instanceId: result.runId,
   });
 };
