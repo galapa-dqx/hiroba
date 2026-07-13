@@ -17,6 +17,7 @@ import {
   findImagesContainingSourcePage,
 } from '@hiroba/db';
 import { runFlowInline } from '@hiroba/flow';
+import { getFlowHub } from '@hiroba/flow/hub';
 import { GlossaryRegenFlow } from '@hiroba/flows';
 
 import {
@@ -40,38 +41,33 @@ vi.mock('./steps/translate-image-texts', () => ({
   retranslateImageTexts: vi.fn(),
 }));
 
+// The hub entry pulls cloudflare:workers, which doesn't exist on this plain-
+// node tier — and the RPC surface is exactly what this suite asserts against.
+vi.mock('@hiroba/flow/hub', () => ({
+  getFlowHub: vi.fn(),
+}));
+
 const TERM = 'キラーパンサー';
 
-/** A WORKFLOW_MANAGER namespace stub recording every trigger fetch. */
-function managerStub(opts: { failItemId?: string } = {}) {
-  const calls: Array<{ doName: string; itemId: string; itemType: string }> = [];
-  const ns = {
-    idFromName: (name: string) => ({ name }),
-    get: (id: { name: string }) => ({
-      fetch: async (_url: string, init?: { body?: unknown }) => {
-        const body = JSON.parse(String(init?.body)) as {
-          itemId: string;
-          itemType: string;
-        };
-        calls.push({ doName: id.name, ...body });
-        if (body.itemId === opts.failItemId) {
-          return new Response('boom', { status: 500 });
-        }
-        return Response.json({ status: 'started' });
-      },
-    }),
-  };
-  return { ns, calls };
-}
-
+/** A FlowHub stub recording every start call. */
 function makeEnv(opts: { failItemId?: string } = {}) {
-  const manager = managerStub(opts);
+  const calls: Array<{ flow: string; params: Record<string, unknown> }> = [];
+  vi.mocked(getFlowHub).mockReturnValue({
+    start: vi.fn(async (flow: string, params: unknown) => {
+      const p = params as Record<string, unknown>;
+      calls.push({ flow, params: p });
+      if ((p.itemId ?? p.slug) === opts.failItemId) {
+        throw new Error('boom');
+      }
+      return { runId: 'run-1', created: true, status: 'queued' };
+    }),
+  } as unknown as ReturnType<typeof getFlowHub>);
   const env = {
     DB: {},
     GEMINI_API_KEY: 'test-key',
-    WORKFLOW_MANAGER: manager.ns,
+    FLOW_HUB: {},
   } as unknown as GlossaryRegenFlowEnv;
-  return { env, calls: manager.calls };
+  return { env, calls };
 }
 
 // Article pages: news fills a whole page (loop continues, then breaks on the
@@ -152,11 +148,14 @@ describe('glossary regen flow — keyset scans + trigger fan-out', () => {
     );
     expect(vi.mocked(findImagesContainingSourcePage)).toHaveBeenCalledTimes(2);
 
-    // Every affected article was triggered through its per-item DO, with the
-    // per-type DO naming (news = bare id, others = `<type>:<id>`).
+    // Every affected article was started via the hub, on the ArticleFlow
+    // with its type in the params (the flow key carries the dedup identity).
     expect(calls).toHaveLength(NEWS_PAGE.length + TOPIC_PAGE.length);
-    expect(calls.find((c) => c.itemId === 'n0')?.doName).toBe('n0');
-    expect(calls.find((c) => c.itemId === 't1')?.doName).toBe('topic:t1');
+    expect(calls.find((c) => c.params.itemId === 'n0')?.flow).toBe('article');
+    expect(calls.find((c) => c.params.itemId === 't1')).toEqual({
+      flow: 'article',
+      params: { itemId: 't1', itemType: 'topic' },
+    });
 
     // Segment truth: every declared step settled; the scans counted one unit
     // per page and the trigger map knew its denominator.
@@ -217,7 +216,7 @@ describe('glossary regen flow — keyset scans + trigger fan-out', () => {
     );
 
     expect(result.error).toBeInstanceOf(Error);
-    expect(String(result.error)).toContain('trigger topic t1 failed: 500');
+    expect(String(result.error)).toContain('trigger topic t1 failed: boom');
     expect(result.snapshot.status).toBe('failed');
     expect(result.snapshot.steps.retriggerArticles.state).toBe('failed');
     // The image pass was never reached — honestly pending, not skipped.

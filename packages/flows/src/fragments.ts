@@ -2,8 +2,8 @@ import { phase, step, units } from '@hiroba/flow';
 
 /**
  * The article-pipeline step fragments (DQX-24) — the reuse mechanism between
- * PlayguideFlow and the upcoming ArticleFlow (DQX-25). Fragments spread into
- * definitions in insertion order, and the shared body helpers in apps/workflow
+ * PlayguideFlow and ArticleFlow (DQX-25). Fragments spread into definitions in
+ * insertion order, and the shared body helpers in apps/workflow
  * (`imageAndOutputPipeline`, `translateSizeGated`) are typed against exactly
  * these shapes — any flow whose steps structurally contain a fragment can hand
  * its tracker to the fragment's helper (ArticleFlow ⊃ PlayguideFlow).

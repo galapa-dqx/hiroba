@@ -16,11 +16,11 @@
  *                        the term, per item type. Driven through the `open`
  *                        handle: page N+1 needs page N's cursor, so map/drain
  *                        (where the pool owns the counter) don't apply.
- * 2. retriggerArticles — re-run each match's ArticleWorkflow through its
- *                        per-item WorkflowManager DO, which dedupes an already
- *                        running/queued run — idempotent, safe to re-fire.
+ * 2. retriggerArticles — re-run each match's flow via the hub, which dedupes
+ *                        on the flow key (an already running/queued run is
+ *                        attached to) — idempotent, safe to re-fire.
  *                        (Phase 5 — see DQX-21 — turns these into `join`s on
- *                        the article flow; until then the DO path stands.)
+ *                        the article flow; until then fire-and-forget stands.)
  * 3. languages         — load the enabled-language whitelist once, so every
  *                        image page translates into the same set even if the
  *                        admin edits it mid-run.
@@ -46,7 +46,12 @@ import {
   getEnabledLanguages,
 } from '@hiroba/db';
 import type { Flow } from '@hiroba/flow';
-import { type GlossaryRegenFlow } from '@hiroba/flows';
+import { getFlowHub } from '@hiroba/flow/hub';
+import {
+  ArticleFlow,
+  PlayguideFlow,
+  type GlossaryRegenFlow,
+} from '@hiroba/flows';
 
 import { retranslateImageTexts } from './steps/translate-image-texts';
 import type {
@@ -76,7 +81,7 @@ const ITEM_TYPES: readonly ItemType[] = ['news', 'topic', 'playguide'];
 /** The slice of the worker env the body actually touches. */
 export type GlossaryRegenFlowEnv = Pick<
   Env,
-  'DB' | 'GEMINI_API_KEY' | 'WORKFLOW_MANAGER'
+  'DB' | 'GEMINI_API_KEY' | 'FLOW_HUB'
 >;
 
 export async function runGlossaryRegenFlow(
@@ -122,9 +127,9 @@ export async function runGlossaryRegenFlow(
   }
   await scan.done();
 
-  // 2. Re-trigger every affected article through its per-item WorkflowManager
-  // DO, which dedupes an already running/queued run — a retried unit just
-  // re-triggers an already-running article, which the DO no-ops.
+  // 2. Re-trigger every affected article's flow via the hub, which dedupes on
+  // the flow key — a retried unit just re-triggers an already-running
+  // article, which attaches instead of doubling.
   await f.map(
     'retriggerArticles',
     async () => affected,
@@ -171,32 +176,28 @@ export async function runGlossaryRegenFlow(
 }
 
 /**
- * Re-run one article's ArticleWorkflow through its per-item WorkflowManager DO.
- * Returns a truthy marker (a unit return must be Serializable, and the
- * introspector drops a nullish mock); a failed trigger throws so the unit
- * retries rather than being silently counted as done — if retries are
- * exhausted the flow fails, surfacing an incomplete regeneration.
+ * Re-run one article's flow via the hub, which dedupes on the flow key
+ * (playguide = slug, article = `${itemType}:${itemId}`) so an in-flight run is
+ * attached to. `force` keeps the contract explicit — this system-initiated
+ * regen must never be throttled. Returns a truthy marker (a unit return must
+ * be Serializable, and the introspector drops a nullish mock); a failed start
+ * throws so the unit retries rather than being silently counted as done — if
+ * retries are exhausted the flow fails, surfacing an incomplete regeneration.
  */
 async function triggerArticle(
   env: GlossaryRegenFlowEnv,
   itemType: ItemType,
   id: string,
 ): Promise<{ triggered: true }> {
-  // DO naming mirrors the per-item /workflow routes: news = bare id,
-  // topic/playguide = `<type>:<id>` (their id spaces would otherwise collide).
-  const doName = itemType === 'news' ? id : `${itemType}:${id}`;
-  const stub = env.WORKFLOW_MANAGER.get(
-    env.WORKFLOW_MANAGER.idFromName(doName),
-  );
-  const res = await stub.fetch('http://internal/trigger', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ itemId: id, itemType }),
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
+  const start =
+    itemType === 'playguide'
+      ? { flow: PlayguideFlow.name, params: { slug: id } }
+      : { flow: ArticleFlow.name, params: { itemId: id, itemType } };
+  try {
+    await getFlowHub(env).start(start.flow, start.params, { force: true });
+  } catch (err) {
     throw new Error(
-      `trigger ${itemType} ${id} failed: ${res.status}${detail ? ` ${detail}` : ''}`,
+      `trigger ${itemType} ${id} failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   return { triggered: true };

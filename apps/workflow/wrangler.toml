@@ -77,10 +77,14 @@ tag = "v2"
 # Additive — deploys alongside the existing v1 namespace untouched.
 new_sqlite_classes = ["FlowHub"]
 
-# Cloudflare Workflow for the unified article pipeline (news + topics):
-# fetch-body → extract-events → mirror-images → transcribe-images → translate →
-# localize-images. The image steps no-op for image-free items (news); the item
-# type travels in the workflow params.
+# ArticleFlow (DQX-25): the news+topics pipeline — fetch-body → extract/tag
+# events → per-image mirror+transcribe units → size-gated translate →
+# per-image localize units → edge purge. The image units no-op for image-free
+# items (news); the item type travels in the params. Started only via the
+# FlowHub (hub.start('article'), keyed `${itemType}:${itemId}` so concurrent
+# triggers attach) from the web detail pages, the admin re-run buttons, the
+# self-healing SSE stream, the hourly recheck heal, and the glossary-regen
+# fan-out.
 [[workflows]]
 name = "article-workflow"
 binding = "ARTICLE_WORKFLOW"

@@ -44,13 +44,7 @@ const log = {
   error: vi.fn(),
 } as unknown as Logger;
 
-const doFetch = vi.fn(async () => new Response('ok'));
-const env = {
-  WORKFLOW_MANAGER: {
-    idFromName: vi.fn((name: string) => name),
-    get: vi.fn(() => ({ fetch: doFetch })),
-  },
-} as unknown as Env;
+const env = { FLOW_HUB: {} } as unknown as Env;
 
 const hubStart = vi.fn(async () => ({
   runId: 'run-1',
@@ -97,7 +91,7 @@ describe('processRechecks', () => {
 
     expect(setBodyChecked).toHaveBeenCalledWith(db, 'news', '0'.repeat(32));
     expect(saveChangedBody).not.toHaveBeenCalled();
-    expect(doFetch).not.toHaveBeenCalled();
+    expect(hubStart).not.toHaveBeenCalled();
   });
 
   it('ignores the pipeline’s time/event annotations when comparing', async () => {
@@ -143,14 +137,16 @@ describe('processRechecks', () => {
       titleJa: '更新された記事',
     });
     expect(setBodyChecked).not.toHaveBeenCalled();
-    // Topic DO names are namespaced (same as the /trigger route).
-    expect(env.WORKFLOW_MANAGER.idFromName).toHaveBeenCalledWith(
-      `topic:${'a'.repeat(32)}`,
+    // Articles run on the flow framework (DQX-25): started at the hub, keyed
+    // `${itemType}:${itemId}` — force keeps the system heal unthrottled.
+    expect(hubStart).toHaveBeenCalledWith(
+      'article',
+      { itemId: 'a'.repeat(32), itemType: 'topic' },
+      { force: true },
     );
-    expect(doFetch).toHaveBeenCalledOnce();
   });
 
-  it('re-triggers a changed playguide via the hub, not the DO', async () => {
+  it('re-triggers a changed playguide via its own flow', async () => {
     vi.mocked(getDueRechecks).mockResolvedValue([
       dueItem({ itemType: 'playguide' as never, id: 'guide07' }),
     ]);
@@ -166,14 +162,13 @@ describe('processRechecks', () => {
       blocks: [PARA('更新後の本文')],
       titleJa: undefined,
     });
-    // Playguides run on the flow framework (DQX-24): started at the hub,
-    // keyed by slug — the WorkflowManager DO is never touched.
+    // Playguides keep their own flow (DQX-24): started at the hub, keyed by
+    // slug.
     expect(hubStart).toHaveBeenCalledWith(
       'playguide',
       { slug: 'guide07' },
       { force: true },
     );
-    expect(doFetch).not.toHaveBeenCalled();
   });
 
   it('caps pipeline re-triggers per run, deferring the rest', async () => {
@@ -187,7 +182,7 @@ describe('processRechecks', () => {
 
     // 5 changed items re-trigger; the remaining 3 stay due for the next run.
     expect(saveChangedBody).toHaveBeenCalledTimes(5);
-    expect(doFetch).toHaveBeenCalledTimes(5);
+    expect(hubStart).toHaveBeenCalledTimes(5);
     expect(setBodyChecked).not.toHaveBeenCalled();
   });
 

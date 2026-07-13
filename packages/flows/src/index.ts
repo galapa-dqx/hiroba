@@ -8,6 +8,7 @@
  * mounted (apps/workflow/src/flow-hub.ts).
  */
 
+export { ArticleFlow } from './article';
 export { BannerFlow } from './banner';
 export { articleImagework, articleIntake, articleOutput } from './fragments';
 export { GlossaryRegenFlow } from './glossary-regen';

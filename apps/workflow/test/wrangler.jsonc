@@ -13,6 +13,11 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["FlowHub"] }],
   "workflows": [
     {
+      "name": "article-workflow",
+      "binding": "ARTICLE_WORKFLOW",
+      "class_name": "ArticleWorkflow",
+    },
+    {
       "name": "banner-workflow",
       "binding": "BANNER_WORKFLOW",
       "class_name": "BannerWorkflow",

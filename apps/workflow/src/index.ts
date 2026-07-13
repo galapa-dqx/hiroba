@@ -2,8 +2,10 @@
  * Workflow worker for the article processing pipeline (news + topics).
  *
  * Contains:
- * - WorkflowManager DO: SSE + workflow coordination
- * - ArticleWorkflow: unified multi-step processing pipeline
+ * - FlowHub DO: the flow framework's control plane (every pipeline runs on it
+ *   since DQX-25 — triggers go through hub.start)
+ * - WorkflowManager DO: domain SSE streams + the admin run tracker
+ * - The FlowEntrypoint workflow shells (ArticleWorkflow, PlayguideWorkflow, …)
  * - Cron handlers: hourly news + topics refresh, daily glossary refresh
  */
 
@@ -28,7 +30,12 @@ import {
   type ListItem,
 } from '@hiroba/db';
 import { getFlowHub } from '@hiroba/flow/hub';
-import { BannerFlow, PlayguideFlow, TitleFlow } from '@hiroba/flows';
+import {
+  ArticleFlow,
+  BannerFlow,
+  PlayguideFlow,
+  TitleFlow,
+} from '@hiroba/flows';
 import { imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import {
   crawlPlayguides,
@@ -48,7 +55,6 @@ import { transcribeImages } from './steps/transcribe-images';
 import { translateImageTexts } from './steps/translate-image-texts';
 import { translateTitleChunk } from './steps/translate-titles';
 import type { Env, ItemType } from './types';
-import { RETRIGGER_COOLDOWN_MS } from './workflow-manager';
 
 // Export the Durable Object and Workflow classes
 export { FlowHub } from './flow-hub';
@@ -60,6 +66,18 @@ export { NewsBackfillWorkflow } from './news-backfill-workflow';
 export { BannerWorkflow } from './banner-workflow';
 export { GlossaryRegenerateWorkflow } from './glossary-regenerate-workflow';
 export { PlayguideWorkflow } from './playguide-workflow';
+
+/**
+ * Minimum gap between page-driven pipeline re-triggers for one article. A
+ * settled-but-degraded article (e.g. an image the model can't produce) is not
+ * `complete`, so every organic view would otherwise start a fresh pipeline —
+ * full LLM/image work scaling with traffic. Throttling to one attempt per
+ * window caps re-run cost at the size of the catalogue, not the traffic to it.
+ * Genuine self-healing still happens (just not on every hit); admin, cron, and
+ * the watching SSE stream bypass this with `force`. Enforced by the hub
+ * (`cooldownMs`); the web app mirrors the value in its own trigger path.
+ */
+export const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 export default Sentry.withSentry(
   (env: Env) => ({
@@ -161,41 +179,26 @@ export default Sentry.withSentry(
           `trigger received: ${itemType} ${itemId}`,
         );
 
-        // Playguides run on the flow framework (DQX-24): start via the hub,
-        // which dedupes on the slug key. Mirrors the DO trigger contract —
-        // the caller's `force` bypasses the page-view re-trigger cooldown,
-        // and `probe` verifies a stale-looking active run against the engine
-        // before attaching — and the DO response shape.
-        if (itemType === 'playguide') {
-          const result = await getFlowHub(env).start(
-            PlayguideFlow.name,
-            { slug: itemId },
-            {
-              force: body.force ?? false,
-              cooldownMs: RETRIGGER_COOLDOWN_MS,
-              probe: true,
-            },
-          );
-          return Response.json(
-            result.throttled
-              ? { status: 'throttled' }
-              : { status: 'started', instanceId: result.runId },
-          );
-        }
-
-        // Route to the DO for this item, namespaced by type so ids don't collide
-        // (news = bare id; topic = `topic:<id>`).
-        const doName = itemType === 'news' ? itemId : `${itemType}:${itemId}`;
-        const doId = env.WORKFLOW_MANAGER.idFromName(doName);
-        const stub = env.WORKFLOW_MANAGER.get(doId);
-
-        return stub.fetch('http://internal/trigger', {
-          method: 'POST',
-          // Forward the caller's `force` so an operator hit can bypass the
-          // re-trigger cooldown; absent, it throttles like a page view.
-          body: JSON.stringify({ itemId, itemType, force: body.force }),
-          headers: { 'Content-Type': 'application/json' },
+        // Every pipeline runs on the flow framework (DQX-24/25): start via
+        // the hub, which dedupes on the flow key (playguide = slug, article =
+        // `${itemType}:${itemId}`) — a run already in flight is attached to,
+        // never doubled. The caller's `force` bypasses the page-view
+        // re-trigger cooldown, and `probe` verifies a stale-looking active
+        // run against the engine before attaching.
+        const start =
+          itemType === 'playguide'
+            ? { flow: PlayguideFlow.name, params: { slug: itemId } }
+            : { flow: ArticleFlow.name, params: { itemId, itemType } };
+        const result = await getFlowHub(env).start(start.flow, start.params, {
+          force: body.force ?? false,
+          cooldownMs: RETRIGGER_COOLDOWN_MS,
+          probe: true,
         });
+        return Response.json(
+          result.throttled
+            ? { status: 'throttled' }
+            : { status: 'started', instanceId: result.runId },
+        );
       }
 
       // Run the event reconcile sweep on demand (the nightly cron runs it too).

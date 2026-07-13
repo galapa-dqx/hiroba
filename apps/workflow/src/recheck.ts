@@ -25,7 +25,7 @@ import {
   type Database,
 } from '@hiroba/db';
 import { getFlowHub } from '@hiroba/flow/hub';
-import { PlayguideFlow } from '@hiroba/flows';
+import { ArticleFlow, PlayguideFlow } from '@hiroba/flows';
 import {
   serializeToRtml,
   stripTimeEventTags,
@@ -54,36 +54,22 @@ const MAX_RETRIGGERS_PER_RUN = 5;
 const comparable = (blocks: Block[]): string =>
   serializeToRtml({ title: '', blocks: stripTimeEventTags(blocks) });
 
-/** Re-run an item's pipeline. Playguides run on the flow framework (DQX-24) —
- * started via the hub, keyed by slug so a run in flight is attached to; news
- * and topics fire their ArticleWorkflow via the WorkflowManager DO (the same
- * path the public /trigger endpoint takes). */
+/** Re-run an item's pipeline via the hub, which dedupes on the flow key
+ * (playguide = slug, article = `${itemType}:${itemId}`) so a run in flight is
+ * attached to, never doubled. System-initiated heal — `force` keeps the
+ * contract explicit (the hub only throttles when a caller opts into
+ * cooldownMs, but this start must never be swallowed regardless of how that
+ * evolves). */
 async function triggerArticleWorkflow(
   env: Env,
   itemType: ItemType,
   itemId: string,
 ): Promise<void> {
-  if (itemType === 'playguide') {
-    // System-initiated heal — `force` keeps the contract explicit (the hub
-    // only throttles when a caller opts into cooldownMs, but this start must
-    // never be swallowed regardless of how that evolves).
-    await getFlowHub(env).start(
-      PlayguideFlow.name,
-      { slug: itemId },
-      { force: true },
-    );
-    return;
-  }
-  const doName = itemType === 'news' ? itemId : `${itemType}:${itemId}`;
-  const stub = env.WORKFLOW_MANAGER.get(
-    env.WORKFLOW_MANAGER.idFromName(doName),
-  );
-  await stub.fetch('http://internal/trigger', {
-    method: 'POST',
-    // System-initiated heal — force past the page-view re-trigger cooldown.
-    body: JSON.stringify({ itemId, itemType, force: true }),
-    headers: { 'Content-Type': 'application/json' },
-  });
+  const start =
+    itemType === 'playguide'
+      ? { flow: PlayguideFlow.name, params: { slug: itemId } }
+      : { flow: ArticleFlow.name, params: { itemId, itemType } };
+  await getFlowHub(env).start(start.flow, start.params, { force: true });
 }
 
 export async function processRechecks(

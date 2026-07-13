@@ -5,6 +5,7 @@ declare namespace Cloudflare {
   // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface Env {
     FLOW_HUB: DurableObjectNamespace;
+    ARTICLE_WORKFLOW: Workflow;
     BANNER_WORKFLOW: Workflow;
     GLOSSARY_REGENERATE_WORKFLOW: Workflow;
     TITLE_WORKFLOW: Workflow;

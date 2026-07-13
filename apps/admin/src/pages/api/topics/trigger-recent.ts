@@ -6,7 +6,7 @@ import { triggerRecentWorkflows } from '../../../lib/trigger-recent';
 
 export const POST: APIRoute = async ({ locals, request }) => {
   const runtime = locals.runtime as {
-    env: { DB: D1Database; WORKFLOW_MANAGER: DurableObjectNamespace };
+    env: { DB: D1Database; FLOW_HUB: DurableObjectNamespace };
   };
 
   const count = Number(new URL(request.url).searchParams.get('count'));
@@ -19,7 +19,7 @@ export const POST: APIRoute = async ({ locals, request }) => {
 
   const result = await triggerRecentWorkflows(
     createDb(runtime.env.DB),
-    runtime.env.WORKFLOW_MANAGER,
+    runtime.env.FLOW_HUB,
     'topic',
     count,
   );

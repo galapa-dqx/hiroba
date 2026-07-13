@@ -5,6 +5,7 @@
  */
 
 export { FlowHub } from '../../src/flow-hub';
+export { ArticleWorkflow } from '../../src/article-workflow';
 export { BannerWorkflow } from '../../src/banner-workflow';
 export { GlossaryRegenerateWorkflow } from '../../src/glossary-regenerate-workflow';
 export { TitleWorkflow } from '../../src/title-workflow';
