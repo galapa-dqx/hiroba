@@ -512,7 +512,14 @@ export async function saveChangedBody(
     fetchState: 'done',
   };
   if (params.titleJa) set.titleJa = params.titleJa;
-  await db.update(table).set(set).where(eq(table.id, id));
+  const result = await db
+    .update(table)
+    .set(set)
+    .where(eq(table.id, id))
+    .returning({ id: table.id });
+  if (result.length > 0) {
+    await syncArticleImages(db, itemType, id, params.blocks);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -734,6 +741,23 @@ export async function updateTopicBlocks(
 ): Promise<void> {
   await db.update(topics).set({ blocksJa: blocks }).where(eq(topics.id, id));
   await syncArticleImages(db, 'topic', id, blocks);
+}
+
+/**
+ * Replace a news item's block tree (used by the tag-events step via
+ * saveArticleBlocks). Mirrors updateTopicBlocks so every blocks_ja writer
+ * keeps the article_images index in sync.
+ */
+export async function updateNewsBlocks(
+  db: Database,
+  id: string,
+  blocks: Block[],
+): Promise<void> {
+  await db
+    .update(newsItems)
+    .set({ blocksJa: blocks })
+    .where(eq(newsItems.id, id));
+  await syncArticleImages(db, 'news', id, blocks);
 }
 
 /**
@@ -2209,6 +2233,12 @@ export async function upsertImageTranscription(
  * tree. Called by every blocks_ja writer so the index can't drift. Only
  * block-level images are indexed (the localizable ones — see the schema doc);
  * delete-then-insert, since the per-article set is tiny.
+ *
+ * The invalidate helpers (blocksJa → null pending refetch) deliberately do NOT
+ * clear the index: the article still conceptually embeds those images, so a
+ * purge in the window before the refetch over-includes a blockless page
+ * (harmless) rather than under-purging if the refetch never lands. The next
+ * real block write replaces the set.
  */
 export async function syncArticleImages(
   db: Database,

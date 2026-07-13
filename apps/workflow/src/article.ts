@@ -7,13 +7,11 @@
  * step stays parameterized by item type without duplicating the table branch.
  */
 
-import { eq } from 'drizzle-orm';
-
 import {
   getNewsItem,
   getPlayguide,
   getTopic,
-  newsItems,
+  updateNewsBlocks,
   updatePlayguideBlocks,
   updateTopicBlocks,
   type Database,
@@ -66,9 +64,6 @@ export async function saveArticleBlocks(
   } else if (itemType === 'playguide') {
     await updatePlayguideBlocks(db, id, blocks);
   } else {
-    await db
-      .update(newsItems)
-      .set({ blocksJa: blocks })
-      .where(eq(newsItems.id, id));
+    await updateNewsBlocks(db, id, blocks);
   }
 }

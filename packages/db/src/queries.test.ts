@@ -31,6 +31,7 @@ import {
   setItemFetchState,
   setTranslationStates,
   syncBanners,
+  updateNewsBlocks,
   updateTopicBlocks,
   upsertImageTranscription,
   upsertImageTranslation,
@@ -1602,5 +1603,37 @@ describe('article_images reverse index', () => {
     ]);
     expect(await isBannerImage(ctx.db, KEY_A)).toBe(true);
     expect(await isBannerImage(ctx.db, KEY_B)).toBe(false);
+  });
+
+  it('syncs when a recheck saves a changed body', async () => {
+    await upsertTopic(ctx.db, {
+      id: hex(3),
+      titleJa: 'トピック3',
+      publishedAt: BASE,
+      blocksJa: [{ type: 'image', src: SRC_A }],
+    });
+
+    // The recheck poll finds changed content with a different image set.
+    await saveChangedBody(ctx.db, 'topic', hex(3), {
+      blocks: [{ type: 'image', src: SRC_B }],
+    });
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
+    expect(await getArticlesByImageKey(ctx.db, KEY_B)).toEqual([
+      { itemType: 'topic', itemId: hex(3) },
+    ]);
+
+    // A save against a nonexistent article must not plant ghost index rows.
+    await saveChangedBody(ctx.db, 'topic', hex(4), {
+      blocks: [{ type: 'image', src: SRC_A }],
+    });
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
+  });
+
+  it('syncs news blocks via updateNewsBlocks', async () => {
+    await upsertListItems(ctx.db, [listItem(5, 1)]);
+    await updateNewsBlocks(ctx.db, hex(5), [{ type: 'image', src: SRC_A }]);
+    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([
+      { itemType: 'news', itemId: hex(5) },
+    ]);
   });
 });
