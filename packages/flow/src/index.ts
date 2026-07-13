@@ -61,6 +61,7 @@ export {
 } from './tracker';
 
 export {
+  inlineJoinPort,
   runFlowInline,
   type InlineResult,
   type InlineTraceEntry,

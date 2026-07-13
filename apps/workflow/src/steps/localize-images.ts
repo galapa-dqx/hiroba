@@ -143,11 +143,11 @@ type ImageRow = Awaited<ReturnType<typeof getImagesByKeys>>[number];
 export type LocalizableImage = Pick<ImageRow, 'id' | 'key' | 'textsJa'>;
 
 /** One image's fate through `localizeRowForLanguage` — the unit of LocalizeResult. */
-type LocalizeOutcome = 'localized' | 'skipped' | 'failed';
+export type LocalizeOutcome = 'localized' | 'skipped' | 'failed';
 
 /**
  * Localize one image row into one language — the core both entry points share
- * (`localizeImages` prefetches the per-language maps; `localizeOneImage`
+ * (`localizeImages` prefetches the per-language maps; `localizeImageLanguage`
  * fetches per row). Never throws for a bad image — the url row is marked
  * failed and the outcome says so, because one bad image degrades the article,
  * never blocks it.
@@ -292,49 +292,40 @@ async function localizeRowForLanguage(
 }
 
 /**
- * Localize one image row into every target language (the per-unit worker
- * behind the flow framework's per-image `map` units — the batch entry point
- * below prefetches per-language maps instead). Idempotent per
- * (language, model), like the batch path.
+ * Localize one image row into ONE target language (the ImageLocalizeFlow
+ * child's `generate` body — the batch entry point below prefetches
+ * per-language maps for many rows instead). Idempotent per (language, model),
+ * like the batch path, and never throws for a bad image — the outcome says so.
  */
-export async function localizeOneImage(
+export async function localizeImageLanguage(
   db: Database,
   bucket: R2Bucket,
   images: ImagesBinding,
   apiKey: string,
   row: LocalizableImage,
-  targetLanguages: TargetLanguage[],
-): Promise<LocalizeResult> {
-  const result: LocalizeResult = { localized: 0, skipped: 0, failed: 0 };
-  for (const target of targetLanguages) {
-    const translated = await getImageTranslations(
-      db,
-      [row.id],
-      target.code,
-      'text',
-    );
-    const localizedBy = await getLocalizedImageModels(
-      db,
-      [row.id],
-      target.code,
-    );
-    const outcome = await localizeRowForLanguage(
-      db,
-      bucket,
-      images,
-      apiKey,
-      row,
-      target,
-      {
-        translatedJson: translated.get(row.id),
-        localizedModel: localizedBy.get(row.id),
-      },
-      false,
-      IMAGE_MODEL,
-    );
-    result[outcome]++;
-  }
-  return result;
+  target: TargetLanguage,
+): Promise<LocalizeOutcome> {
+  const translated = await getImageTranslations(
+    db,
+    [row.id],
+    target.code,
+    'text',
+  );
+  const localizedBy = await getLocalizedImageModels(db, [row.id], target.code);
+  return localizeRowForLanguage(
+    db,
+    bucket,
+    images,
+    apiKey,
+    row,
+    target,
+    {
+      translatedJson: translated.get(row.id),
+      localizedModel: localizedBy.get(row.id),
+    },
+    false,
+    IMAGE_MODEL,
+  );
 }
 
 /**

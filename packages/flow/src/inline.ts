@@ -26,8 +26,32 @@ import {
   type EngineStep,
   type Flow,
   type FlowLogger,
+  type JoinOutcome,
   type JoinPort,
 } from './tracker';
+
+/**
+ * A stub JoinPort for inline tests: `resolve` answers each joined child with
+ * its outcome. Faithful to createHubJoinPort where it matters — the outcome
+ * is memoized in the `<prefix>start` engine step, so a replay over memo does
+ * NOT re-invoke `resolve` (the production port pins the same child run
+ * forever the same way), and the trace carries the production step names.
+ * `resolve` may throw to simulate a PORT failure (which fails the parent
+ * step); a failed CHILD is an outcome, not a throw.
+ */
+export function inlineJoinPort(
+  resolve: (
+    def: AnyFlowDef,
+    params: unknown,
+  ) => JoinOutcome | Promise<JoinOutcome>,
+): JoinPort {
+  return {
+    join: (def, params, { engine, namePrefix }) =>
+      engine.do(`${namePrefix}start`, () =>
+        Promise.resolve(resolve(def, params)),
+      ),
+  };
+}
 
 export type InlineTraceEntry = {
   type: 'do' | 'sleep' | 'waitForEvent';
