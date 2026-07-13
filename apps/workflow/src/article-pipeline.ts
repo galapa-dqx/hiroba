@@ -3,7 +3,7 @@
  * the old ArticleWorkflow, typed against the step-shape FRAGMENTS in
  * @hiroba/flows rather than any one flow. Any flow whose declared steps
  * structurally contain a fragment can hand its tracker here: PlayguideFlow
- * consumes them today, ArticleFlow follows (DQX-25). This file is the reuse
+ * (DQX-24) and ArticleFlow (DQX-25) both do. This file is the reuse
  * mechanism — flows share bodies structurally, not by inheritance.
  *
  * What changed shape-wise from the old workflow:

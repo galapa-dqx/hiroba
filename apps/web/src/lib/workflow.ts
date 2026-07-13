@@ -1,12 +1,14 @@
 /**
- * Web-side interface to the WorkflowManager Durable Object — the one place
- * that knows the DO naming convention: a news item's DO is named by its bare
- * id; topics and playguides are namespaced `<type>:<id>` so they can't collide
- * with a news item (or each other) of the same id.
+ * Web-side interface to the article pipelines: fire-and-forget triggers via
+ * the FlowHub (which owns dedup and the re-trigger cooldown), and the SSE
+ * progress proxy to the WorkflowManager DO — the one place that still knows
+ * the DO naming convention: a news item's DO is named by its bare id; topics
+ * and playguides are namespaced `<type>:<id>` so they can't collide with a
+ * news item (or each other) of the same id.
  */
 
 import type { ItemType } from '@hiroba/db';
-import { PlayguideFlow, TitleBackfillFlow } from '@hiroba/flows';
+import { ArticleFlow, PlayguideFlow, TitleBackfillFlow } from '@hiroba/flows';
 
 type ArticleType = Extract<ItemType, 'news' | 'topic' | 'playguide'>;
 
@@ -19,22 +21,21 @@ function workflowStub(runtime: Runtime, itemType: ArticleType, id: string) {
 }
 
 /**
- * Minimum gap between page-driven pipeline re-triggers for one playguide. A
- * settled-but-degraded guide is not complete, so every organic view would
- * otherwise start a fresh pipeline. Mirrors the WorkflowManager DO's
- * RETRIGGER_COOLDOWN_MS, which still guards the news/topic path.
+ * Minimum gap between page-driven pipeline re-triggers for one article. A
+ * settled-but-degraded article is not complete, so every organic view would
+ * otherwise start a fresh pipeline. Mirrors the workflow worker's
+ * RETRIGGER_COOLDOWN_MS.
  */
-const PLAYGUIDE_RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
+const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 /**
  * Fire-and-forget trigger for an article's pipeline. Failures are logged, not
  * thrown — the page still renders whatever content it has.
  *
- * Playguides run on the flow framework (DQX-24): the start goes to the
- * FlowHub, which dedupes on the slug key (a run in flight is attached to,
- * never doubled) and throttles page-driven re-triggers of settled runs via
- * the cooldown. News and topics stay on the WorkflowManager DO path, whose
- * per-item DO carries the same dedup + cooldown.
+ * Every pipeline runs on the flow framework (DQX-24/25): the start goes to
+ * the FlowHub, which dedupes on the flow key (playguide = slug, article =
+ * `${itemType}:${itemId}` — a run in flight is attached to, never doubled)
+ * and throttles page-driven re-triggers of settled runs via the cooldown.
  */
 export function triggerWorkflow(
   runtime: Runtime,
@@ -42,24 +43,18 @@ export function triggerWorkflow(
   id: string,
 ): void {
   try {
-    if (itemType === 'playguide') {
-      const ns = runtime.env.FLOW_HUB;
-      const stub = ns.get(ns.idFromName('hub'));
-      stub.fetch('http://internal/start', {
-        method: 'POST',
-        body: JSON.stringify({
-          flow: PlayguideFlow.name,
-          params: { slug: id },
-          cooldownMs: PLAYGUIDE_RETRIGGER_COOLDOWN_MS,
-        }),
-        headers: { 'Content-Type': 'application/json' },
-      });
-      return;
-    }
-    const stub = workflowStub(runtime, itemType, id);
-    stub.fetch('http://internal/trigger', {
+    const start =
+      itemType === 'playguide'
+        ? { flow: PlayguideFlow.name, params: { slug: id } }
+        : { flow: ArticleFlow.name, params: { itemId: id, itemType } };
+    const ns = runtime.env.FLOW_HUB;
+    const stub = ns.get(ns.idFromName('hub'));
+    stub.fetch('http://internal/start', {
       method: 'POST',
-      body: JSON.stringify({ itemId: id, itemType }),
+      body: JSON.stringify({
+        ...start,
+        cooldownMs: RETRIGGER_COOLDOWN_MS,
+      }),
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error) {

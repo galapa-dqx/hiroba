@@ -55,7 +55,11 @@ export type Env = {
   /** The flow framework's control plane — one 'hub' instance, one SQLite
    *  database for all runs/steps/units state (src/flow-hub.ts). */
   FLOW_HUB: DurableObjectNamespace;
-  /** The unified news+topics pipeline (item type carried in the params). */
+  /** The news+topics pipeline (ArticleFlow, DQX-25): fetch → extract/tag
+   *  events → per-image ingest → translate → per-image localize → purge.
+   *  Instances are created only by the FlowHub — triggers go through
+   *  hub.start('article'), keyed `${itemType}:${itemId}` so concurrent
+   *  triggers attach. */
   ARTICLE_WORKFLOW: WorkflowBinding<ArticleWorkflowParams>;
   /** Eager title translation at discovery (TitleFlow, DQX-11). Instances are
    *  created only by the FlowHub — triggers go through hub.start('title'),
@@ -103,20 +107,25 @@ export type Env = {
 };
 
 /**
- * Which pipeline an item flows through — also its event source_type. All three
- * share the ArticleWorkflow; playguides are static reference pages (no dated
- * events, so the event steps are skipped) that otherwise run the full
- * scrape→translate→localize-images pipeline like topics.
+ * Which pipeline an item flows through — also its event source_type. News and
+ * topics share the ArticleFlow (the image steps no-op for image-free news);
+ * playguides are static reference pages with no dated events and run their own
+ * PlayguideFlow (DQX-24), which never declares the event steps.
  */
 export type ItemType = 'news' | 'topic' | 'playguide';
 
+/** The item types that flow through the ArticleFlow. */
+export type ArticleItemType = Exclude<ItemType, 'playguide'>;
+
 /**
- * Parameters passed to the ArticleWorkflow. `itemType` selects which table the
- * steps read/write; the two never collide (the DO is namespaced per type).
+ * Parameters passed to the ArticleWorkflow (ArticleFlow, DQX-25). `itemType`
+ * selects which table the steps read/write, and together with `itemId` it is
+ * the hub's dedup key — replacing the old per-item WorkflowManager DO name as
+ * the one-run-per-item point.
  */
 export type ArticleWorkflowParams = {
   itemId: string;
-  itemType: ItemType;
+  itemType: ArticleItemType;
 };
 
 /** The BannerWorkflow scrapes + localizes the whole rotation; no params. */
@@ -269,7 +278,7 @@ export type TranslateResult = {
  */
 export type ArticleWorkflowOutput = {
   itemId: string;
-  itemType: ItemType;
+  itemType: ArticleItemType;
   fetchBody: FetchBodyResult;
   extractEvents: ExtractEventsResult;
   tagEvents: TagEventsResult;

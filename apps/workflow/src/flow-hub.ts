@@ -12,6 +12,7 @@ import {
   type FlowRegistration,
 } from '@hiroba/flow/hub';
 import {
+  ArticleFlow,
   BannerFlow,
   GlossaryRegenFlow,
   NewsBackfillFlow,
@@ -21,6 +22,7 @@ import {
 } from '@hiroba/flows';
 
 const registrations: FlowRegistration[] = [
+  { def: ArticleFlow, binding: 'ARTICLE_WORKFLOW' },
   { def: BannerFlow, binding: 'BANNER_WORKFLOW' },
   { def: GlossaryRegenFlow, binding: 'GLOSSARY_REGENERATE_WORKFLOW' },
   { def: TitleFlow, binding: 'TITLE_WORKFLOW' },
