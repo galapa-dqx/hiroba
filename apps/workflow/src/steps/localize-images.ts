@@ -255,12 +255,14 @@ async function localizeRowForLanguage(
     }
 
     // Recover transparency from the two-up (matted images only), then trim
-    // the padding gpt-image-2 adds back to the original's aspect ratio.
+    // the padding gpt-image-2 adds back to the source's geometry — `editable`
+    // rather than `original` so a transcoded source (GIF → PNG) still exposes
+    // its alpha to the trimmer; the dimensions are the same either way.
     const restored = matted ? recoverAlphaFromTwoUp(edited) : edited;
     if (!restored) {
       return markFailed('two-up alpha recovery failed');
     }
-    const localizedBytes = trimToAspect(restored, original.bytes);
+    const localizedBytes = trimToAspect(restored, editable.bytes);
 
     const localizedKey = `${localizedPrefix(language)}/${row.key}`;
     await bucket.put(localizedKey, localizedBytes, {
