@@ -110,6 +110,9 @@ importers:
       '@lexical/utils':
         specifier: ^0.46.0
         version: 0.46.0(typescript@5.9.3)
+      '@sentry/cloudflare':
+        specifier: ^10.34.0
+        version: 10.34.0(@cloudflare/workers-types@4.20260109.0)
       astro:
         specifier: ^5.1.0
         version: 5.16.8(@azure/identity@4.13.0)(@types/node@24.10.4)(jiti@2.7.0)(rollup@4.55.1)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.9.0)
@@ -175,8 +178,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/ui
       '@sentry/cloudflare':
-        specifier: ^9.40.0
-        version: 9.47.1(@cloudflare/workers-types@4.20260109.0)
+        specifier: ^10.34.0
+        version: 10.34.0(@cloudflare/workers-types@4.20260109.0)
       astro:
         specifier: ^5.1.0
         version: 5.16.8(@azure/identity@4.13.0)(@types/node@24.10.4)(jiti@2.7.0)(rollup@4.55.1)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.9.0)
@@ -2385,21 +2388,8 @@ packages:
       '@cloudflare/workers-types':
         optional: true
 
-  '@sentry/cloudflare@9.47.1':
-    resolution: {integrity: sha512-k22rStK6PCNKBGp8eDBz2vmT/ksKoDDqiF2dwK2KSzngc1B0DSl5S4THdRB+gdkEcJOH0zbCKR/s9EsazbQmJQ==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      '@cloudflare/workers-types': ^4.x
-    peerDependenciesMeta:
-      '@cloudflare/workers-types':
-        optional: true
-
   '@sentry/core@10.34.0':
     resolution: {integrity: sha512-4FFpYBMf0VFdPcsr4grDYDOR87mRu6oCfb51oQjU/Pndmty7UgYo0Bst3LEC/8v0SpytBtzXq+Wx/fkwulBesg==}
-    engines: {node: '>=18'}
-
-  '@sentry/core@9.47.1':
-    resolution: {integrity: sha512-KX62+qIt4xgy8eHKHiikfhz2p5fOciXd0Cl+dNzhgPFq8klq4MGMNaf148GB3M/vBqP4nw/eFvRMAayFCgdRQw==}
     engines: {node: '>=18'}
 
   '@shikijs/core@3.21.0':
@@ -7074,16 +7064,7 @@ snapshots:
     optionalDependencies:
       '@cloudflare/workers-types': 4.20260109.0
 
-  '@sentry/cloudflare@9.47.1(@cloudflare/workers-types@4.20260109.0)':
-    dependencies:
-      '@opentelemetry/api': 1.9.0
-      '@sentry/core': 9.47.1
-    optionalDependencies:
-      '@cloudflare/workers-types': 4.20260109.0
-
   '@sentry/core@10.34.0': {}
-
-  '@sentry/core@9.47.1': {}
 
   '@shikijs/core@3.21.0':
     dependencies:

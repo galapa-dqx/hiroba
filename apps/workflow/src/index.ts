@@ -90,7 +90,17 @@ export default Sentry.withSentry(
   (env: Env) => ({
     dsn: env.SENTRY_DSN,
     release: env.CF_VERSION_METADATA.id,
+    // Capture 100% of spans for tracing.
     tracesSampleRate: 1.0,
+    // Structured logs: forward console.warn/error (the createLogger sink) to
+    // Sentry Logs; explicit Sentry.logger.* calls ship too.
+    enableLogs: true,
+    // Trace metrics (Sentry.metrics.count/gauge/distribution). Default-on in
+    // the SDK; set explicitly to document intent.
+    enableMetrics: true,
+    integrations: [
+      Sentry.consoleLoggingIntegration({ levels: ['warn', 'error'] }),
+    ],
   }),
   {
     /**

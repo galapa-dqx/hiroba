@@ -29,9 +29,19 @@ export const onRequest = defineMiddleware((context, next) => {
       options: {
         dsn: runtime.env.SENTRY_DSN,
         environment: 'production',
-        // Errors-only for now — no perf tracing overhead on every page.
-        tracesSampleRate: 0,
+        // Sample 5% of requests for tracing — this is the public front-end, so
+        // full tracing would be heavy on span quota.
+        tracesSampleRate: 0.05,
+        // Structured logs: ship the app's console.warn/error to Sentry Logs
+        // (explicit Sentry.logger.* calls also flow once this is enabled).
+        enableLogs: true,
+        // Trace metrics (Sentry.metrics.count/gauge/distribution). Default-on
+        // in the SDK; set explicitly to document intent.
+        enableMetrics: true,
         sendDefaultPii: false,
+        integrations: [
+          Sentry.consoleLoggingIntegration({ levels: ['warn', 'error'] }),
+        ],
       },
       // Astro hands us a standard Request; Sentry's Cloudflare types want the
       // workerd Request (with cf properties). Same object at runtime.

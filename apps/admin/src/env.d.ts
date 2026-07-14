@@ -9,13 +9,16 @@ type RuntimeEnv = {
   WORKFLOW: Fetcher;
   /** FlowHub DO (flow framework control plane) — single 'hub' instance. */
   FLOW_HUB: DurableObjectNamespace;
+  /** Sentry DSN for server-side error reporting. Unset → Sentry is inert.
+   *  Set as a var/secret on the Pages project, not committed (OSS repo). */
+  SENTRY_DSN?: string;
 };
 
 declare namespace App {
   // Must be an interface — Astro's App.Locals is an interface and this merges into it.
   // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface Locals {
-    runtime: { env: RuntimeEnv };
+    runtime: { env: RuntimeEnv; ctx: ExecutionContext };
   }
 }
 
