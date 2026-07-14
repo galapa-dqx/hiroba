@@ -59,9 +59,6 @@ import type { Env, ItemType } from './types';
 
 // Export the Durable Object and Workflow classes
 export { FlowHub } from './flow-hub';
-// Vestigial: keeps the legacy WorkflowManager DO class exported until its
-// delete-class migration lands. See workflow-manager-stub.ts.
-export { WorkflowManager } from './workflow-manager-stub';
 export { ArticleWorkflow } from './article-workflow';
 export { TitleWorkflow } from './title-workflow';
 export { TitleBackfillWorkflow } from './title-backfill-workflow';
