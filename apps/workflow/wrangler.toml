@@ -69,7 +69,8 @@ bindings = [
 tag = "v1"
 # SQLite-backed DO namespace — required on the Workers free plan, and the
 # recommended default for new Durable Objects regardless of plan.
-# (The legacy per-item coordination DO, deleted in v3.)
+# (The legacy per-item coordination DO, dissolved in DQX-26; its delete
+# migration is deferred — see the note below the v2 block.)
 new_sqlite_classes = ["WorkflowManager"]
 
 [[migrations]]
@@ -77,13 +78,23 @@ tag = "v2"
 # Additive — deploys alongside the existing v1 namespace untouched.
 new_sqlite_classes = ["FlowHub"]
 
-[[migrations]]
-tag = "v3"
-# DQX-26: the legacy coordination DO is dissolved — dedup/tracking live in the
-# hub, the SSE/regenerate routes are plain. IRREVERSIBLE: deploying this drops
-# the namespace and all its stored state (which was only soft caches/dedup
-# maps; D1 holds the ground truth).
-deleted_classes = ["WorkflowManager"]
+# DQX-26: the legacy coordination DO is dissolved. The delete is DEFERRED to a
+# follow-up deploy and intentionally NOT in this config yet.
+#
+# Why two phases: a `deleted_classes` migration only succeeds when no LIVE worker
+# anywhere still binds the class. #25 shipped the binding removals AND the delete
+# together, but CI deploys this worker BEFORE web/admin — so at delete time the
+# still-live prod web/admin (and the prior worker version) held cross-script
+# `WorkflowManager` bindings, and Cloudflare rejected it (error 10061), wedging
+# every deploy since. This deploy carries the code that removes all three
+# bindings (worker + web + admin) but performs no migration, orphaning the
+# namespace harmlessly (its data was only soft caches/dedup; D1 is ground truth).
+#
+# Once this lands and nothing binds WorkflowManager, restore the delete in a
+# follow-up commit — it will then apply cleanly:
+#   [[migrations]]
+#   tag = "v3"
+#   deleted_classes = ["WorkflowManager"]
 
 # ArticleFlow (DQX-25): the news+topics pipeline — fetch-body → extract/tag
 # events → per-image mirror+transcribe units → size-gated translate →
