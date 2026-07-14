@@ -16,6 +16,7 @@ import {
 } from '@hiroba/db';
 import { imageUpstreamUrl, type Block } from '@hiroba/richtext';
 
+import { IMAGE_QUALITIES, type ImageQuality } from './image-edit';
 import { purgeImagePages } from './purge';
 import { localizeImages } from './steps/localize-images';
 import type { Env } from './types';
@@ -34,6 +35,7 @@ export async function regenerateImage(
   const body = (await request.json()) as {
     imageId?: unknown;
     language?: unknown;
+    quality?: unknown;
   };
   const imageId =
     typeof body.imageId === 'number' ? body.imageId : Number(body.imageId);
@@ -43,6 +45,18 @@ export async function regenerateImage(
       { error: 'imageId (number) and language required' },
       { status: 400 },
     );
+  }
+  // Optional quality tier; reject anything gpt-image-2 doesn't accept rather
+  // than silently falling back to the default.
+  let quality: ImageQuality | undefined;
+  if (body.quality !== undefined) {
+    if (!IMAGE_QUALITIES.includes(body.quality as ImageQuality)) {
+      return Response.json(
+        { error: `quality must be one of ${IMAGE_QUALITIES.join(', ')}` },
+        { status: 400 },
+      );
+    }
+    quality = body.quality as ImageQuality;
   }
 
   const db = createDb(env.DB);
@@ -73,7 +87,7 @@ export async function regenerateImage(
     env.OPENAI_API_KEY,
     blocks,
     [{ code: target.code, label: target.label }],
-    { force: true, model: MANUAL_IMAGE_MODEL },
+    { force: true, model: MANUAL_IMAGE_MODEL, quality },
   );
 
   // Report the url row's settled state so the client can show the new image

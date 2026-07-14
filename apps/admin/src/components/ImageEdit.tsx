@@ -20,10 +20,12 @@ import { formatLocalDate } from '@hiroba/ui/format-date';
 
 import {
   getImageDetail,
+  IMAGE_QUALITIES,
   regenerateImage,
   saveImageTranslation,
   uploadImage,
   type ImageDetail,
+  type ImageQuality,
 } from '../lib/api';
 import { getPrimaryLanguage } from '../lib/primary-language';
 
@@ -40,6 +42,9 @@ export default function ImageEdit({ id }: Props) {
 
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  // gpt-image-2 quality tier for the next regeneration; the pipeline default is
+  // the cheapest, so start there.
+  const [quality, setQuality] = useState<ImageQuality>('low');
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -125,7 +130,7 @@ export default function ImageEdit({ id }: Props) {
     setStatus(null);
     setActionError(null);
     try {
-      const res = await regenerateImage(id, lang);
+      const res = await regenerateImage(id, lang, quality);
       await loadDetail();
       if (res.status === 'done') setStatus('Image regenerated.');
       else setActionError('Regeneration failed — see the error below.');
@@ -308,6 +313,20 @@ export default function ImageEdit({ id }: Props) {
               >
                 {saving ? 'Saving…' : 'Save translations'}
               </button>
+              <label className="image-edit__quality">
+                Quality
+                <select
+                  value={quality}
+                  onChange={(e) => setQuality(e.target.value as ImageQuality)}
+                  disabled={busy}
+                >
+                  {IMAGE_QUALITIES.map((q) => (
+                    <option key={q} value={q}>
+                      {q}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 type="button"
                 className="btn-primary"

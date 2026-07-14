@@ -12,15 +12,24 @@
 
 import type { APIRoute } from 'astro';
 
-export const POST: APIRoute = async ({ locals, params }) => {
+export const POST: APIRoute = async ({ locals, params, request }) => {
   const id = params.id!;
   const lang = params.lang!;
+  // Optional quality tier chosen in the editor; the workflow worker validates
+  // it and rejects anything gpt-image-2 doesn't accept.
+  const body = (await request.json().catch(() => ({}))) as {
+    quality?: unknown;
+  };
 
   const res = await locals.runtime.env.WORKFLOW.fetch(
     'http://internal/regenerate-image',
     {
       method: 'POST',
-      body: JSON.stringify({ imageId: Number(id), language: lang }),
+      body: JSON.stringify({
+        imageId: Number(id),
+        language: lang,
+        quality: body.quality,
+      }),
       headers: { 'Content-Type': 'application/json' },
     },
   );

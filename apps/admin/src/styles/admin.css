@@ -2097,6 +2097,13 @@ hr.divider {
   padding-top: 0.25rem;
   border-top: 1px solid var(--rule);
 }
+.image-edit__quality {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
 .image-edit__upload {
   display: inline-flex;
   align-items: center;

@@ -39,6 +39,7 @@ import {
   IMAGE_MODEL,
   matteAndPadForTwoUp,
   toEditableImage,
+  type ImageQuality,
 } from '../image-edit';
 import {
   hasMeaningfulTransparency,
@@ -170,6 +171,8 @@ async function localizeRowForLanguage(
   force: boolean,
   /** The model to stamp on the produced `url` row (its later skip identity). */
   model: string,
+  /** gpt-image-2 quality tier; undefined uses the generator's cheap default. */
+  quality: ImageQuality | undefined,
 ): Promise<LocalizeOutcome> {
   const language = target.code;
 
@@ -259,6 +262,7 @@ async function localizeRowForLanguage(
       imageBytes: editInput.bytes,
       mimeType: editInput.mimeType,
       prompt: buildPrompt(target.label, pairs, matted),
+      quality,
     });
     if (!edited) {
       return markFailed('image edit failed');
@@ -328,6 +332,7 @@ export async function localizeImageLanguage(
     },
     false,
     IMAGE_MODEL,
+    undefined,
   );
 }
 
@@ -345,6 +350,8 @@ async function localizeImagesForLanguage(
   force: boolean,
   /** The model to stamp on the produced `url` row (its later skip identity). */
   model: string,
+  /** gpt-image-2 quality tier; undefined uses the generator's cheap default. */
+  quality: ImageQuality | undefined,
 ): Promise<LocalizeResult> {
   const language = target.code;
   const ids = rows.map((r) => r.id);
@@ -366,6 +373,7 @@ async function localizeImagesForLanguage(
       },
       force,
       model,
+      quality,
     );
     result[outcome]++;
   });
@@ -386,7 +394,7 @@ export async function localizeImages(
   apiKey: string,
   blocks: Block[],
   targetLanguages: TargetLanguage[],
-  opts: { force?: boolean; model?: string } = {},
+  opts: { force?: boolean; model?: string; quality?: ImageQuality } = {},
 ): Promise<LocalizeResult> {
   const keys = [
     ...new Set(
@@ -410,6 +418,7 @@ export async function localizeImages(
       target,
       opts.force ?? false,
       opts.model ?? IMAGE_MODEL,
+      opts.quality,
     );
     total.localized += result.localized;
     total.skipped += result.skipped;
