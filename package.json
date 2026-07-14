@@ -9,6 +9,9 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "lint": "turbo lint",
+    "fallow": "fallow",
+    "fallow:dead": "fallow dead-code",
+    "fallow:watch": "fallow watch",
     "db:setup": "mkdir -p .wrangler-shared/v3/d1 && pnpm db:migrate:local",
     "db:migrate:local": "wrangler d1 migrations apply DB --local --persist-to .wrangler-shared --config apps/workflow/wrangler.toml",
     "db:migrate:prod": "wrangler d1 migrations apply DB --remote --config apps/workflow/wrangler.toml"
@@ -22,6 +25,7 @@
     "eslint-config-prettier": "^9.1.0",
     "eslint-import-resolver-typescript": "^4.4.0",
     "eslint-plugin-import-x": "^4.6.1",
+    "fallow": "^3.4.2",
     "fetch-mock": "^12.5.2",
     "globals": "^15.14.0",
     "prettier": "^3.4.2",

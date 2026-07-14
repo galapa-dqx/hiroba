@@ -1,0 +1,25 @@
+{
+  // This file is JSONC: fallow reads these comments; generic JSON tools may not.
+  "$schema": "./node_modules/fallow/schema.json",
+  "workspaces": {
+    "patterns": ["apps/*", "packages/*"]
+  },
+  // Entry points are seeded automatically by the wrangler, astro, and
+  // typescript plugins (Worker main, Astro pages, package.json exports),
+  // so no manual `entry` globs are needed here.
+  "ignorePatterns": [
+    // Generated ambient type declarations — not source we own.
+    "**/worker-configuration.d.ts", // `wrangler types` output
+    "**/env.d.ts", // Astro-generated + test env shims
+    "**/.astro/**", // `astro sync` type cache
+    "**/*.gen.ts" // codegen output, if any
+  ],
+  "duplicates": {
+    // Hide pair-only clones; focus on widespread copy-paste
+    // worth refactoring. Lower to 2 to report every duplicate pair.
+    "minOccurrences": 3
+  },
+  "rules": {
+    "unused-dependencies": "warn"
+  }
+}
