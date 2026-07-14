@@ -4,6 +4,7 @@ import ArticleList from "../../components/ArticleList.astro";
 import BannerCarousel from "../../components/BannerCarousel.astro";
 import PanelSection from "../../components/PanelSection.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
+import * as Sentry from "@sentry/cloudflare";
 import { createDb, getNewsItems } from "@hiroba/db";
 import { CATEGORIES } from "@hiroba/shared";
 import { maybeTriggerTitleBackfill } from "../../lib/workflow";
@@ -29,7 +30,9 @@ const newsByCategory = await Promise.all(
 		try {
 			const { items } = await getNewsItems(db, { category, limit: 5, language: lang });
 			return { category, items };
-		} catch {
+		} catch (err) {
+			console.error(`home: getNewsItems(${category}) threw`, err);
+			Sentry.captureException(err, { tags: { site_area: "home", category } });
 			return { category, items: [] };
 		}
 	})

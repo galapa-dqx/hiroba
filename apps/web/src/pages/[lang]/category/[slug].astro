@@ -4,6 +4,7 @@ import ArticleList from "../../../components/ArticleList.astro";
 import BackLink from "../../../components/BackLink.astro";
 import Pagination from "../../../components/Pagination.astro";
 import PanelSection from "../../../components/PanelSection.astro";
+import * as Sentry from "@sentry/cloudflare";
 import { createDb, getNewsItems, type LocalizedNewsItem } from "@hiroba/db";
 import { CATEGORIES, type Category } from "@hiroba/shared";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
@@ -35,8 +36,39 @@ try {
 	nextCursor = result.nextCursor;
 	// If this language is meaningfully behind on titles, backfill the archive.
 	maybeTriggerTitleBackfill(runtime, lang, items);
-} catch {
-	// Show empty list on error
+} catch (err) {
+	// Show empty list on error — but surface the (previously swallowed) cause.
+	console.error(`category ${category}: getNewsItems threw`, err);
+	Sentry.captureException(err, {
+		tags: { site_area: "category-list", category },
+	});
+}
+
+// Diagnostic (DQX list-pages-empty): a first page with no rows is the bug we're
+// chasing. Probe the binding directly to tell "the query returned empty" apart
+// from "the worker's DB has no rows / wrong binding", and report it once so the
+// deploy is conclusive. Best-effort; never affects the render.
+if (items.length === 0 && !cursor) {
+	try {
+		const probe = await runtime.env.DB.prepare(
+			"SELECT COUNT(*) AS n FROM news_items WHERE category = ?",
+		)
+			.bind(category)
+			.first<{ n: number }>();
+		const rowCount = probe?.n ?? -1;
+		console.error(
+			`category ${category}: empty list; raw news_items count for this category = ${rowCount}`,
+		);
+		Sentry.captureMessage(
+			`Empty category list "${category}" (raw row count ${rowCount})`,
+			{ level: "warning", tags: { site_area: "category-list", category } },
+		);
+	} catch (probeErr) {
+		console.error(`category ${category}: count probe threw`, probeErr);
+		Sentry.captureException(probeErr, {
+			tags: { site_area: "category-list-probe", category },
+		});
+	}
 }
 
 const label = categoryLabel(lang, category);

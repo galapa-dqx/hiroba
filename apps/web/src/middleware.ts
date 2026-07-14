@@ -1,3 +1,5 @@
+import * as Sentry from '@sentry/cloudflare';
+import type { APIContext, MiddlewareNext } from 'astro';
 import { defineMiddleware } from 'astro:middleware';
 
 import { createDb, FALLBACK_LANGUAGE, getEnabledLanguages } from '@hiroba/db';
@@ -16,7 +18,36 @@ const isLegacyContentPath = (pathname: string): boolean =>
 const looksLikeLanguage = (segment: string): boolean =>
   /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/i.test(segment);
 
-export const onRequest = defineMiddleware(async (context, next) => {
+export const onRequest = defineMiddleware((context, next) => {
+  const runtime = context.locals.runtime;
+  // Bind the whole request (middleware + page render reached via next()) into a
+  // Sentry request scope so captureException calls anywhere downstream attach to
+  // it and flush via the execution context's waitUntil. The Cloudflare adapter
+  // exposes env + ctx on locals.runtime.
+  return Sentry.wrapRequestHandler(
+    {
+      options: {
+        dsn: runtime.env.SENTRY_DSN,
+        environment: 'production',
+        // Errors-only for now — no perf tracing overhead on every page.
+        tracesSampleRate: 0,
+        sendDefaultPii: false,
+      },
+      // Astro hands us a standard Request; Sentry's Cloudflare types want the
+      // workerd Request (with cf properties). Same object at runtime.
+      request: context.request as Parameters<
+        typeof Sentry.wrapRequestHandler
+      >[0]['request'],
+      context: runtime.ctx,
+    },
+    () => handleRequest(context, next),
+  );
+});
+
+const handleRequest = async (
+  context: APIContext,
+  next: MiddlewareNext,
+): Promise<Response> => {
   const { url, request, locals, redirect } = context;
   const pathname = url.pathname;
 
@@ -48,7 +79,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
   let languages: App.SiteLanguage[];
   try {
     languages = await getEnabledLanguages(createDb(locals.runtime.env.DB));
-  } catch {
+  } catch (err) {
+    console.error('middleware: getEnabledLanguages failed', err);
+    Sentry.captureException(err, { tags: { site_area: 'languages' } });
     languages = [{ ...FALLBACK_LANGUAGE }];
   }
   locals.languages = languages;
@@ -92,4 +125,4 @@ export const onRequest = defineMiddleware(async (context, next) => {
     response.headers.set('Cache-Control', CACHE_LIST);
   }
   return response;
-});
+};

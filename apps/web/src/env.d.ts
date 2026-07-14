@@ -9,6 +9,9 @@ type RuntimeEnv = {
    *  custom domain (e.g. https://img.example.com), so images are served straight
    *  from R2's edge cache with no Worker hop. Set in wrangler.jsonc `vars`. */
   IMAGE_BASE?: string;
+  /** Sentry DSN for server-side error reporting. Unset → Sentry is inert.
+   *  Set as a var/secret on the Pages project, not committed (OSS repo). */
+  SENTRY_DSN?: string;
 };
 
 declare namespace App {
@@ -20,7 +23,7 @@ declare namespace App {
   };
 
   type Locals = {
-    runtime: { env: RuntimeEnv };
+    runtime: { env: RuntimeEnv; ctx: ExecutionContext };
     /** The page's language, validated against the whitelist (pages only). */
     lang?: string;
     /** The enabled languages, resolved once per request (pages only). */

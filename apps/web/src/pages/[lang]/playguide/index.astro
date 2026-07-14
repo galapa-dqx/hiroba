@@ -3,6 +3,7 @@ import Layout from "../../../layouts/Layout.astro";
 import ArticleList from "../../../components/ArticleList.astro";
 import BackLink from "../../../components/BackLink.astro";
 import PanelSection from "../../../components/PanelSection.astro";
+import * as Sentry from "@sentry/cloudflare";
 import { createDb, getPlayguides, type LocalizedPlayguide } from "@hiroba/db";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
 import { useTranslations } from "../../../i18n";
@@ -21,8 +22,10 @@ try {
 	items = await getPlayguides(db, { language: lang });
 	// If this language is meaningfully behind on titles, backfill the archive.
 	maybeTriggerTitleBackfill(runtime, lang, items);
-} catch {
-	// Show empty list on error
+} catch (err) {
+	// Show empty list on error — surface the (previously swallowed) cause.
+	console.error("playguide: getPlayguides threw", err);
+	Sentry.captureException(err, { tags: { site_area: "playguide" } });
 }
 ---
 

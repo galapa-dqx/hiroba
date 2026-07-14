@@ -4,6 +4,7 @@ import ArticleList from "../../../components/ArticleList.astro";
 import BackLink from "../../../components/BackLink.astro";
 import Pagination from "../../../components/Pagination.astro";
 import PanelSection from "../../../components/PanelSection.astro";
+import * as Sentry from "@sentry/cloudflare";
 import { createDb, getTopics, type LocalizedTopic } from "@hiroba/db";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
 import { useTranslations } from "../../../i18n";
@@ -27,8 +28,10 @@ try {
 	nextCursor = result.nextCursor;
 	// If this language is meaningfully behind on titles, backfill the archive.
 	maybeTriggerTitleBackfill(runtime, lang, items);
-} catch {
-	// Show empty list on error
+} catch (err) {
+	// Show empty list on error — surface the (previously swallowed) cause.
+	console.error("topics: getTopics threw", err);
+	Sentry.captureException(err, { tags: { site_area: "topics" } });
 }
 
 ---
