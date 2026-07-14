@@ -69,7 +69,8 @@ bindings = [
 tag = "v1"
 # SQLite-backed DO namespace — required on the Workers free plan, and the
 # recommended default for new Durable Objects regardless of plan.
-# (The legacy per-item coordination DO, deleted in v3.)
+# (The legacy per-item coordination DO, dissolved in DQX-26 — see the two-step
+# delete note below the v2 block.)
 new_sqlite_classes = ["WorkflowManager"]
 
 [[migrations]]
@@ -77,19 +78,20 @@ tag = "v2"
 # Additive — deploys alongside the existing v1 namespace untouched.
 new_sqlite_classes = ["FlowHub"]
 
-[[migrations]]
-tag = "v3"
-# DQX-26: the legacy coordination DO is dissolved — dedup/tracking live in the
-# hub, the SSE/regenerate routes are plain. IRREVERSIBLE: deploying this drops
-# the namespace and all its stored state (which was only soft caches/dedup
-# maps; D1 holds the ground truth).
+# DQX-26 WorkflowManager delete — STEP 1 of 2 (this deploy):
 #
-# ORDERING: this delete only applies when NO live worker anywhere still binds
-# WorkflowManager. web + admin hold cross-script bindings to it (dropped as of
-# #25), so they MUST deploy before this worker — otherwise Cloudflare rejects
-# the migration with error 10061. The deploy workflow (.github/workflows/
-# deploy.yml) is ordered web → admin → workflow for exactly this reason.
-deleted_classes = ["WorkflowManager"]
+# The WORKFLOW_MANAGER binding is removed above, but a `WorkflowManager` stub
+# class is still exported (src/workflow-manager-stub.ts) so this deploy is
+# valid — dropping the binding while the class disappeared trips error 10064,
+# and adding the delete migration while the class is still bound trips error
+# 10061. This step detaches the binding (worker + web/admin are all unbound
+# now) without any migration.
+#
+# STEP 2 (follow-up deploy) removes the stub and adds:
+#   [[migrations]]
+#   tag = "v3"
+#   deleted_classes = ["WorkflowManager"]
+# which then applies cleanly because no live worker binds the class anymore.
 
 # ArticleFlow (DQX-25): the news+topics pipeline — fetch-body → extract/tag
 # events → per-image mirror+transcribe units → size-gated translate →
