@@ -52,11 +52,19 @@ jobs:
       - name: Apply D1 migrations (production)
         run: pnpm db:migrate:prod
 
-      - name: Deploy workflow worker
-        run: pnpm --filter @hiroba/workflow exec wrangler deploy
-
+      # Web and admin deploy BEFORE the workflow worker. They hold cross-script
+      # Durable Object bindings into hiroba-workflow (FLOW_HUB → FlowHub; and,
+      # until #25, WORKFLOW_MANAGER → WorkflowManager). A `deleted_classes`
+      # migration on the workflow worker only applies once no live worker
+      # anywhere still binds the deleted class, so the frontends must shed their
+      # bindings first — otherwise the workflow deploy fails with error 10061.
+      # The bindings they reference (FlowHub) already exist on the live worker,
+      # so deploying them first is safe.
       - name: Deploy web (Pages)
         run: pnpm --filter @hiroba/web exec wrangler pages deploy dist --branch=main
 
       - name: Deploy admin (Pages)
         run: pnpm --filter @hiroba/admin exec wrangler pages deploy dist --branch=main
+
+      - name: Deploy workflow worker
+        run: pnpm --filter @hiroba/workflow exec wrangler deploy

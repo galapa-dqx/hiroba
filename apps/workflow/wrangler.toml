@@ -83,6 +83,12 @@ tag = "v3"
 # hub, the SSE/regenerate routes are plain. IRREVERSIBLE: deploying this drops
 # the namespace and all its stored state (which was only soft caches/dedup
 # maps; D1 holds the ground truth).
+#
+# ORDERING: this delete only applies when NO live worker anywhere still binds
+# WorkflowManager. web + admin hold cross-script bindings to it (dropped as of
+# #25), so they MUST deploy before this worker — otherwise Cloudflare rejects
+# the migration with error 10061. The deploy workflow (.github/workflows/
+# deploy.yml) is ordered web → admin → workflow for exactly this reason.
 deleted_classes = ["WorkflowManager"]
 
 # ArticleFlow (DQX-25): the news+topics pipeline — fetch-body → extract/tag
