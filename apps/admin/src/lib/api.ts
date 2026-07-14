@@ -672,12 +672,21 @@ export type RegenerateResult = {
   localizedKey: string | null;
 };
 
+/** Quality tiers gpt-image-2's edit endpoint accepts, cheapest first. */
+export const IMAGE_QUALITIES = ['low', 'medium', 'high', 'auto'] as const;
+export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
+
 /** Re-run gpt-image-2 for one image/language using the saved spans. */
 export async function regenerateImage(
   id: number,
   lang: string,
+  quality?: ImageQuality,
 ): Promise<RegenerateResult> {
-  return adminFetch(`/api/images/${id}/${lang}/regenerate`, { method: 'POST' });
+  return adminFetch(`/api/images/${id}/${lang}/regenerate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ quality }),
+  });
 }
 
 /** Upload a hand-made localized image for one image/language. */

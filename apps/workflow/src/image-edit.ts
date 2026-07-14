@@ -11,6 +11,13 @@ import { imageDimensions } from './image-trim';
 
 export const IMAGE_MODEL = 'gpt-image-2';
 
+/** Quality tiers gpt-image-2's edit endpoint accepts (`standard` is dall-e-2). */
+export const IMAGE_QUALITIES = ['low', 'medium', 'high', 'auto'] as const;
+export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
+
+/** Default when a caller doesn't specify — the nightly pipeline's cheap tier. */
+export const DEFAULT_IMAGE_QUALITY: ImageQuality = 'low';
+
 /**
  * White padding around a matted two-up input: separates the artwork from the
  * canvas edge and gives the model room for the stacked layout (see image-matte).
@@ -126,7 +133,12 @@ export async function matteAndPadForTwoUp(
  */
 export async function editImage(
   apiKey: string,
-  input: { imageBytes: Uint8Array; mimeType: string; prompt: string },
+  input: {
+    imageBytes: Uint8Array;
+    mimeType: string;
+    prompt: string;
+    quality?: ImageQuality;
+  },
 ): Promise<Uint8Array | null> {
   // Bound each edit: gpt-image-2 is slow but shouldn't hold a localize
   // concurrency slot for the SDK's 10-minute default when a request stalls.
@@ -139,7 +151,7 @@ export async function editImage(
       model: IMAGE_MODEL,
       image: file,
       prompt: input.prompt,
-      quality: 'low',
+      quality: input.quality ?? DEFAULT_IMAGE_QUALITY,
       size: 'auto',
     });
     const b64 = response.data?.[0]?.b64_json;
