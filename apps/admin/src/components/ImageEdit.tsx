@@ -302,7 +302,10 @@ export default function ImageEdit({ id }: Props) {
                 <li key={i}>{s || <em className="muted">(empty)</em>}</li>
               ))}
             </ul>
-          ) : (
+          ) : rowsDirty ? null : (
+            // Both messages describe what the TRANSCRIBER did, so they only
+            // hold for the saved state — mid-clear the rows are pending, not
+            // absent, and the editor below already shows that.
             <p className="img-side__note muted">
               {detail.transcribeState === 'done'
                 ? 'No Japanese text was transcribed.'
@@ -371,7 +374,10 @@ export default function ImageEdit({ id }: Props) {
 
       {/* Editor for the active language */}
       <section className="image-edit__panel">
-        {spans.length === 0 && (
+        {/* Only speaks for the SAVED state — with rows pending removal the
+            spans aren't gone yet, and saying they were never transcribed
+            would misread the operator's own unsaved edit back to them. */}
+        {spans.length === 0 && !rowsDirty && (
           <p className="img-side__note muted">
             This image has no transcribed text to translate. Add a row if the
             transcriber missed some, or upload a localized version below.
@@ -425,16 +431,23 @@ export default function ImageEdit({ id }: Props) {
         </div>
 
         <div className="image-edit__actions">
+          {/* Save tracks pending work, NOT row count: clearing every row is a
+              real edit to persist, and gating this on spans would strand it
+              with no way to save short of adding a row back. */}
+          {(spans.length > 0 || rowsDirty) && (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => save()}
+              disabled={busy || (!dirty[lang] && !rowsDirty)}
+            >
+              {saving ? 'Saving…' : 'Save translations'}
+            </button>
+          )}
+          {/* Regenerating needs spans to bake in — with none there's nothing
+              to localize, so the image is upload-only. */}
           {spans.length > 0 && (
             <>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => save()}
-                disabled={busy || (!dirty[lang] && !rowsDirty)}
-              >
-                {saving ? 'Saving…' : 'Save translations'}
-              </button>
               <label className="image-edit__quality">
                 Quality
                 <select
