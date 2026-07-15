@@ -91,4 +91,8 @@ export type FlowHubApi = {
     params: unknown,
     parent: { instanceId: string; flow: string },
   ): Promise<WatchResult>;
+  notifyParent(
+    childRunId: string,
+    parent: { instanceId: string; flow: string },
+  ): Promise<void>;
 };
