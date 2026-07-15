@@ -20,9 +20,13 @@ export default defineConfig({
       enabled: { client: true, server: false },
       autoInstrumentation: { requestHandler: false },
       telemetry: false,
-      // Upload client source maps when CI provides credentials; otherwise
-      // skip quietly (local builds, forks).
-      ...(process.env.SENTRY_AUTH_TOKEN
+      // Upload client source maps only when CI provides the full credential
+      // set — a partial set (e.g. token without org/project) would make the
+      // bundler plugin fail the build. Otherwise skip quietly (local builds,
+      // forks).
+      ...(process.env.SENTRY_AUTH_TOKEN &&
+      process.env.SENTRY_ORG &&
+      process.env.SENTRY_PROJECT_ADMIN
         ? {
             org: process.env.SENTRY_ORG,
             project: process.env.SENTRY_PROJECT_ADMIN,
