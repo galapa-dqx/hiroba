@@ -41,9 +41,11 @@ function getDb(locals: App.Locals) {
 
 /**
  * GET /api/{news,topics}/[id] — source fields plus one translation per enabled
- * language. Each language also carries `localizedImageKeys`: the imageKeys whose
- * localized (translated) raster exists for that language, so the editor can
- * swap `/img/<key>` → `/img/l10n/<lang>/<key>` on the translated tabs.
+ * language. Each language also carries `localizedImages`: original imageKey →
+ * the VERSIONED R2 key of that language's localized raster, so the editor can
+ * swap `/img/<key>` → `/img/<storedKey>` on the translated tabs. The stored key
+ * always names a written object, so it is served as-is rather than reconstructed
+ * from a path convention.
  */
 export function createArticleGet(itemType: ArticleType): APIRoute {
   return async ({ locals, params }) => {
@@ -79,23 +81,24 @@ export function createArticleGet(itemType: ArticleType): APIRoute {
         title: string | null;
         blocks: Block[] | null;
         translatedAt: string | null;
-        localizedImageKeys: string[];
+        localizedImages: Record<string, string>;
       }
     > = {};
     for (const lang of languages) {
       const t = await getArticleTranslations(db, itemType, id, lang.code);
-      let localizedImageKeys: string[] = [];
+      const localizedImages: Record<string, string> = {};
       if (imageIds.length) {
         const urls = await getImageTranslations(db, imageIds, lang.code, 'url');
-        localizedImageKeys = imageRows
-          .filter((r) => urls.has(r.id))
-          .map((r) => r.key);
+        for (const row of imageRows) {
+          const stored = urls.get(row.id);
+          if (stored) localizedImages[row.key] = stored;
+        }
       }
       translations[lang.code] = {
         title: t.title,
         blocks: t.blocks,
         translatedAt: t.translatedAt?.toString() ?? null,
-        localizedImageKeys,
+        localizedImages,
       };
     }
 

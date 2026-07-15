@@ -122,12 +122,6 @@ export default function RecheckQueue() {
 
   return (
     <div className="recheck-queue">
-      <p className="page-description">
-        Articles are re-polled for post-publication edits on a fading schedule
-        anchored to their last change; the hourly cron drains the due list.
-        Articles quiet for two months retire from checking.
-      </p>
-
       <div className="queue-actions">
         <span>
           {queue.due.length} due · {queue.upcoming.length} upcoming ·{' '}

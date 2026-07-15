@@ -1118,6 +1118,88 @@ hr.divider {
   font-weight: 700;
 }
 
+/* Type filter — a checkbox menu over the types present in the listing. */
+.wf-type-filter {
+  position: relative;
+}
+.wf-type-filter__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.34rem 0.8rem;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink-soft);
+  background: var(--surface-inset, var(--surface-panel));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+  cursor: pointer;
+}
+.wf-type-filter__btn:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  color: var(--accent);
+  border-color: var(--accent-ring);
+  box-shadow: none;
+}
+.wf-type-filter__btn[aria-expanded='true'] {
+  color: var(--accent);
+  border-color: var(--accent-ring);
+}
+.wf-type-filter__menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 11rem;
+  padding: 0.4rem;
+  background: var(--surface-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.wf-type-filter__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.28rem 0.35rem;
+  border-radius: calc(var(--radius) - 0.2rem);
+  cursor: pointer;
+}
+.wf-type-filter__item:hover {
+  background: color-mix(in oklch, var(--accent) 8%, transparent);
+}
+.wf-type-filter__item input[type='checkbox'] {
+  width: auto;
+  cursor: pointer;
+}
+.wf-type-filter__all {
+  margin-top: 0.25rem;
+  padding: 0.3rem;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--rule);
+  border-radius: 0;
+  box-shadow: none;
+  cursor: pointer;
+}
+.wf-type-filter__all:hover {
+  transform: none;
+  filter: none;
+  color: var(--accent);
+  box-shadow: none;
+}
+
 .wf-run {
   background: var(--surface-panel);
   border: 1px solid var(--border);
@@ -2061,9 +2143,11 @@ hr.divider {
   flex-direction: column;
   gap: 0.5rem;
 }
+/* Trailing gutter keeps the column headers over their inputs, clear of the
+ * per-row remove button. */
 .image-edit__pairs-head {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr auto;
   gap: 0.75rem;
   font-size: 0.72rem;
   font-weight: 700;
@@ -2071,9 +2155,12 @@ hr.divider {
   text-transform: uppercase;
   color: var(--ink-soft);
 }
+.image-edit__row-gutter {
+  width: 1.6rem;
+}
 .image-edit__pair {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr auto;
   gap: 0.75rem;
   align-items: center;
 }
@@ -2088,6 +2175,48 @@ hr.divider {
 }
 .image-edit__pair input {
   width: 100%;
+}
+.image-edit__row-remove {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--ink-faint);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  box-shadow: none;
+  cursor: pointer;
+}
+.image-edit__row-remove:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  color: var(--red-11, var(--ink));
+  background: color-mix(in oklch, var(--red-9, var(--accent)) 12%, transparent);
+  box-shadow: none;
+}
+.image-edit__row-add {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  padding: 0.3rem 0.6rem;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+  cursor: pointer;
+}
+.image-edit__row-add:hover:not(:disabled) {
+  transform: none;
+  filter: none;
+  color: var(--accent);
+  border-color: var(--accent-ring);
+  border-style: solid;
+  box-shadow: none;
 }
 .image-edit__actions {
   display: flex;

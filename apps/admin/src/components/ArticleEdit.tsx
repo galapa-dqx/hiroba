@@ -259,21 +259,22 @@ export default function ArticleEdit({ kind, id }: Props) {
   }
 
   // One image-URL rewriter per tab: the Japanese source and each language serve
-  // originals from our own /img route; a language additionally swaps in its
-  // localized raster (`/img/l10n/<lang>/<key>`) for every image it localized.
+  // originals from our own /img route; a language additionally swaps in the
+  // localized raster for every image it localized, served from the VERSIONED
+  // key recorded on the translation row. That key must be used verbatim — a
+  // render lands at `l10n/<lang>/v<ts>/<key>`, so rebuilding the path from the
+  // language alone addresses a legacy object that no longer gets written, and
+  // the /img route quietly falls back to the Japanese original.
   const imageSrcByTab = useMemo<Record<string, (src: string) => string>>(() => {
     const map: Record<string, (src: string) => string> = {
       [SOURCE_TAB]: (src) => rewriteImageSrc(src, '/img'),
     };
     for (const lang of article?.languages ?? []) {
-      const localized = new Set(
-        article?.translations[lang.code]?.localizedImageKeys ?? [],
-      );
+      const localized = article?.translations[lang.code]?.localizedImages ?? {};
       map[lang.code] = (src) => {
         const key = imageKey(src);
-        const base =
-          key && localized.has(key) ? `/img/l10n/${lang.code}` : '/img';
-        return rewriteImageSrc(src, base);
+        const stored = key ? localized[key] : undefined;
+        return stored ? `/img/${stored}` : rewriteImageSrc(src, '/img');
       };
     }
     return map;
