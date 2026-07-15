@@ -166,10 +166,12 @@ export function createHubJoinPort(
         hub.getRun(watch.runId),
       );
       if (!run || !isActiveStatus(run.status)) {
-        // Terminal, but `wait` may never receive an event (the child's
-        // notifyWaiters fired before this wait existed). Nudge ourselves so the
-        // armed wait resolves — then fall through and read it, so there's a
-        // single resolution path and no abandoned wait. Memoized: fires once,
+        // Already terminal: `run` (or 'unknown' for a vanished child) IS the
+        // authoritative outcome — return it directly. Nudge first so the wait
+        // we armed resolves via a self sendEvent rather than dangling to its
+        // timeout (its child-side notifyWaiters may have fired before this wait
+        // existed), but NEVER depend on that event: a nudge/delivery hiccup must
+        // not discard a terminal status we already hold. Memoized: fires once,
         // replays clean.
         await engine.do(`${namePrefix}nudge`, () =>
           hub.notifyParent(watch.runId, {
@@ -177,14 +179,19 @@ export function createHubJoinPort(
             flow: parentFlow,
           }),
         );
+        void wait.catch(() => {}); // drain the armed wait; result unused
+        return toOutcome(run ?? { status: 'unknown', error: 'child run gone' });
       }
 
+      // Child still active at check: rely purely on the notification. A child
+      // settling from here on wakes the wait armed above.
       try {
         const event = await wait;
         return toOutcome(event.payload);
       } catch (err) {
-        // No backstop: a timeout here means the notification never arrived.
-        // Degrade (don't block) and make the drop visible.
+        // No backstop: the wait never resolved. Usually a timeout (the
+        // notification was dropped), but surface the ACTUAL error rather than
+        // asserting a cause. Degrade, don't block, so the drop is visible.
         return {
           status: 'failed',
           error: `join wait failed: ${errorMessage(err)}`,
