@@ -182,12 +182,12 @@ export function createHubJoinPort(
       try {
         const event = await wait;
         return toOutcome(event.payload);
-      } catch {
+      } catch (err) {
         // No backstop: a timeout here means the notification never arrived.
         // Degrade (don't block) and make the drop visible.
         return {
           status: 'failed',
-          error: 'join wait timed out — notification never arrived',
+          error: `join wait failed: ${errorMessage(err)}`,
         };
       }
     },

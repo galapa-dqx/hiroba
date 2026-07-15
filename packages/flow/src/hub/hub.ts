@@ -787,8 +787,8 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
     }
 
     /** sendEvent a child's terminal status to one parent instance, matching
-     *  the `flow:<childRunId>` type its join armed. Best-effort: a parent we
-     *  can't reach falls back to its own waitForEvent-timeout poll. */
+     *  the `flow:<childRunId>` type its join armed. Best-effort: if the parent
+     *  can't be reached, its join will time out and fail after waitTimeout. */
     private async sendJoinEvent(
       childRunId: string,
       run: RunInfo,
