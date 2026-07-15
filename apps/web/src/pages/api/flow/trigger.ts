@@ -12,12 +12,13 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { itemFlowStart } from '@hiroba/flows';
 
 const ITEM_TYPES = new Set(['news', 'topic', 'playguide']);
 
-export const POST: APIRoute = async ({ locals, request }) => {
+export const POST: APIRoute = async ({ request }) => {
   let body: { itemType?: string; itemId?: string };
   try {
     body = (await request.json()) as typeof body;
@@ -38,7 +39,7 @@ export const POST: APIRoute = async ({ locals, request }) => {
     itemType as 'news' | 'topic' | 'playguide',
     itemId,
   );
-  const ns = locals.runtime.env.FLOW_HUB;
+  const ns = env.FLOW_HUB;
   const stub = ns.get(ns.idFromName('hub'));
   const res = await stub.fetch('http://internal/start', {
     method: 'POST',

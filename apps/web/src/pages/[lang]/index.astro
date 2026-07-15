@@ -1,4 +1,5 @@
 ---
+import { env } from "cloudflare:workers";
 import Layout from "../../layouts/Layout.astro";
 import ArticleList from "../../components/ArticleList.astro";
 import BannerCarousel from "../../components/BannerCarousel.astro";
@@ -15,14 +16,13 @@ import { categoryLabel, useTranslations } from "../../i18n";
 const lang = Astro.params.lang!;
 const t = useTranslations(lang);
 
-const runtime = Astro.locals.runtime;
-const db = createDb(runtime.env.DB);
+const db = createDb(env.DB);
 
 // Localized rotation banners for the top-of-page carousel. Best-effort — a
 // failure here never takes down the home page.
 const banners = await resolveBanners(db, {
 	language: lang,
-	imageBase: runtime.env.IMAGE_BASE,
+	imageBase: env.IMAGE_BASE,
 }).catch(() => []);
 
 const newsByCategory = await Promise.all(
@@ -41,7 +41,6 @@ const newsByCategory = await Promise.all(
 // If this language is meaningfully behind on titles, backfill the archive
 // (counted across the whole home page's items).
 maybeTriggerTitleBackfill(
-	runtime,
 	lang,
 	newsByCategory.flatMap(({ items }) => items),
 );

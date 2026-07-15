@@ -6,6 +6,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import {
   createDb,
@@ -34,9 +35,8 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function getDb(locals: App.Locals) {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  return createDb(runtime.env.DB);
+function getDb() {
+  return createDb(env.DB);
 }
 
 /**
@@ -48,8 +48,8 @@ function getDb(locals: App.Locals) {
  * from a path convention.
  */
 export function createArticleGet(itemType: ArticleType): APIRoute {
-  return async ({ locals, params }) => {
-    const db = getDb(locals);
+  return async ({ params }) => {
+    const db = getDb();
     // News/topics route on [id]; playguides on [slug].
     const id = (params.id ?? params.slug)!;
 
@@ -117,8 +117,8 @@ export function createArticleGet(itemType: ArticleType): APIRoute {
 
 /** PUT /api/{news,topics,playguide}/[id] — update titleJa and/or blocksJa. */
 export function createArticlePut(itemType: ArticleType): APIRoute {
-  return async ({ locals, params, request }) => {
-    const db = getDb(locals);
+  return async ({ params, request }) => {
+    const db = getDb();
     const id = (params.id ?? params.slug)!;
 
     const body = (await request.json()) as {
@@ -151,8 +151,8 @@ export function createArticlePut(itemType: ArticleType): APIRoute {
 
 /** PUT /api/{news,topics,playguide}/[id]/[lang] — update the translated title/blocks. */
 export function createTranslationPut(itemType: ArticleType): APIRoute {
-  return async ({ locals, params, request }) => {
-    const db = getDb(locals);
+  return async ({ params, request }) => {
+    const db = getDb();
     const id = (params.id ?? params.slug)!;
     const lang = params.lang!;
 

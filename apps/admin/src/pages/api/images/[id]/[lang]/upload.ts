@@ -14,6 +14,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import {
   createDb,
@@ -43,8 +44,7 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-export const POST: APIRoute = async ({ locals, params, request }) => {
-  const { env } = locals.runtime;
+export const POST: APIRoute = async ({ params, request }) => {
   const db = createDb(env.DB);
 
   const id = Number(params.id);

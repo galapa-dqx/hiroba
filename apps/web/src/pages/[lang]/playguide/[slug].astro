@@ -1,4 +1,6 @@
 ---
+import { env } from "cloudflare:workers";
+
 import ArticlePage from "../../../components/ArticlePage.astro";
 import { createDb, getArticleTranslations, getPlayguide } from "@hiroba/db";
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
@@ -15,8 +17,7 @@ if (!slug) {
 	return Astro.redirect(`/${lang}/playguide`);
 }
 
-const runtime = Astro.locals.runtime;
-const db = createDb(runtime.env.DB);
+const db = createDb(env.DB);
 
 // fetch-body creates the row, so a never-seen (but crawlable) slug is valid — no 404.
 const playguide = await getPlayguide(db, slug);
@@ -28,7 +29,7 @@ const isTranslated = !!localizedBlocks;
 // present and no run in flight (DQX-28: the gate reads the guide's hub run,
 // not D1 state columns). Until then the page shows the processing notice and
 // the run's SSE stream drives progress + reload.
-const { run, snapshot } = await getItemRun(runtime, "playguide", slug);
+const { run, snapshot } = await getItemRun("playguide", slug);
 const view = resolveArticleView(!!localizedTitle && !!localizedBlocks, run);
 
 // Cache by readiness: a still-processing page is never cached (the SSE stream
@@ -40,7 +41,7 @@ Astro.response.headers.set("Cache-Control", view.cacheControl);
 // on missing content, the throttled cooldown for background heals of
 // degraded or failed settles.
 if (view.trigger) {
-	triggerWorkflow(runtime, "playguide", slug, { force: view.trigger === "force" });
+	triggerWorkflow("playguide", slug, { force: view.trigger === "force" });
 }
 
 const title = localizedTitle ?? playguide?.titleJa ?? t("article.loadingGuide");
@@ -49,7 +50,7 @@ const blocks: Block[] = localizedBlocks ?? (playguide?.blocksJa as Block[] | nul
 const imageSrc = await hydrateArticleImages(db, blocks, {
 	isTranslated,
 	language: lang,
-	imageBase: runtime.env.IMAGE_BASE,
+	imageBase: env.IMAGE_BASE,
 });
 const contentHtml = renderBlocks(blocks, { imageSrc, linkHref: rewriteArticleHref });
 ---

@@ -6,20 +6,17 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import type { StartResult } from '@hiroba/flow/hub';
 import { BannerFlow } from '@hiroba/flows';
 
 import { startErrorMessage, startFlowViaHub } from '../../../lib/start-flow';
 
-export const POST: APIRoute = async ({ locals }) => {
+export const POST: APIRoute = async () => {
   let result: StartResult;
   try {
-    result = await startFlowViaHub(
-      locals.runtime.env.FLOW_HUB,
-      BannerFlow.name,
-      {},
-    );
+    result = await startFlowViaHub(env.FLOW_HUB, BannerFlow.name, {});
   } catch (err) {
     return Response.json(
       { error: `Failed to start banner refresh: ${startErrorMessage(err)}` },

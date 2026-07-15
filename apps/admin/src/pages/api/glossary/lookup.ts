@@ -1,11 +1,11 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 import { findMatchingGlossaryEntries } from '@hiroba/db/schema';
 
-export const POST: APIRoute = async ({ locals, request }) => {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  const db = createDb(runtime.env.DB);
+export const POST: APIRoute = async ({ request }) => {
+  const db = createDb(env.DB);
 
   const body = await request.json();
   const { text, lang = 'en' } = body as { text: string; lang?: string };

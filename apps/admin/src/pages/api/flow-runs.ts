@@ -8,10 +8,11 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
-export const GET: APIRoute = async ({ locals, url }) => {
+export const GET: APIRoute = async ({ url }) => {
   // ?flow=…&limit=… pass through untouched.
-  const res = await locals.runtime.env.WORKFLOW.fetch(
+  const res = await env.WORKFLOW.fetch(
     `http://internal/flow/runs${url.search}`,
   );
 

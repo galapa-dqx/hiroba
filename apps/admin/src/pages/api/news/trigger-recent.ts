@@ -1,14 +1,11 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 
 import { triggerRecentWorkflows } from '../../../lib/trigger-recent';
 
-export const POST: APIRoute = async ({ locals, request }) => {
-  const runtime = locals.runtime as {
-    env: { DB: D1Database; FLOW_HUB: DurableObjectNamespace };
-  };
-
+export const POST: APIRoute = async ({ request }) => {
   const count = Number(new URL(request.url).searchParams.get('count'));
   if (!Number.isFinite(count) || count < 1) {
     return new Response(
@@ -18,8 +15,8 @@ export const POST: APIRoute = async ({ locals, request }) => {
   }
 
   const result = await triggerRecentWorkflows(
-    createDb(runtime.env.DB),
-    runtime.env.FLOW_HUB,
+    createDb(env.DB),
+    env.FLOW_HUB,
     'news',
     count,
   );

@@ -1,16 +1,24 @@
 import * as Sentry from '@sentry/cloudflare';
 import { defineMiddleware } from 'astro:middleware';
+import { env, waitUntil } from 'cloudflare:workers';
+
+// Adapter v13 no longer exposes the ExecutionContext on locals; the
+// cloudflare:workers module's request-scoped waitUntil fills the one hole
+// Sentry needs (flushing events past the response). passThroughOnException
+// isn't available at module level — a no-op keeps default error semantics.
+const executionCtx = {
+  waitUntil,
+  passThroughOnException: () => {},
+} as ExecutionContext;
 
 export const onRequest = defineMiddleware((context, next) => {
-  const runtime = context.locals.runtime;
   // Bind the whole request (page render reached via next()) into a Sentry
   // request scope so captureException calls anywhere downstream attach to it
-  // and flush via the execution context's waitUntil. The Cloudflare adapter
-  // exposes env + ctx on locals.runtime.
+  // and flush via the execution context's waitUntil.
   return Sentry.wrapRequestHandler(
     {
       options: {
-        dsn: runtime.env.SENTRY_DSN,
+        dsn: env.SENTRY_DSN,
         environment: 'production',
         // Admin is low-traffic and internal, so a higher sample rate than the
         // public web front-end is affordable.
@@ -31,7 +39,7 @@ export const onRequest = defineMiddleware((context, next) => {
       request: context.request as Parameters<
         typeof Sentry.wrapRequestHandler
       >[0]['request'],
-      context: runtime.ctx,
+      context: executionCtx,
     },
     () => next(),
   );

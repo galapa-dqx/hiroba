@@ -4,9 +4,8 @@ import { defineConfig } from 'astro/config';
 export default defineConfig({
   output: 'server',
   adapter: cloudflare({
-    platformProxy: {
-      enabled: true,
-      persist: { path: '../../.wrangler-shared/v3' },
-    },
+    // We don't use astro:assets; keep the build-time image service so the
+    // adapter doesn't require a Cloudflare Images binding (the v13 default).
+    imageService: 'compile',
   }),
 });

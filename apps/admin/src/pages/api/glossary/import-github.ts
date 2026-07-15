@@ -1,12 +1,12 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 
 import { importGlossaryFromGitHub } from '../../../lib/db-operations';
 
-export const POST: APIRoute = async ({ locals }) => {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  const db = createDb(runtime.env.DB);
+export const POST: APIRoute = async () => {
+  const db = createDb(env.DB);
 
   const result = await importGlossaryFromGitHub(db);
 

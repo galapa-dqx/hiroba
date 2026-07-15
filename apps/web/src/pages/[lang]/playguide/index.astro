@@ -1,4 +1,6 @@
 ---
+import { env } from "cloudflare:workers";
+
 import Layout from "../../../layouts/Layout.astro";
 import ArticleList from "../../../components/ArticleList.astro";
 import BackLink from "../../../components/BackLink.astro";
@@ -12,8 +14,7 @@ import { useTranslations } from "../../../i18n";
 const lang = Astro.params.lang!;
 const t = useTranslations(lang);
 
-const runtime = Astro.locals.runtime;
-const db = createDb(runtime.env.DB);
+const db = createDb(env.DB);
 
 let items: LocalizedPlayguide[] = [];
 
@@ -21,7 +22,7 @@ try {
 	// The guide set is small and bounded (~100–150 pages), so it isn't paginated.
 	items = await getPlayguides(db, { language: lang });
 	// If this language is meaningfully behind on titles, backfill the archive.
-	maybeTriggerTitleBackfill(runtime, lang, items);
+	maybeTriggerTitleBackfill(lang, items);
 } catch (err) {
 	// Show empty list on error — surface the (previously swallowed) cause.
 	console.error("playguide: getPlayguides threw", err);

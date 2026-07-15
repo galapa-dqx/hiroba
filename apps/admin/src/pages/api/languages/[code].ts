@@ -5,6 +5,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import {
   createDb,
@@ -21,9 +22,8 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-function getDb(locals: App.Locals): Database {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  return createDb(runtime.env.DB);
+function getDb(): Database {
+  return createDb(env.DB);
 }
 
 /** Whether `code` is the only enabled language on the whitelist. */
@@ -32,8 +32,8 @@ async function isLastEnabled(db: Database, code: string): Promise<boolean> {
   return enabled.length === 1 && enabled[0].code === code;
 }
 
-export const PUT: APIRoute = async ({ locals, params, request }) => {
-  const db = getDb(locals);
+export const PUT: APIRoute = async ({ params, request }) => {
+  const db = getDb();
   const code = params.code!;
 
   const existing = (await listLanguages(db)).find((l) => l.code === code);
@@ -64,8 +64,8 @@ export const PUT: APIRoute = async ({ locals, params, request }) => {
   return json({ success: true, code });
 };
 
-export const DELETE: APIRoute = async ({ locals, params }) => {
-  const db = getDb(locals);
+export const DELETE: APIRoute = async ({ params }) => {
+  const db = getDb();
   const code = params.code!;
 
   if (await isLastEnabled(db, code)) {

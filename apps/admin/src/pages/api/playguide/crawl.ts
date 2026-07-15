@@ -6,17 +6,15 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb, upsertPlayguideListItems } from '@hiroba/db';
 import { crawlPlayguides } from '@hiroba/scraper';
 
 import { enqueueTitleTranslation } from '../../../lib/enqueue-titles';
 
-export const POST: APIRoute = async ({ locals }) => {
-  const runtime = locals.runtime as {
-    env: { DB: D1Database; FLOW_HUB: DurableObjectNamespace };
-  };
-  const db = createDb(runtime.env.DB);
+export const POST: APIRoute = async () => {
+  const db = createDb(env.DB);
 
   const crawled = await crawlPlayguides();
   const inserted = await upsertPlayguideListItems(
@@ -29,7 +27,7 @@ export const POST: APIRoute = async ({ locals }) => {
   );
 
   const enqueued = await enqueueTitleTranslation(
-    runtime.env.FLOW_HUB,
+    env.FLOW_HUB,
     'playguide',
     inserted.map((i) => i.id),
   );

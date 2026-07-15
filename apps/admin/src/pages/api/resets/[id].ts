@@ -4,6 +4,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 import { Temporal } from 'temporal-polyfill';
 
 import {
@@ -19,9 +20,8 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-export const DELETE: APIRoute = async ({ locals, params }) => {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  const db = createDb(runtime.env.DB);
+export const DELETE: APIRoute = async ({ params }) => {
+  const db = createDb(env.DB);
   const id = params.id!;
 
   await deleteResetMilestone(db, id);

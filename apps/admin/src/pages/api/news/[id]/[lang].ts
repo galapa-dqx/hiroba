@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 
@@ -7,9 +8,8 @@ import { deleteTranslation } from '../../../../lib/db-operations';
 
 export const PUT = createTranslationPut('news');
 
-export const DELETE: APIRoute = async ({ locals, params }) => {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  const db = createDb(runtime.env.DB);
+export const DELETE: APIRoute = async ({ params }) => {
+  const db = createDb(env.DB);
 
   const id = params.id!;
   const lang = params.lang!;

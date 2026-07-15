@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 import type { StartResult } from '@hiroba/flow/hub';
@@ -9,9 +10,7 @@ import { triggerScrape } from '../../lib/db-operations';
 import { enqueueTitleTranslation } from '../../lib/enqueue-titles';
 import { startErrorMessage, startFlowViaHub } from '../../lib/start-flow';
 
-export const POST: APIRoute = async ({ locals, request }) => {
-  const env = locals.runtime.env;
-
+export const POST: APIRoute = async ({ request }) => {
   const url = new URL(request.url);
   const full = url.searchParams.get('full') === 'true';
 

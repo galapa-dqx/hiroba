@@ -13,6 +13,7 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import { createDb, getEnabledLanguages, listImagesForAdmin } from '@hiroba/db';
 import { hasJapanese } from '@hiroba/shared';
@@ -35,9 +36,8 @@ function parseSpans(value: string | null | undefined): string[] | null {
   }
 }
 
-export const GET: APIRoute = async ({ locals, url }) => {
-  const runtime = locals.runtime as { env: { DB: D1Database } };
-  const db = createDb(runtime.env.DB);
+export const GET: APIRoute = async ({ url }) => {
+  const db = createDb(env.DB);
 
   const enabled = await getEnabledLanguages(db);
   const requested = url.searchParams.get('lang');

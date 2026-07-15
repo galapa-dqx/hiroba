@@ -4,14 +4,15 @@
   "type": "module",
   "scripts": {
     "dev": "dotenv -e ../../.env -- astro dev --port 4322",
-    "build": "astro build",
+    "build": "wrangler types && astro build",
     "preview": "astro preview",
-    "deploy": "wrangler pages deploy dist",
-    "lint": "eslint ."
+    "deploy": "wrangler deploy",
+    "lint": "eslint .",
+    "types": "wrangler types"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^12.0.0",
-    "@astrojs/react": "^4.2.0",
+    "@astrojs/cloudflare": "^13.7.0",
+    "@astrojs/react": "^6.0.1",
     "@hiroba/db": "workspace:*",
     "@hiroba/flow": "workspace:*",
     "@hiroba/flows": "workspace:*",
@@ -27,7 +28,7 @@
     "@lexical/table": "^0.46.0",
     "@lexical/utils": "^0.46.0",
     "@sentry/cloudflare": "^10.34.0",
-    "astro": "^5.1.0",
+    "astro": "^6.4.8",
     "drizzle-orm": "1.0.0-beta.6-cd45bda",
     "lexical": "^0.46.0",
     "react": "^19.0.0",
@@ -37,7 +38,6 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.6",
-    "@cloudflare/workers-types": "^4.20250507.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "typescript": "^5.9.3"

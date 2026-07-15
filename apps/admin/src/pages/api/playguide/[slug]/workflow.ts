@@ -7,18 +7,19 @@
  */
 
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
 import type { StartResult } from '@hiroba/flow/hub';
 import { PlayguideFlow } from '@hiroba/flows';
 
 import { startErrorMessage, startFlowViaHub } from '../../../../lib/start-flow';
 
-export const POST: APIRoute = async ({ locals, params }) => {
+export const POST: APIRoute = async ({ params }) => {
   const slug = params.slug!;
   let result: StartResult;
   try {
     result = await startFlowViaHub(
-      locals.runtime.env.FLOW_HUB,
+      env.FLOW_HUB,
       PlayguideFlow.name,
       { slug },
       { force: true, probe: true },
