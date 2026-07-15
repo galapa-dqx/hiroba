@@ -69,7 +69,7 @@ import { resolveImageId } from '../../lib/api';
  * saving still round-trips the original source URL.
  */
 export type PreservedRenderContextValue = {
-  /** Rewrites image/icon URLs (e.g. → `/img/l10n/<lang>/<key>`). */
+  /** Rewrites image/icon URLs (e.g. → `/img/l10n/<lang>/v<ts>/<key>`). */
   imageSrc?: (src: string) => string;
 };
 

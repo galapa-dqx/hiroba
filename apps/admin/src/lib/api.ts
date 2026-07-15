@@ -307,8 +307,9 @@ export type ArticleTranslation = {
   title: string | null;
   blocks: unknown[] | null;
   translatedAt: string | null; // ISO-8601 UTC instant
-  /** imageKeys whose localized raster exists for this language. */
-  localizedImageKeys: string[];
+  /** Original imageKey → versioned R2 key of this language's localized raster,
+   *  for the images this language actually localized. */
+  localizedImages: Record<string, string>;
 };
 
 /** An enabled translation-target language (a tab in the editor). */
@@ -662,6 +663,27 @@ export async function saveImageTranslation(
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ texts }),
+  });
+}
+
+/** One row of the JA span list as the editor currently has it. `from` is the
+ *  row's index in the SAVED texts_ja, or null for a row just added. */
+export type ImageSpanEdit = { text: string; from: number | null };
+
+/**
+ * Save the JA span rows themselves (add/remove/edit) — the source side of the
+ * pair editor. Because the spans are shared, this rewrites every language's
+ * translated spans to stay aligned, so it must land BEFORE any per-language
+ * save (which is length-checked against texts_ja).
+ */
+export async function saveImageSpans(
+  id: number,
+  spans: ImageSpanEdit[],
+): Promise<{ success: boolean }> {
+  return adminFetch(`/api/images/${id}/texts`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spans }),
   });
 }
 

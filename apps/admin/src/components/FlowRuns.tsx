@@ -7,7 +7,7 @@
  * (the translated title) rendered by the shared FlowRunCard.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { isActiveRunStatus as isActive, type Snapshot } from '@hiroba/flow';
 
@@ -16,11 +16,101 @@ import FlowRunCard from './FlowRunCard';
 
 const POLL_MS = 5000;
 
+/** The type a run is filed under — the same label its card's chip shows, so
+ *  filtering matches what the operator sees: article/playguide runs identify
+ *  by their item type, everything else by its flow name. */
+function runType(run: FlowRunEntry): string {
+  return run.item?.itemType ?? run.flow;
+}
+
+/** Type dropdown: a checkbox per type present in the current listing. */
+function TypeFilter({
+  types,
+  hidden,
+  onToggle,
+  onShowAll,
+}: {
+  types: string[];
+  hidden: Set<string>;
+  onToggle: (type: string) => void;
+  onShowAll: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
+
+  const hiddenHere = types.filter((t) => hidden.has(t)).length;
+  const label =
+    hiddenHere === 0
+      ? 'All types'
+      : `${types.length - hiddenHere} of ${types.length} types`;
+
+  return (
+    <div className="wf-type-filter" ref={root}>
+      <button
+        type="button"
+        className="wf-type-filter__btn"
+        aria-expanded={open}
+        aria-haspopup="true"
+        disabled={types.length === 0}
+        onClick={() => setOpen((o) => !o)}
+      >
+        {label}
+        <span aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div className="wf-type-filter__menu" role="group" aria-label="Type">
+          {types.map((type) => (
+            <label key={type} className="wf-type-filter__item">
+              <input
+                type="checkbox"
+                checked={!hidden.has(type)}
+                onChange={() => onToggle(type)}
+              />
+              <span className={`wf-run__type wf-run__type--${type}`}>
+                {type}
+              </span>
+            </label>
+          ))}
+          {hiddenHere > 0 && (
+            <button
+              type="button"
+              className="wf-type-filter__all"
+              onClick={onShowAll}
+            >
+              Show all
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FlowRuns() {
   const [runs, setRuns] = useState<FlowRunEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({});
   const sources = useRef(new Map<string, EventSource>());
+  // Track HIDDEN types rather than shown ones: the type list is derived from
+  // whatever the poll returned, so a type appearing for the first time (a flow
+  // that had no recent runs) defaults to visible instead of silently filtered.
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
   /** Keep the freshest frame per run — seq is monotonic, so a poll result
    *  never regresses a newer SSE frame (and vice versa). */
@@ -111,15 +201,25 @@ export default function FlowRuns() {
     };
   }, []);
 
-  const activeCount = runs?.filter((r) => isActive(r.status)).length ?? 0;
+  const types = useMemo(
+    () => [...new Set((runs ?? []).map(runType))].sort(),
+    [runs],
+  );
+  const visible = useMemo(
+    () => (runs ?? []).filter((r) => !hiddenTypes.has(runType(r))),
+    [runs, hiddenTypes],
+  );
+  const activeCount = visible.filter((r) => isActive(r.status)).length;
+
+  const toggleType = (type: string) =>
+    setHiddenTypes((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(type)) next.add(type);
+      return next;
+    });
 
   return (
     <div className="flow-runs">
-      <p className="page-description">
-        Live status of hub-tracked flow runs across every pipeline — refreshes
-        every few seconds. Settled runs stay listed for a day.
-      </p>
-
       {error && <p className="error-state">{error}</p>}
 
       {runs === null ? (
@@ -133,16 +233,32 @@ export default function FlowRuns() {
         </div>
       ) : (
         <>
-          <p className="hint">
-            {activeCount} active · {runs.length - activeCount} recently settled
-          </p>
-          {runs.map((run) => (
-            <FlowRunCard
-              key={run.runId}
-              run={run}
-              snapshot={snapshots[run.runId]}
+          <div className="filters">
+            <TypeFilter
+              types={types}
+              hidden={hiddenTypes}
+              onToggle={toggleType}
+              onShowAll={() => setHiddenTypes(new Set())}
             />
-          ))}
+            <span className="count">
+              {activeCount} active · {visible.length - activeCount} recently
+              settled
+            </span>
+          </div>
+          {visible.length === 0 ? (
+            <p className="hint">
+              Every type is filtered out — {runs.length} run
+              {runs.length === 1 ? '' : 's'} hidden.
+            </p>
+          ) : (
+            visible.map((run) => (
+              <FlowRunCard
+                key={run.runId}
+                run={run}
+                snapshot={snapshots[run.runId]}
+              />
+            ))
+          )}
         </>
       )}
     </div>

@@ -20,6 +20,7 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
+import type { BatchItem } from 'drizzle-orm/batch';
 import { Temporal } from 'temporal-polyfill';
 
 import { collectImages, imageKey, type Block } from '@hiroba/richtext';
@@ -2219,6 +2220,79 @@ export async function upsertImageTranscription(
     })
     .returning({ id: images.id });
   return rows[0].id;
+}
+
+/** One row of an image's restructured Japanese spans. `from` is the index the
+ *  row occupied in the CURRENT texts_ja, or null for a newly added row. */
+export type ImageSpanEdit = { text: string; from: number | null };
+
+/**
+ * Rewrite an image's Japanese spans — the admin edit screen's add/remove/edit
+ * of the JA→target rows, which the transcriber otherwise owns.
+ *
+ * Every language's translated `text` row is index-aligned to `texts_ja`, so the
+ * spans can't move on their own: dropping a span anywhere but the tail would
+ * shift every later translation onto the wrong source text, in every language
+ * at once. Callers therefore say where each surviving row CAME FROM, and this
+ * replays that mapping across all of them — the same edit, applied everywhere,
+ * in one atomic batch.
+ *
+ * A row without a `from` starts blank in every language: there is no translated
+ * text for source text that didn't exist until now.
+ */
+export async function restructureImageTexts(
+  db: Database,
+  imageId: number,
+  spans: ImageSpanEdit[],
+): Promise<void> {
+  const now = Temporal.Now.instant();
+
+  const rows = await db
+    .select()
+    .from(translations)
+    .where(
+      and(
+        eq(translations.itemType, 'image'),
+        eq(translations.itemId, String(imageId)),
+        eq(translations.field, 'text'),
+      ),
+    )
+    .all();
+
+  const statements: BatchItem<'sqlite'>[] = [
+    db
+      .update(images)
+      .set({ textsJa: spans.map((s) => s.text), updatedAt: now })
+      .where(eq(images.id, imageId)),
+  ];
+
+  for (const row of rows) {
+    let previous: string[] = [];
+    try {
+      const parsed = JSON.parse(row.value ?? '[]');
+      if (Array.isArray(parsed)) previous = parsed as string[];
+    } catch {
+      // A malformed value realigns to blanks rather than failing the edit.
+    }
+    const next = spans.map((s) =>
+      s.from === null ? '' : (previous[s.from] ?? ''),
+    );
+    statements.push(
+      db
+        .update(translations)
+        .set({ value: JSON.stringify(next), updatedAt: now })
+        .where(
+          and(
+            eq(translations.itemType, 'image'),
+            eq(translations.itemId, String(imageId)),
+            eq(translations.language, row.language),
+            eq(translations.field, 'text'),
+          ),
+        ),
+    );
+  }
+
+  await db.batch(statements as [BatchItem<'sqlite'>, ...BatchItem<'sqlite'>[]]);
 }
 
 /**
