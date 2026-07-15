@@ -40,7 +40,7 @@ const newsByCategory = await Promise.all(
 
 // If this language is meaningfully behind on titles, backfill the archive
 // (counted across the whole home page's items).
-maybeTriggerTitleBackfill(
+await maybeTriggerTitleBackfill(
 	lang,
 	newsByCategory.flatMap(({ items }) => items),
 );

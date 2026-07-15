@@ -22,7 +22,7 @@ try {
 	// The guide set is small and bounded (~100–150 pages), so it isn't paginated.
 	items = await getPlayguides(db, { language: lang });
 	// If this language is meaningfully behind on titles, backfill the archive.
-	maybeTriggerTitleBackfill(lang, items);
+	await maybeTriggerTitleBackfill(lang, items);
 } catch (err) {
 	// Show empty list on error — surface the (previously swallowed) cause.
 	console.error("playguide: getPlayguides threw", err);
