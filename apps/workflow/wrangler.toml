@@ -18,8 +18,18 @@ enabled = true
   # invocation_logs carry status, CPU time, and wall time per request/cron —
   # the signal for chasing 500s and slow steps. Queryable in the dashboard for 7 days.
   [observability.logs]
+  enabled = true
   invocation_logs = true
   head_sampling_rate = 1
+  persist = true
+
+  # Automatic runtime traces: spans for every D1 query, DO call, R2 op, and
+  # service-binding hop. Long cron-driven pipeline runs are exactly where
+  # these pay off, so no sampling.
+  [observability.traces]
+  enabled = true
+  head_sampling_rate = 1
+  persist = true
 
 # Log verbosity for the leveled logger in src/logger.ts:
 #   debug | info | warn | error | silent

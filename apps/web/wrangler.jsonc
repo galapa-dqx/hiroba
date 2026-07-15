@@ -10,6 +10,25 @@
     "directory": "./dist",
     "binding": "ASSETS",
   },
+  // Workers Logs + automatic traces, persisted to the CF dashboard (7-day
+  // retention, query builder). Wrangler config is the source of truth here —
+  // dashboard-only settings get reverted on the next deploy.
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      // Public-facing worker: skip the per-request invocation records; the
+      // console/log events are the useful signal and this halves event volume.
+      "invocation_logs": false,
+    },
+    "traces": {
+      "enabled": true,
+      "persist": true,
+      // Highest-traffic worker of the three — sample traces at 10%.
+      "head_sampling_rate": 0.1,
+    },
+  },
   "d1_databases": [
     {
       "binding": "DB",
