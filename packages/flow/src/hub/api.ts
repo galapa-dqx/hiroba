@@ -64,6 +64,16 @@ export type WatchResult = {
   output: unknown;
 };
 
+/** The event type a parent's join arms and the hub's terminal notification
+ *  sends — ONE definition so the two sides can never drift. The production
+ *  engine validates event types against `^[a-zA-Z0-9_][a-zA-Z0-9-_]*$`
+ *  (miniflare does NOT enforce it): the previous `flow:<runId>` passed every
+ *  local test yet every production sendEvent was rejected with
+ *  `workflow.invalid_event_type` — so no colons, ever. runId is a UUID, so
+ *  `flow-<runId>` stays inside the charset and the 100-char cap. */
+export const joinEventType = (childRunId: string): string =>
+  `flow-${childRunId}`;
+
 /** Terminal-notification payload sendEvent()ed to waiting parents. */
 export type JoinEventPayload = {
   runId: string;

@@ -25,7 +25,12 @@ import {
   type JoinOutcome,
   type JoinPort,
 } from '../tracker';
-import { isActiveStatus, type FlowHubApi, type JoinEventPayload } from './api';
+import {
+  isActiveStatus,
+  joinEventType,
+  type FlowHubApi,
+  type JoinEventPayload,
+} from './api';
 
 /** The hub binding every flow worker (and app caller) holds. Structural so
  *  the package needs no generated Env types. */
@@ -155,7 +160,7 @@ export function createHubJoinPort(
       // on — including during the check — wakes this wait rather than firing
       // into the void.
       const wait = engine.waitForEvent(`${namePrefix}wait`, {
-        type: `flow:${watch.runId}`,
+        type: joinEventType(watch.runId),
         timeout: waitTimeout,
       }) as Promise<{ payload: JoinEventPayload }>;
 
