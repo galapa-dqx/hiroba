@@ -1,6 +1,6 @@
 /**
- * Web-side interface to the article pipelines: fire-and-forget triggers via
- * the FlowHub (which owns dedup and the re-trigger cooldown), and the hub
+ * Web-side interface to the article pipelines: pipeline triggers via the
+ * FlowHub (which owns dedup and the re-trigger cooldown), and the hub
  * run lookup behind the pages' render gate (DQX-28 — the D1 snapshot stream
  * is gone; run status is the progress signal).
  */
@@ -25,24 +25,28 @@ type ArticleType = Extract<ItemType, 'news' | 'topic' | 'playguide'>;
 const RETRIGGER_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 /**
- * Fire-and-forget trigger for an article's pipeline. Failures are logged, not
- * thrown — the page still renders whatever content it has.
+ * Trigger an article's pipeline. Awaited by the page render — a floating
+ * stub.fetch is canceled when the worker invocation ends, which silently
+ * dropped the /start and left the SSE stream 404ing on a run that nothing
+ * created. The hub answers as soon as the run is registered, so the await is
+ * cheap. Failures are logged, not thrown — the page still renders whatever
+ * content it has.
  *
  * Every pipeline runs on the flow framework (DQX-24/25): the start goes to
  * the FlowHub, which dedupes on the flow key (playguide = slug, article =
  * `${itemType}:${itemId}` — a run in flight is attached to, never doubled)
  * and throttles page-driven re-triggers of settled runs via the cooldown.
  */
-export function triggerWorkflow(
+export async function triggerWorkflow(
   itemType: ArticleType,
   id: string,
   options: { force?: boolean } = {},
-): void {
+): Promise<void> {
   try {
     const start = itemFlowStart(itemType, id);
     const ns = env.FLOW_HUB;
     const stub = ns.get(ns.idFromName('hub'));
-    stub.fetch('http://internal/start', {
+    await stub.fetch('http://internal/start', {
       method: 'POST',
       body: JSON.stringify({
         ...start,
@@ -114,16 +118,18 @@ export const BACKFILL_TITLE_THRESHOLD = 5;
 const BACKFILL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 /**
- * Fire-and-forget the language's title backfill via the FlowHub, which dedupes
- * on the flow's language key: a backfill already in flight is attached to,
- * never doubled. Mirrors triggerWorkflow: failures are logged, never thrown —
- * the list still renders its JA fallbacks.
+ * Trigger the language's title backfill via the FlowHub, which dedupes on the
+ * flow's language key: a backfill already in flight is attached to, never
+ * doubled. Mirrors triggerWorkflow: awaited by the page render (a floating
+ * stub.fetch is canceled when the invocation ends, silently dropping the
+ * start); failures are logged, never thrown — the list still renders its JA
+ * fallbacks.
  */
-export function triggerTitleBackfill(language: string): void {
+export async function triggerTitleBackfill(language: string): Promise<void> {
   try {
     const ns = env.FLOW_HUB;
     const stub = ns.get(ns.idFromName('hub'));
-    stub.fetch('http://internal/start', {
+    await stub.fetch('http://internal/start', {
       method: 'POST',
       body: JSON.stringify({
         flow: TitleBackfillFlow.name,
@@ -143,12 +149,12 @@ export function triggerTitleBackfill(language: string): void {
  * page already fetched — no extra query — and triggers only past the threshold,
  * so a caught-up language never fires it.
  */
-export function maybeTriggerTitleBackfill(
+export async function maybeTriggerTitleBackfill(
   language: string,
   items: ReadonlyArray<{ titleEn: string | null }>,
-): void {
+): Promise<void> {
   const missing = items.reduce((n, i) => (i.titleEn === null ? n + 1 : n), 0);
   if (missing >= BACKFILL_TITLE_THRESHOLD) {
-    triggerTitleBackfill(language);
+    await triggerTitleBackfill(language);
   }
 }

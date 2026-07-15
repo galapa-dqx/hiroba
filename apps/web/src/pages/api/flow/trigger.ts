@@ -1,9 +1,9 @@
 /**
  * Client-side (re)trigger for an item's pipeline — the processing callout's
- * self-heal (DQX-28). The page render fires the initial trigger, but that
- * call is fire-and-forget from SSR and can be lost; while the callout waits
- * out a stale terminal run it re-arms through this route instead of spinning
- * forever on old news.
+ * self-heal (DQX-28). The page render fires (and awaits) the initial trigger,
+ * but that call can still fail — errors are swallowed so the page renders;
+ * while the callout waits out a stale terminal run it re-arms through this
+ * route instead of spinning forever on old news.
  *
  * Same shape as the SSR trigger: `force` past the settled-run cooldown (a
  * viewer is actively waiting) and `probe` a stale-looking active run. The

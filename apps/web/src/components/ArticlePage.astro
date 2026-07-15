@@ -249,8 +249,8 @@ const alternates = [
 			if (statusEl) statusEl.textContent = message;
 		};
 
-		// Re-arm the pipeline from the client — the SSR trigger is
-		// fire-and-forget and can be lost, so the stale-run wait would
+		// Re-arm the pipeline from the client — the SSR trigger swallows
+		// failures (the page renders regardless), so the stale-run wait would
 		// otherwise spin forever on a run that nothing is replacing.
 		const retrigger = () => {
 			void fetch("/api/flow/trigger", {

@@ -28,7 +28,7 @@ try {
 	hasMore = result.hasMore;
 	nextCursor = result.nextCursor;
 	// If this language is meaningfully behind on titles, backfill the archive.
-	maybeTriggerTitleBackfill(lang, items);
+	await maybeTriggerTitleBackfill(lang, items);
 } catch (err) {
 	// Show empty list on error — surface the (previously swallowed) cause.
 	console.error("topics: getTopics threw", err);

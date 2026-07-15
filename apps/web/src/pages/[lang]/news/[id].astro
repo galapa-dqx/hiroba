@@ -52,7 +52,7 @@ Astro.response.headers.set("Cache-Control", view.cacheControl);
 // on missing content, the throttled cooldown for background heals of
 // degraded or failed settles.
 if (view.trigger) {
-	triggerWorkflow("news", id, { force: view.trigger === "force" });
+	await triggerWorkflow("news", id, { force: view.trigger === "force" });
 }
 
 const title = localizedTitle ?? item.titleJa;
