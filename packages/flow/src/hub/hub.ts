@@ -28,6 +28,7 @@ import type { AnyFlowDef } from '../define';
 import type { Report, Snapshot, StepState } from '../snapshot';
 import {
   isActiveStatus,
+  joinEventType,
   type FlowHubApi,
   type HubRunStatus,
   type RunInfo,
@@ -787,8 +788,8 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
     }
 
     /** sendEvent a child's terminal status to one parent instance, matching
-     *  the `flow:<childRunId>` type its join armed. Best-effort: if the parent
-     *  can't be reached, its join will time out and fail after waitTimeout. */
+     *  the joinEventType its join armed. Best-effort: if the parent can't be
+     *  reached, its join will time out and fail after waitTimeout. */
     private async sendJoinEvent(
       childRunId: string,
       run: RunInfo,
@@ -798,7 +799,7 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       try {
         const instance = await this.binding(parentFlow).get(parentInstanceId);
         await instance.sendEvent({
-          type: `flow:${childRunId}`,
+          type: joinEventType(childRunId),
           payload: {
             runId: childRunId,
             status: run.status,
