@@ -772,36 +772,71 @@ export function createFlowHub(flows: FlowRegistration[]): FlowHubClass {
       const run = await this.getRun(runId);
       if (!run) return;
       for (const waiter of waiters) {
-        try {
-          const instance = await this.binding(waiter.parent_flow as string).get(
-            waiter.parent_instance_id as string,
-          );
-          await instance.sendEvent({
-            type: `flow:${runId}`,
-            payload: {
-              runId,
-              status: run.status,
-              error: run.error,
-              output: run.output,
-            },
-          });
-        } catch (err) {
-          // Best-effort: a parent we can't reach falls back to its own
-          // waitForEvent-timeout poll. Drop the row either way — it must not
-          // accumulate.
-          console.warn(
-            `FlowHub: waiter notify failed for parent ${String(
-              waiter.parent_instance_id,
-            )}`,
-            err,
-          );
-        }
+        await this.sendJoinEvent(
+          runId,
+          run,
+          waiter.parent_flow as string,
+          waiter.parent_instance_id as string,
+        );
         this.sql.exec(
           `DELETE FROM waiters WHERE child_run_id = ? AND parent_instance_id = ?`,
           runId,
           waiter.parent_instance_id,
         );
       }
+    }
+
+    /** sendEvent a child's terminal status to one parent instance, matching
+     *  the `flow:<childRunId>` type its join armed. Best-effort: if the parent
+     *  can't be reached, its join will time out and fail after waitTimeout. */
+    private async sendJoinEvent(
+      childRunId: string,
+      run: RunInfo,
+      parentFlow: string,
+      parentInstanceId: string,
+    ): Promise<void> {
+      try {
+        const instance = await this.binding(parentFlow).get(parentInstanceId);
+        await instance.sendEvent({
+          type: `flow:${childRunId}`,
+          payload: {
+            runId: childRunId,
+            status: run.status,
+            error: run.error,
+            output: run.output,
+          },
+        });
+      } catch (err) {
+        console.warn(
+          `FlowHub: join notify failed for parent ${parentInstanceId}`,
+          err,
+        );
+      }
+    }
+
+    /** Deliver a child's CURRENT status to a parent on demand — the join
+     *  port's escape hatch when its own status poll finds the child already
+     *  terminal but the wait it armed may never receive the notification (the
+     *  child settled, and its notifyWaiters fired, before that wait existed).
+     *  The parent nudges itself so the armed wait resolves instead of sitting
+     *  out its timeout. A vanished child still resolves — as 'unknown', which
+     *  the join maps to a failed outcome, never an infinite wait. */
+    async notifyParent(
+      childRunId: string,
+      parent: { instanceId: string; flow: string },
+    ): Promise<void> {
+      const run = (await this.getRun(childRunId)) ?? {
+        runId: childRunId,
+        flow: parent.flow,
+        key: '',
+        params: null,
+        status: 'unknown' as HubRunStatus,
+        error: 'child run vanished',
+        output: null,
+        createdAt: 0,
+        updatedAt: 0,
+      };
+      await this.sendJoinEvent(childRunId, run, parent.flow, parent.instanceId);
     }
 
     // -------------------------------------------------------------------------
