@@ -4,6 +4,9 @@ import { defineConfig } from 'astro/config';
 
 export default defineConfig({
   output: 'server',
+  // Keep v6 whitespace handling; the v7 'jsx' default strips the space
+  // between adjacent inline elements.
+  compressHTML: true,
   adapter: cloudflare({
     imageService: 'compile',
   }),
