@@ -191,8 +191,27 @@ export default function ImageEdit({ id }: Props) {
         // Saved rows are now the source's own — their next `from` is identity.
         setOrigin(spansJa.map((_, i) => i));
       }
-      await saveImageTranslation(id, lang, pairs[lang] ?? []);
-      setDirty((d) => ({ ...d, [lang]: false }));
+      // Settle the active tab AND any other language holding unsaved edits.
+      // A row edit rewrites every language's stored spans from what's in the
+      // database, so saving only the active tab would strand the other tabs'
+      // edits behind a "Translations saved" message that isn't true for them —
+      // and the row list they were aligned to is already gone. Skip languages
+      // no longer enabled: their spans aren't editable and the PUT rejects them.
+      const editable = new Set(detail.languages.map((l) => l.code));
+      const saved = [
+        lang,
+        ...Object.keys(dirtyRef.current).filter(
+          (l) => l !== lang && dirtyRef.current[l] && editable.has(l),
+        ),
+      ];
+      for (const l of saved) {
+        await saveImageTranslation(id, l, pairs[l] ?? []);
+      }
+      setDirty((d) => {
+        const next = { ...d };
+        for (const l of saved) next[l] = false;
+        return next;
+      });
       if (announce)
         setStatus(
           'Translations saved — regenerate to apply them to the image.',
