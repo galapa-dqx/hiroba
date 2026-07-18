@@ -79,6 +79,22 @@ describe('image render flow', () => {
     );
   });
 
+  it('still purges when registration throws — the url row already flipped', async () => {
+    vi.mocked(registerImageSources).mockRejectedValue(new Error('D1 down'));
+    const env = envWith({
+      arrayBuffer: async () => new ArrayBuffer(8),
+      httpMetadata: {},
+    });
+    const { output } = await runFlowInline(
+      ImageVariantFlow,
+      (f, params) => runImageVariantFlow(f, params, env),
+      PARAMS,
+    );
+
+    expect(output).toEqual({ key: RENDER_KEY, registered: false });
+    expect(purgeImagePages).toHaveBeenCalled();
+  });
+
   it('still purges when the object has vanished, registering nothing', async () => {
     const env = envWith(null);
     const { output } = await runFlowInline(

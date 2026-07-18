@@ -20,7 +20,7 @@
 
 import {
   deleteImageSourcesByGroup,
-  insertImageSources,
+  replaceImageSourceGroup,
   type Database,
   type NewImageSource,
 } from '@hiroba/db';
@@ -180,7 +180,20 @@ export async function registerImageSources(
     }
   }
 
-  await insertImageSources(db, rows);
+  // Replace the group's row set: a re-registration (self-heal, backfill
+  // re-run, changed bytes at a fixed mirror key) whose encode outcomes
+  // differ must retire the previous pass's rows — the web keeps emitting any
+  // row it finds, and a stale <source> does not fall back on mismatch. Rows
+  // fall out first, then their objects (deleteImageSourceGroup's contract);
+  // the object delete is best-effort, an orphan is benign debris.
+  const stale = await replaceImageSourceGroup(db, baseKey, rows);
+  if (stale.length > 0) {
+    try {
+      await bucket.delete(stale);
+    } catch (err) {
+      console.warn(`stale variant delete failed for ${baseKey}:`, err);
+    }
+  }
 }
 
 /**

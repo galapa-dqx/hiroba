@@ -38,22 +38,31 @@ export async function runImageVariantFlow(
   const db = createDb(env.DB);
 
   const registered = await f.step('register', async () => {
-    const obj = await env.IMAGES_BUCKET.get(params.key);
-    if (!obj) return false;
-    const bytes = new Uint8Array(await obj.arrayBuffer());
-    await registerImageSources(
-      db,
-      env.IMAGES,
-      env.IMAGES_BUCKET,
-      params.key,
-      bytes,
-      obj.httpMetadata?.cacheControl ?? 'public, max-age=31536000, immutable',
-      {
-        fallbackMime: obj.httpMetadata?.contentType,
-        sizes: params.sizes,
-      },
-    );
-    return true;
+    // Never throws: the url row has already flipped by the time this runs,
+    // so the purge below must happen regardless — a registration failure
+    // just means the render serves as a bare <img> (same as any
+    // unregistered render) until something re-registers it.
+    try {
+      const obj = await env.IMAGES_BUCKET.get(params.key);
+      if (!obj) return false;
+      const bytes = new Uint8Array(await obj.arrayBuffer());
+      await registerImageSources(
+        db,
+        env.IMAGES,
+        env.IMAGES_BUCKET,
+        params.key,
+        bytes,
+        obj.httpMetadata?.cacheControl ?? 'public, max-age=31536000, immutable',
+        {
+          fallbackMime: obj.httpMetadata?.contentType,
+          sizes: params.sizes,
+        },
+      );
+      return true;
+    } catch (err) {
+      console.error(`variant registration failed for ${params.key}:`, err);
+      return false;
+    }
   });
 
   // Purge even when nothing registered: the url row has already flipped, so

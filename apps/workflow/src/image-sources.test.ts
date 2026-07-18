@@ -10,14 +10,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   deleteImageSourcesByGroup,
-  insertImageSources,
+  replaceImageSourceGroup,
   type Database,
 } from '@hiroba/db';
 
 import { deleteImageSourceGroup, registerImageSources } from './image-sources';
 
 vi.mock('@hiroba/db', () => ({
-  insertImageSources: vi.fn(),
+  replaceImageSourceGroup: vi.fn(),
   deleteImageSourcesByGroup: vi.fn(),
 }));
 
@@ -72,6 +72,7 @@ const pngInfo = (width: number, height: number) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(replaceImageSourceGroup).mockResolvedValue([]);
 });
 
 describe('registerImageSources', () => {
@@ -99,7 +100,7 @@ describe('registerImageSources', () => {
       'g/a.png.fit400x400.png',
       'g/a.png.fit400x400.avif',
     ]);
-    expect(insertImageSources).toHaveBeenCalledWith(db, [
+    expect(replaceImageSourceGroup).toHaveBeenCalledWith(db, 'g/a.png', [
       expect.objectContaining({
         key: 'g/a.png',
         groupKey: 'g/a.png',
@@ -168,7 +169,7 @@ describe('registerImageSources', () => {
     );
 
     expect(bucket.put).not.toHaveBeenCalled();
-    expect(insertImageSources).toHaveBeenCalledWith(db, [
+    expect(replaceImageSourceGroup).toHaveBeenCalledWith(db, 'g/a.png', [
       expect.objectContaining({ key: 'g/a.png', mime: 'image/png' }),
     ]);
   });
@@ -193,9 +194,28 @@ describe('registerImageSources', () => {
     );
 
     expect(bucket.put).not.toHaveBeenCalled();
-    expect(insertImageSources).toHaveBeenCalledWith(db, [
+    expect(replaceImageSourceGroup).toHaveBeenCalledWith(db, 'g/a.gif', [
       expect.objectContaining({ key: 'g/a.gif', mime: 'image/gif' }),
     ]);
+  });
+
+  it('deletes objects whose rows fell out of the re-registered set', async () => {
+    // Re-registration where the AVIF is skipped this time: the previous
+    // pass's .avif row is replaced away and its object removed.
+    vi.mocked(replaceImageSourceGroup).mockResolvedValue(['g/a.png.avif']);
+    const images = makeImages([pngInfo(800, 600)], [pngBytes(1000)]);
+    const bucket = makeBucket();
+
+    await registerImageSources(
+      db,
+      images,
+      bucket,
+      'g/a.png',
+      pngBytes(1000),
+      'cc',
+    );
+
+    expect(bucket.delete).toHaveBeenCalledWith(['g/a.png.avif']);
   });
 });
 

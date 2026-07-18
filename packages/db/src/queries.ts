@@ -2197,17 +2197,34 @@ export async function setImageMirrorState(
 
 /**
  * Record one render's complete variant set — the primary object's row plus
- * any alternate encodings, inserted as one call so a group is never
- * half-recorded. Upserts by object key so re-registering a render (a
- * re-mirrored original, a backfill re-run) refreshes rather than fails.
+ * any alternate encodings — REPLACING whatever the group recorded before, in
+ * one atomic batch so a group is never half-recorded. The replacement
+ * matters for fixed-key groups (mirrored originals): a re-registration whose
+ * encode outcomes differ must not leave a previous pass's variant row
+ * behind, or the web would keep emitting a `<source>` for bytes that no
+ * longer match the primary. Returns the keys of rows that fell out of the
+ * set — the caller deletes those objects (see deleteImageSourceGroup for the
+ * rows-then-objects contract).
  */
-export async function insertImageSources(
+export async function replaceImageSourceGroup(
   db: Database,
+  groupKey: string,
   rows: Array<Omit<NewImageSource, 'createdAt'>>,
-): Promise<void> {
-  if (rows.length === 0) return;
+): Promise<string[]> {
   const now = Temporal.Now.instant();
-  await db
+  const stale = db
+    .delete(imageSources)
+    .where(
+      and(
+        eq(imageSources.groupKey, groupKey),
+        notInArray(
+          imageSources.key,
+          rows.map((r) => r.key),
+        ),
+      ),
+    )
+    .returning({ key: imageSources.key });
+  const upsert = db
     .insert(imageSources)
     .values(rows.map((row) => ({ ...row, createdAt: now })))
     .onConflictDoUpdate({
@@ -2221,6 +2238,8 @@ export async function insertImageSources(
         createdAt: sql`excluded.created_at`,
       },
     });
+  const [removed] = await db.batch([stale, upsert]);
+  return removed.map((r) => r.key);
 }
 
 /**
