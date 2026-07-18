@@ -13,7 +13,7 @@
  * hub-started ImageVariantFlow.
  */
 
-import { startFlowViaHub } from '~/lib/start-flow';
+import { startFlowViaHub } from '@/lib/start-flow';
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 
@@ -110,7 +110,10 @@ export const POST: APIRoute = async ({ params, request }) => {
       language: lang,
     });
   } catch (err) {
-    console.warn(`upload: image-variant start failed for ${localizedKey}:`, err);
+    console.warn(
+      `upload: image-variant start failed for ${localizedKey}:`,
+      err,
+    );
   }
 
   return json({ success: true, localizedKey });

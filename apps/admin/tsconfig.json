@@ -4,11 +4,11 @@
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "strictNullChecks": true,
-    // `~/…` = src-rooted imports, so deeply nested routes don't chain ../..
+    // `@/…` = src-rooted imports, so deeply nested routes don't chain ../..
     // (Astro's vite resolves tsconfig paths natively).
     "baseUrl": ".",
     "paths": {
-      "~/*": ["src/*"]
+      "@/*": ["src/*"]
     }
   }
 }
