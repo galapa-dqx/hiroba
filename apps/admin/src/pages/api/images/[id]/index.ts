@@ -53,7 +53,10 @@ export const GET: APIRoute = async ({ params }) => {
   const textByLang = new Map<string, (typeof rows)[number]>();
   const urlByLang = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {
-    (r.field === 'url' ? urlByLang : textByLang).set(r.language, r);
+    // Explicit per-field buckets — a row of any other field is not part of
+    // this screen and must not be misfiled as one of these.
+    if (r.field === 'url') urlByLang.set(r.language, r);
+    else if (r.field === 'text') textByLang.set(r.language, r);
   }
 
   const textsJa = image.textsJa ?? null;

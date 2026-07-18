@@ -130,6 +130,69 @@ describe('renderBlocks', () => {
     );
   });
 
+  it('wraps images in <picture> when imageSrc returns alternate encodings', () => {
+    const out = renderBlocks(
+      [{ type: 'image', src: 'https://cache.hiroba.dqx.jp/a.jpg' }],
+      {
+        imageSrc: () => ({
+          src: '/img/a.jpg',
+          width: 640,
+          height: 360,
+          sources: [{ src: '/img/a.jpg.avif', type: 'image/avif' }],
+        }),
+      },
+    );
+    expect(out).toBe(
+      '<picture><source type="image/avif" srcset="/img/a.jpg.avif">' +
+        '<img class="rt-image" src="/img/a.jpg" alt="" width="640" height="360"></picture>',
+    );
+  });
+
+  it('emits dimensions on a bare <img> and omits them when unknown', () => {
+    expect(
+      renderBlocks(
+        [{ type: 'image', src: 'https://cache.hiroba.dqx.jp/a.jpg' }],
+        { imageSrc: () => ({ src: '/img/a.jpg', width: 100, height: 50 }) },
+      ),
+    ).toBe(
+      '<img class="rt-image" src="/img/a.jpg" alt="" width="100" height="50">',
+    );
+    expect(
+      renderBlocks(
+        [{ type: 'image', src: 'https://cache.hiroba.dqx.jp/a.jpg' }],
+        { imageSrc: () => ({ src: '/img/a.jpg' }) },
+      ),
+    ).toBe('<img class="rt-image" src="/img/a.jpg" alt="">');
+  });
+
+  it('wraps inline icons and speech-bubble portraits in <picture> too', () => {
+    const opts = {
+      imageSrc: (s: string) => ({
+        src: s,
+        sources: [{ src: `${s}.avif`, type: 'image/avif' }],
+      }),
+    };
+    expect(
+      renderBlocks(
+        [{ type: 'paragraph', children: [{ type: 'icon', src: '/i.png' }] }],
+        opts,
+      ),
+    ).toBe(
+      '<p><picture><source type="image/avif" srcset="/i.png.avif">' +
+        '<img class="rt-icon" src="/i.png" alt=""></picture></p>',
+    );
+    expect(
+      renderBlocks(
+        [{ type: 'speechBubble', icon: '/s.png', children: ['hi'] }],
+        opts,
+      ),
+    ).toBe(
+      '<div class="rt-speech"><picture><source type="image/avif" srcset="/s.png.avif">' +
+        '<img class="rt-speech-icon" src="/s.png" alt=""></picture>' +
+        '<div class="rt-speech-body">hi</div></div>',
+    );
+  });
+
   it('renders lists and tables', () => {
     expect(
       renderBlocks([

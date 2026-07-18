@@ -4,15 +4,16 @@
  *   POST /api/images/<id>/<lang>/upload   (multipart/form-data, field `file`)
  *
  * The bytes are stored in R2 at a fresh VERSIONED key (`l10n/<lang>/v<ts>/…`,
- * immutable — see LOCALIZED_IMAGE_CACHE_CONTROL), the image's `url` translation
- * row records the new key, and the pages embedding the image are purged so the
- * new URL reaches readers immediately. The row is marked with the manual
- * sentinel model so the nightly localize step won't overwrite it (an explicit
- * "Regenerate" still can). The admin worker owns the R2 bucket, so the write
- * happens here — only the page purge is proxied over the WORKFLOW service
- * binding (the purge credentials live on the workflow worker).
+ * immutable — see LOCALIZED_IMAGE_CACHE_CONTROL) and the image's `url`
+ * translation row records the new key, marked with the manual sentinel model
+ * so the nightly localize step won't overwrite it (an explicit "Regenerate"
+ * still can). The admin worker owns the R2 bucket, so the write happens here;
+ * the follow-ups — variant registration (Images binding) and the page purge
+ * (zone credentials) — need the workflow worker, so they run as one
+ * hub-started ImageVariantFlow.
  */
 
+import { startFlowViaHub } from '~/lib/start-flow';
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 
@@ -23,6 +24,7 @@ import {
   MANUAL_IMAGE_MODEL,
   upsertImageTranslation,
 } from '@hiroba/db';
+import { ImageVariantFlow } from '@hiroba/flows';
 import {
   LOCALIZED_IMAGE_CACHE_CONTROL,
   localizedImageKey,
@@ -71,10 +73,13 @@ export const POST: APIRoute = async ({ params, request }) => {
     return json({ error: 'file exceeds 15MB' }, 413);
   }
 
+  // The uploaded type corrects the key's inherited extension (a PNG replacing
+  // a `.jpg` original lands at a `.png` URL — the extension stays truthful).
   const localizedKey = localizedImageKey(
     lang,
     Date.now().toString(36),
     image.key,
+    file.type,
   );
   const bytes = await file.arrayBuffer();
   await env.IMAGES_BUCKET.put(localizedKey, bytes, {
@@ -91,24 +96,21 @@ export const POST: APIRoute = async ({ params, request }) => {
     model: MANUAL_IMAGE_MODEL,
   });
 
-  // Cached article pages still embed the previous version's URL; purge every
-  // page carrying this image so the new render is picked up immediately. The
-  // purge credentials live only on the workflow side (like the regenerate
-  // path), so proxy there — best-effort: a purge failure must not fail the
-  // upload (pages then refresh on their own TTL).
+  // Hand the follow-ups to ImageVariantFlow: measure + AVIF variant +
+  // image_sources rows, then the page purge — both need capabilities that
+  // live on the workflow worker (Images binding, purge credentials). Order
+  // doesn't matter: the web renders only recorded rows, so until the flow
+  // lands the fresh render serves as a bare <img>. Best-effort — a failed
+  // start must not fail the upload (pages then refresh on their own TTL,
+  // variants on the next backfill sweep).
   try {
-    const res = await env.WORKFLOW.fetch('http://internal/purge-image-pages', {
-      method: 'POST',
-      body: JSON.stringify({ imageKey: image.key, language: lang }),
-      headers: { 'Content-Type': 'application/json' },
+    await startFlowViaHub(env.FLOW_HUB, ImageVariantFlow.name, {
+      key: localizedKey,
+      imageKey: image.key,
+      language: lang,
     });
-    if (!res.ok) {
-      console.warn(
-        `upload: page purge failed for ${image.key} (${res.status}): ${await res.text().catch(() => '')}`,
-      );
-    }
   } catch (err) {
-    console.warn(`upload: page purge failed for ${image.key}:`, err);
+    console.warn(`upload: image-variant start failed for ${localizedKey}:`, err);
   }
 
   return json({ success: true, localizedKey });

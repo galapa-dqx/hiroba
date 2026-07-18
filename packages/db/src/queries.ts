@@ -44,6 +44,11 @@ import {
   type Event,
   type NewEvent,
 } from './schema/events';
+import {
+  imageSources,
+  type ImageSource,
+  type NewImageSource,
+} from './schema/image-sources';
 import { images, type Image } from './schema/images';
 import { getEnabledLanguages } from './schema/languages';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
@@ -2184,6 +2189,90 @@ export async function setImageMirrorState(
     .update(images)
     .set({ mirrorState: state, updatedAt: Temporal.Now.instant() })
     .where(eq(images.key, key));
+}
+
+/* ------------------------------------------------------------------ *
+ * Image sources — per-object variant metadata (see schema/image-sources.ts)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Record one render's complete variant set — the primary object's row plus
+ * any alternate encodings, inserted as one call so a group is never
+ * half-recorded. Upserts by object key so re-registering a render (a
+ * re-mirrored original, a backfill re-run) refreshes rather than fails.
+ */
+export async function insertImageSources(
+  db: Database,
+  rows: Array<Omit<NewImageSource, 'createdAt'>>,
+): Promise<void> {
+  if (rows.length === 0) return;
+  const now = Temporal.Now.instant();
+  await db
+    .insert(imageSources)
+    .values(rows.map((row) => ({ ...row, createdAt: now })))
+    .onConflictDoUpdate({
+      target: imageSources.key,
+      set: {
+        groupKey: sql`excluded.group_key`,
+        mime: sql`excluded.mime`,
+        width: sql`excluded.width`,
+        height: sql`excluded.height`,
+        bytes: sql`excluded.bytes`,
+        createdAt: sql`excluded.created_at`,
+      },
+    });
+}
+
+/**
+ * Map group key → that render's variant rows (primary first, then alternates
+ * in a stable preference order) for a set of primary keys — the one query the
+ * web serving path adds to build `<picture>` markup. Groups with no rows are
+ * simply absent (renders that predate this table until backfilled).
+ */
+export async function getImageSourcesByGroups(
+  db: Database,
+  groupKeys: string[],
+): Promise<Map<string, ImageSource[]>> {
+  const rows = await chunked(groupKeys, (slice) =>
+    db
+      .select()
+      .from(imageSources)
+      .where(inArray(imageSources.groupKey, slice))
+      .all(),
+  );
+  const byGroup = new Map<string, ImageSource[]>();
+  for (const row of rows) {
+    const group = byGroup.get(row.groupKey);
+    if (group) group.push(row);
+    else byGroup.set(row.groupKey, [row]);
+  }
+  for (const group of byGroup.values()) {
+    group.sort((a, b) => sourceRank(a) - sourceRank(b));
+  }
+  return byGroup;
+}
+
+/** Primary object first, then alternates most-preferred first (AVIF today). */
+function sourceRank(row: ImageSource): number {
+  if (row.key === row.groupKey) return 0;
+  return row.mime === 'image/avif' ? 1 : 2;
+}
+
+/**
+ * Delete one render's variant rows, returning the deleted object keys. Never
+ * call this directly to retire a render — the workflow side's
+ * deleteImageSourceGroup wraps it and removes the R2 objects too, keeping
+ * the table an exact inventory of the bucket.
+ */
+export async function deleteImageSourcesByGroup(
+  db: Database,
+  groupKey: string,
+): Promise<string[]> {
+  const rows = await db
+    .delete(imageSources)
+    .where(eq(imageSources.groupKey, groupKey))
+    .returning({ key: imageSources.key });
+  return rows.map((r) => r.key);
 }
 
 /* ------------------------------------------------------------------ *

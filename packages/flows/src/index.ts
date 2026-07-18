@@ -14,6 +14,7 @@ export { articleImagework, articleIntake, articleOutput } from './fragments';
 export { GlossaryRegenFlow } from './glossary-regen';
 export { ImageIngestFlow } from './image-ingest';
 export { ImageLocalizeFlow } from './image-localize';
+export { ImageVariantFlow, type ImageVariantOutput } from './image-variant';
 export { NewsBackfillFlow, type NewsBackfillOutput } from './news-backfill';
 export { PlayguideFlow } from './playguide';
 export {

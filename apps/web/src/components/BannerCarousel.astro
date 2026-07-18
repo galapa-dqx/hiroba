@@ -42,14 +42,19 @@ const t = useTranslations(Astro.locals.lang ?? "en");
                     ? { target: "_blank", rel: "noopener noreferrer" }
                     : {})}
                 >
-                  <img
-                    src={b.imageUrl}
-                    alt={b.alt}
-                    width="632"
-                    height="157"
-                    loading={i === 0 ? "eager" : "lazy"}
-                    decoding="async"
-                  />
+                  <picture>
+                    {(b.sources ?? []).map((s) => (
+                      <source type={s.type} srcset={s.src} />
+                    ))}
+                    <img
+                      src={b.imageUrl}
+                      alt={b.alt}
+                      width="632"
+                      height="157"
+                      loading={i === 0 ? "eager" : "lazy"}
+                      decoding="async"
+                    />
+                  </picture>
                 </a>
               </li>
             ))}

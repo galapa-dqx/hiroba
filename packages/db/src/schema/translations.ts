@@ -58,7 +58,8 @@ export type Translation = typeof translations.$inferSelect;
 export type NewTranslation = typeof translations.$inferInsert;
 export type ItemType = 'news' | 'topic' | 'playguide' | 'event' | 'image';
 // news/topic bodies use 'title' | 'content'; per-image (item_type='image') uses
-// 'text' (translated spans) | 'url' (localized image R2 key).
+// 'text' (translated spans) | 'url' (localized image R2 key — also the
+// `image_sources.group_key` of that render's variant rows).
 export type TranslationField = 'title' | 'content' | 'text' | 'url';
 
 /** Result for a single translated field */

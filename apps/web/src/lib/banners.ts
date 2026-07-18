@@ -15,14 +15,21 @@
 import {
   getActiveBanners,
   getImagesByKeys,
+  getImageSourcesByGroups,
   getImageTranslations,
   getTitleTranslations,
   type Database,
 } from '@hiroba/db';
 import { imageUpstreamUrl, rewriteImageSrc } from '@hiroba/richtext';
 
+import { resolveFromSources } from './article-images';
+
 export type CarouselBanner = {
   imageUrl: string;
+  /** Recorded alternate encodings of the image (image_sources rows), most-
+   *  preferred first — rendered as `<picture>` sources with `imageUrl` as
+   *  the fallback. */
+  sources?: Array<{ src: string; type: string }>;
   href: string;
   /** True when the link leaves our site (renderer adds target/rel). */
   external: boolean;
@@ -54,6 +61,11 @@ export async function resolveBanners(
     const stored = localizedUrl.get(r.id);
     if (stored) localizedByKey.set(r.key, stored);
   }
+  // Whichever key each banner serves is also its image_sources group key —
+  // one fetch covers the localized renders and the original fallbacks.
+  const sourcesByGroup = await getImageSourcesByGroups(db, [
+    ...new Set([...rows.map((b) => b.imageKey), ...localizedByKey.values()]),
+  ]);
 
   // Translated captions for banners that link to a topic we can render.
   const topicIds = rows
@@ -63,10 +75,17 @@ export async function resolveBanners(
 
   return rows.map((b) => {
     const stored = localizedByKey.get(b.imageKey);
-    return {
-      imageUrl: stored
+    const groupKey = stored ?? b.imageKey;
+    const resolved = resolveFromSources(
+      stored
         ? `${imageBase}/${stored}`
         : rewriteImageSrc(imageUpstreamUrl(b.imageKey), imageBase),
+      sourcesByGroup.get(groupKey),
+      imageBase,
+    );
+    return {
+      imageUrl: resolved.src,
+      ...(resolved.sources ? { sources: resolved.sources } : {}),
       href: b.linkTopicId
         ? `/${language}/topics/${b.linkTopicId}`
         : (b.linkUrl ?? '#'),

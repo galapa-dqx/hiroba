@@ -46,6 +46,7 @@ import {
   recoverAlphaFromTwoUp,
   TWO_UP_PROMPT,
 } from '../image-matte';
+import { registerImageSources } from '../image-sources';
 import { trimToAspect } from '../image-trim';
 import type { TargetLanguage } from './translate';
 
@@ -278,10 +279,29 @@ async function localizeRowForLanguage(
     }
     const localizedBytes = trimToAspect(restored, editable.bytes);
 
-    const localizedKey = localizedImageKey(language, newVersion(), row.key);
+    // The render is always PNG bytes; passing the content type corrects the
+    // key's inherited extension (a render of `foo.jpg` lands at `….png`, not
+    // a `.jpg` URL lying about its bytes).
+    const localizedKey = localizedImageKey(
+      language,
+      newVersion(),
+      row.key,
+      'image/png',
+    );
     await bucket.put(localizedKey, localizedBytes, {
       httpMetadata: { contentType: 'image/png', cacheControl: CACHE_CONTROL },
     });
+    // Record the render's variant rows (+ AVIF object). The fresh versioned
+    // key is a fresh group — the previous version's rows orphan with its
+    // objects, and an unrecorded render just serves as a bare <img>.
+    await registerImageSources(
+      db,
+      images,
+      bucket,
+      localizedKey,
+      localizedBytes,
+      CACHE_CONTROL,
+    );
     await upsertImageTranslation(db, {
       imageId: row.id,
       language,

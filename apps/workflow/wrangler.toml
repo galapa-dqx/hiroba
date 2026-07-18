@@ -197,6 +197,16 @@ name = "image-localize-workflow"
 binding = "IMAGE_LOCALIZE_WORKFLOW"
 class_name = "ImageLocalizeWorkflow"
 
+# ImageVariantFlow: variant registration (measure + AVIF + image_sources rows)
+# and page purge for one stored render, keyed by its R2 key. Started only via
+# the FlowHub (hub.start('image-variant')) from the admin's manual-upload
+# route — this worker holds the Images binding and purge credentials the
+# admin lacks.
+[[workflows]]
+name = "image-variant-workflow"
+binding = "IMAGE_VARIANT_WORKFLOW"
+class_name = "ImageVariantWorkflow"
+
 # Scheduled triggers. The nightly work is staggered into separate invocations
 # so each job gets its own subrequest/CPU budget and can't starve the next
 # (the playguide crawl alone fetches ~130 pages):

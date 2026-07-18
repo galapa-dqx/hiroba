@@ -20,21 +20,24 @@
 
 import {
   getImagesByKeys,
+  getImageSourcesByGroups,
   getImageTranslations,
   type Database,
+  type ImageSource,
 } from '@hiroba/db';
 import {
   collectImages,
   imageKey,
   rewriteImageSrc,
   type Block,
+  type ResolvedImage,
 } from '@hiroba/richtext';
 
 export async function hydrateArticleImages(
   db: Database,
   blocks: Block[],
   options: { isTranslated: boolean; language: string; imageBase?: string },
-): Promise<(src: string) => string> {
+): Promise<(src: string) => ResolvedImage> {
   const { isTranslated, language } = options;
   const originalBase = options.imageBase ?? '/img';
 
@@ -46,7 +49,13 @@ export async function hydrateArticleImages(
   ];
 
   // Original key → stored localized (versioned) R2 key, where one exists.
+  // Whichever key a src resolves to is also its image_sources group key, so
+  // one fetch over the union covers dimensions + alternate encodings for
+  // localized and original rasters alike. Variants are only ever emitted from
+  // recorded rows (never derived): a <picture> source that 404s would NOT
+  // fall back to the <img>.
   const localizedByKey = new Map<string, string>();
+  let sourcesByGroup = new Map<string, ImageSource[]>();
   if (imgKeys.length > 0) {
     const rows = await getImagesByKeys(db, imgKeys);
     const byKey = new Map(rows.map((r) => [r.key, r]));
@@ -61,6 +70,9 @@ export async function hydrateArticleImages(
       const stored = localizedUrl.get(row.id);
       if (stored) localizedByKey.set(row.key, stored);
     }
+    sourcesByGroup = await getImageSourcesByGroups(db, [
+      ...new Set([...imgKeys, ...localizedByKey.values()]),
+    ]);
     for (const img of imgs) {
       const key = imageKey(img.src);
       const row = key ? byKey.get(key) : undefined;
@@ -74,10 +86,59 @@ export async function hydrateArticleImages(
     }
   }
 
-  return (src: string): string => {
+  return (src: string): ResolvedImage => {
     const key = imageKey(src);
     const stored = key ? localizedByKey.get(key) : undefined;
-    if (stored) return `${originalBase}/${stored}`;
-    return rewriteImageSrc(src, originalBase);
+    const groupKey = stored ?? key;
+    const url = stored
+      ? `${originalBase}/${stored}`
+      : rewriteImageSrc(src, originalBase);
+    return resolveFromSources(
+      url,
+      groupKey ? sourcesByGroup.get(groupKey) : undefined,
+      originalBase,
+    );
+  };
+}
+
+/**
+ * Build a renderer-ready image from a group's recorded variant rows (query
+ * returns them primary-first, alternates most-preferred first). No rows —
+ * a render predating the image_sources backfill — means just the src.
+ *
+ * Only FULL-SIZE encoding alternates (same dimensions as the primary,
+ * different format) become `<picture>` sources: a `<source>` without srcset
+ * descriptors is a 1x candidate, so emitting a resized rendition here would
+ * serve a shrunken raster at full display size. Resized renditions stay
+ * recorded-but-unemitted until a consumer with real `sizes` knowledge
+ * (thumbnails, srcset) reads them.
+ */
+export function resolveFromSources(
+  src: string,
+  group: ImageSource[] | undefined,
+  imageBase: string,
+): ResolvedImage {
+  const primary = group?.find((r) => r.key === r.groupKey);
+  const alternates =
+    group?.filter(
+      (r) =>
+        r.key !== r.groupKey &&
+        r.mime !== primary?.mime &&
+        r.width === primary?.width &&
+        r.height === primary?.height,
+    ) ?? [];
+  return {
+    src,
+    ...(primary?.width && primary?.height
+      ? { width: primary.width, height: primary.height }
+      : {}),
+    ...(alternates.length
+      ? {
+          sources: alternates.map((r) => ({
+            src: `${imageBase}/${r.key}`,
+            type: r.mime,
+          })),
+        }
+      : {}),
   };
 }

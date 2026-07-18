@@ -17,8 +17,27 @@ import {
   type TableCell,
 } from './schema';
 
+/**
+ * A resolved image: the `src` every browser gets, plus what a `<picture>`
+ * tag wants — the raster's pixel dimensions (emitted as width/height so the
+ * browser reserves the box before the bytes arrive) and alternate encodings,
+ * most-preferred first. When `sources` is non-empty the renderer emits a
+ * `<picture><source type srcset>` wrapper so supporting browsers take the
+ * smaller variant and everything else falls back to `src` — every entry must
+ * actually exist (the web app only passes recorded `image_sources` rows;
+ * `<source>` does NOT fall back on a 404).
+ */
+export type ResolvedImage = {
+  src: string;
+  width?: number;
+  height?: number;
+  sources?: Array<{ src: string; type: string }>;
+};
+
 export type RenderOptions = {
-  imageSrc?: (src: string) => string;
+  /** Rewrites image/icon URLs; may also return dimensions and alternate
+   *  encodings (see {@link ResolvedImage}). A plain string means "just a src". */
+  imageSrc?: (src: string) => string | ResolvedImage;
   /**
    * Rewrites link/button/image `href`s (pass `rewriteArticleHref` to point
    * article cross-links at our own routes; defaults to identity).
@@ -34,7 +53,30 @@ export function renderBlocks(
   blocks: Block[],
   opts: RenderOptions = {},
 ): string {
-  const src = opts.imageSrc ?? ((s: string) => s);
+  const rewrite = opts.imageSrc ?? ((s: string) => s);
+  const resolve = (s: string): ResolvedImage => {
+    const out = rewrite(s);
+    return typeof out === 'string' ? { src: out } : out;
+  };
+  /** An <img> tag, wrapped in <picture> when alternate encodings exist. */
+  const imgTag = (
+    source: ResolvedImage,
+    attrs: string,
+    alt: string,
+  ): string => {
+    const dims =
+      source.width && source.height
+        ? ` width="${source.width}" height="${source.height}"`
+        : '';
+    const img = `<img ${attrs} src="${escAttr(source.src)}" alt="${escAttr(alt)}"${dims}>`;
+    if (!source.sources?.length) return img;
+    const alternates = source.sources
+      .map(
+        (s) => `<source type="${escAttr(s.type)}" srcset="${escAttr(s.src)}">`,
+      )
+      .join('');
+    return `<picture>${alternates}${img}</picture>`;
+  };
   const href = opts.linkHref ?? ((h: string) => h);
 
   const inlines = (nodes: Inline[]): string => nodes.map(inline).join('');
@@ -62,7 +104,7 @@ export function renderBlocks(
       case 'badge':
         return `<span class="rt-badge"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>${esc(node.text)}</span>`;
       case 'icon':
-        return `<img class="rt-icon" src="${escAttr(src(node.src))}" alt="${escAttr(node.alt ?? '')}">`;
+        return imgTag(resolve(node.src), `class="rt-icon"`, node.alt ?? '');
       case 'time':
         // Children are the human-readable JST text; a client script rewrites
         // datetime-bearing ones to the viewer's timezone (date-only values stay).
@@ -104,7 +146,11 @@ export function renderBlocks(
         // The in-image text (localized into the image itself) rides as alt for
         // accessibility; hydrate `text` with the displayed language's spans.
         const alt = node.text?.length ? node.text.join(' ') : (node.alt ?? '');
-        const img = `<img class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} src="${escAttr(src(node.src))}" alt="${escAttr(alt)}">`;
+        const img = imgTag(
+          resolve(node.src),
+          `class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}`,
+          alt,
+        );
         const rel = node.external
           ? ' target="_blank" rel="noopener noreferrer"'
           : '';
@@ -147,7 +193,7 @@ export function renderBlocks(
         return (
           `<div class="rt-speech">` +
           (node.icon
-            ? `<img class="rt-speech-icon" src="${escAttr(src(node.icon))}" alt="">`
+            ? imgTag(resolve(node.icon), `class="rt-speech-icon"`, '')
             : '') +
           (node.speaker !== undefined
             ? `<div class="rt-speaker">${esc(node.speaker)}</div>`

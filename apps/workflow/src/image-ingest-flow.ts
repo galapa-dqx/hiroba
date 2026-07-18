@@ -31,7 +31,7 @@ import type {
 /** The slice of the worker env the body actually touches. */
 export type ImageIngestFlowEnv = Pick<
   Env,
-  'DB' | 'IMAGES_BUCKET' | 'GEMINI_API_KEY'
+  'DB' | 'IMAGES_BUCKET' | 'IMAGES' | 'GEMINI_API_KEY'
 >;
 
 export async function runImageIngestFlow(
@@ -47,7 +47,7 @@ export async function runImageIngestFlow(
     // whole set (the SSE progress denominator), but this child must not
     // depend on which parent started it.
     await ensureImageRows(db, [imageKey]);
-    return mirrorOneImage(db, env.IMAGES_BUCKET, imageKey);
+    return mirrorOneImage(db, env.IMAGES_BUCKET, env.IMAGES, imageKey);
   });
 
   if (!transcribe) {

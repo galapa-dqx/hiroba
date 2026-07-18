@@ -17,6 +17,7 @@ import {
   GlossaryRegenFlow,
   ImageIngestFlow,
   ImageLocalizeFlow,
+  ImageVariantFlow,
   NewsBackfillFlow,
   PlayguideFlow,
   TitleBackfillFlow,
@@ -33,6 +34,7 @@ const registrations: FlowRegistration[] = [
   { def: PlayguideFlow, binding: 'PLAYGUIDE_WORKFLOW' },
   { def: ImageIngestFlow, binding: 'IMAGE_INGEST_WORKFLOW' },
   { def: ImageLocalizeFlow, binding: 'IMAGE_LOCALIZE_WORKFLOW' },
+  { def: ImageVariantFlow, binding: 'IMAGE_VARIANT_WORKFLOW' },
 ];
 
 // Annotated so the exported class type doesn't reference the factory's

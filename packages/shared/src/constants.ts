@@ -46,16 +46,80 @@ export const CATEGORY_LABELS: Record<Category, string> = {
 export const LOCALIZED_IMAGE_CACHE_CONTROL =
   'public, max-age=31536000, immutable';
 
+/** Canonical URL extension per raster content type we store. */
+const EXTENSION_BY_TYPE: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'image/avif': '.avif',
+};
+
+/**
+ * Rewrite a storage key so its extension is the canonical one for the bytes
+ * actually stored under it (`.jpeg` → `.jpg` included). Localized renders are
+ * always re-rasterized (PNG today), while the key tail inherits the SOURCE's
+ * path — so a render of `foo.jpg` would otherwise sit at a `.jpg` URL with
+ * PNG bytes. Only used when minting keys in our own namespaces (versioned
+ * `l10n/` keys are unique per render, so a swap can't collide); mirrored
+ * originals keep their upstream path verbatim, since that path IS their
+ * identity. Unknown content types leave the key untouched rather than guess.
+ */
+export function keyWithExtension(key: string, contentType: string): string {
+  const ext = EXTENSION_BY_TYPE[contentType];
+  if (!ext) return key;
+  const slash = key.lastIndexOf('/');
+  const dot = key.lastIndexOf('.');
+  if (dot <= slash + 1) return `${key}${ext}`; // no (or dot-file) extension
+  if (key.slice(dot).toLowerCase() === ext) return key;
+  return `${key.slice(0, dot)}${ext}`;
+}
+
+/**
+ * The R2 key of an image object's AVIF re-encode: the base key plus `.avif`,
+ * so the variant sits next to its source and the URL's final extension is
+ * always truthful. Appending (not swapping) keeps derivation collision-free
+ * for mirrored originals (`foo.jpg` and `foo.png` may both exist upstream).
+ * Existence is NOT implied — encoding is skipped/failed for some sources
+ * (animated GIFs, oddball formats), so readers consult the recorded
+ * `image_sources` rows, never derive blindly.
+ */
+export const avifVariantKey = (key: string): string => `${key}.avif`;
+
+/** A "resize to fit inside width×height" box (never enlarges). */
+export type FitSize = { width: number; height: number };
+
+/**
+ * The R2 key of a resized variant of an image object — scaled down to fit
+ * inside `size`, re-encoded as `contentType`: `<key>.fit<W>x<H><ext>`. Named
+ * by the REQUESTED box, not the resulting dimensions (so writers and readers
+ * derive the same key without knowing the aspect ratio); the actual output
+ * dimensions live on the variant's image_sources row. Same appending rules
+ * as avifVariantKey: collision-free beside the primary, extension truthful.
+ */
+export const fitVariantKey = (
+  key: string,
+  size: FitSize,
+  contentType: string,
+): string =>
+  `${key}.fit${size.width}x${size.height}${EXTENSION_BY_TYPE[contentType] ?? ''}`;
+
 /**
  * The versioned R2 key for one localized render of a mirrored image.
  * `version` must be unique per render (epoch-ms in base36 is the convention);
- * `imageKey` is the original's `<host>/<path>` storage key.
+ * `imageKey` is the original's `<host>/<path>` storage key. Pass the render's
+ * `contentType` to correct the inherited extension to match the stored bytes
+ * (see keyWithExtension); omitted, the source extension is kept as-is.
  */
 export const localizedImageKey = (
   language: string,
   version: string,
   imageKey: string,
-): string => `l10n/${language}/v${version}/${imageKey}`;
+  contentType?: string,
+): string =>
+  `l10n/${language}/v${version}/${
+    contentType ? keyWithExtension(imageKey, contentType) : imageKey
+  }`;
 
 /**
  * Scraping configuration - source URLs and paths.

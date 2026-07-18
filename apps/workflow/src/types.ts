@@ -2,8 +2,8 @@
  * Type definitions for the workflow worker.
  */
 
-import type { NewsBackfillOutput } from '@hiroba/flows';
-import type { Category } from '@hiroba/shared';
+import type { ImageVariantOutput, NewsBackfillOutput } from '@hiroba/flows';
+import type { Category, FitSize } from '@hiroba/shared';
 
 import type { LocalizeOutcome, LocalizeResult } from './steps/localize-images';
 import type { MirrorOutcome, MirrorResult } from './steps/mirror-images';
@@ -98,6 +98,12 @@ export type Env = {
    *  one language, keyed `${imageKey}:${lang}`. Instances are created only by
    *  the FlowHub, from parent flows' `mapJoin`s after their translate phase. */
   IMAGE_LOCALIZE_WORKFLOW: WorkflowBinding<ImageLocalizeWorkflowParams>;
+  /** Variant registration + page purge for one stored render
+   *  (ImageVariantFlow), keyed by the render's R2 key. Instances are created
+   *  only by the FlowHub — the admin's manual-upload route starts it via
+   *  hub.start('image-variant') (this worker holds the Images binding and
+   *  purge credentials the admin lacks). */
+  IMAGE_VARIANT_WORKFLOW: WorkflowBinding<ImageVariantWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
@@ -194,6 +200,24 @@ export type NewsBackfillWorkflowParams = {
  *  Declared beside the flow definition so the admin's completion toast and
  *  this producer derive from one shape. */
 export type NewsBackfillWorkflowOutput = NewsBackfillOutput;
+
+/**
+ * Parameters for the ImageVariantWorkflow: the render's R2 key (also the
+ * hub's dedup key), the ORIGINAL image key + language its embedding pages
+ * are purged by (the versioned render key isn't reversible to them — its
+ * extension may have been corrected away from the source's), and optional
+ * fit-inside boxes to generate resized renditions for.
+ */
+export type ImageVariantWorkflowParams = {
+  key: string;
+  imageKey: string;
+  language: string;
+  sizes?: FitSize[];
+};
+
+/** Result of the ImageVariantWorkflow. Declared beside the flow definition so
+ *  producers and consumers derive from one shape. */
+export type ImageVariantWorkflowOutput = ImageVariantOutput;
 
 /**
  * Parameters for the GlossaryRegenerateWorkflow. Just the Japanese term whose

@@ -14,4 +14,5 @@ export * from './languages';
 export * from './events';
 export * from './reset-milestones';
 export * from './images';
+export * from './image-sources';
 export * from './banners';

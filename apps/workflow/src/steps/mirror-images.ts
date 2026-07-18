@@ -22,6 +22,8 @@ import {
 } from '@hiroba/richtext';
 
 import { mapWithConcurrency } from '../concurrency';
+import { sniffMimeType } from '../image-edit';
+import { registerImageSources } from '../image-sources';
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -56,9 +58,12 @@ export type MirrorOutcome = 'mirrored' | 'skipped' | 'failed';
 export async function mirrorOneImage(
   db: Database,
   bucket: R2Bucket,
+  images: ImagesBinding,
   key: string,
 ): Promise<MirrorOutcome> {
   if (await bucket.head(key)) {
+    // Already mirrored (possibly before AVIF variants existed) — the
+    // avif-backfill flow owns catching those up, not the hot path.
     await setImageMirrorState(db, key, 'done');
     return 'skipped';
   }
@@ -71,13 +76,22 @@ export async function mirrorOneImage(
       await setImageMirrorState(db, key, 'failed');
       return 'failed';
     }
-    await bucket.put(key, res.body, {
+    // Buffered rather than streamed: the bytes are sniffed (the upstream CDN's
+    // content-type header isn't trusted), measured, and re-encoded to the
+    // AVIF variant.
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    await bucket.put(key, bytes, {
       httpMetadata: {
         contentType:
-          res.headers.get('content-type') ?? 'application/octet-stream',
+          sniffMimeType(bytes) ??
+          res.headers.get('content-type') ??
+          'application/octet-stream',
         cacheControl: CACHE_CONTROL,
       },
     });
+    // Record the group's variant rows (+ AVIF object). Until they land the
+    // web simply serves the original as a bare <img>.
+    await registerImageSources(db, images, bucket, key, bytes, CACHE_CONTROL);
     await setImageMirrorState(db, key, 'done');
     return 'mirrored';
   } catch {
@@ -97,6 +111,7 @@ export async function mirrorOneImage(
 export async function mirrorImages(
   db: Database,
   bucket: R2Bucket,
+  images: ImagesBinding,
   blocks: Block[],
 ): Promise<MirrorResult> {
   // Dedup to distinct storage keys (many srcs collapse to one key via aliasing).
@@ -110,7 +125,7 @@ export async function mirrorImages(
 
   const result: MirrorResult = { mirrored: 0, skipped: 0, failed: 0 };
   await mapWithConcurrency([...keys], MIRROR_CONCURRENCY, async (key) => {
-    const outcome = await mirrorOneImage(db, bucket, key);
+    const outcome = await mirrorOneImage(db, bucket, images, key);
     result[outcome]++;
   });
   return result;
