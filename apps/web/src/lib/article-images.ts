@@ -6,21 +6,21 @@
  * Two jobs:
  * 1. Hydrate each image's transient `text` with the displayed language's spans,
  *    so renderBlocks can put it on the image as alt (image text lives in the
- *    images / translations tables, not the block tree). A translated page
+ *    image_sources / translations tables, not the block tree). A translated page
  *    prefers the translated spans and falls back to the JA transcription.
- * 2. Build the imageSrc rewriter: serve localized images from the VERSIONED
- *    key stored on the image's `url` translation row (`l10n/<lang>/v<ts>/…` —
- *    a fresh immutable object per render, so the URL changes exactly when the
- *    raster does), but only for images we actually localized; everything else
- *    (icons, text-free art, images not yet localized) keeps the original URL.
- *    Both variants are served straight from the R2 bucket's public host
- *    (IMAGE_BASE); the stored key always names a written object, so no
- *    fallback probe is needed.
+ * 2. Build the imageSrc resolver: serve each image from its newest render (a
+ *    first-class row since DQX-45). On a translated page the localized render
+ *    wins (its versioned `l10n/…` key — a fresh immutable object per render);
+ *    otherwise the mirrored original's render (its primary file sits at the
+ *    source key). Both come with measured width/height, which the renderer emits
+ *    to reserve layout space (no CLS). An image with no render yet (not mirrored)
+ *    falls back to the rewritten source URL, no dimensions.
  */
 
 import {
-  getImagesByKeys,
+  getImageSourcesByKeys,
   getImageTranslations,
+  getServedImages,
   type Database,
 } from '@hiroba/db';
 import {
@@ -28,13 +28,14 @@ import {
   imageKey,
   rewriteImageSrc,
   type Block,
+  type ResolvedImageSrc,
 } from '@hiroba/richtext';
 
 export async function hydrateArticleImages(
   db: Database,
   blocks: Block[],
   options: { isTranslated: boolean; language: string; imageBase?: string },
-): Promise<(src: string) => string> {
+): Promise<(src: string) => string | ResolvedImageSrc> {
   const { isTranslated, language } = options;
   const originalBase = options.imageBase ?? '/img';
 
@@ -45,22 +46,34 @@ export async function hydrateArticleImages(
     ),
   ];
 
-  // Original key → stored localized (versioned) R2 key, where one exists.
-  const localizedByKey = new Map<string, string>();
+  // Original source key → the served render's primary file (key + dimensions).
+  const servedByKey = new Map<string, ResolvedImageSrc>();
   if (imgKeys.length > 0) {
-    const rows = await getImagesByKeys(db, imgKeys);
+    const rows = await getImageSourcesByKeys(db, imgKeys);
     const byKey = new Map(rows.map((r) => [r.key, r]));
     const ids = rows.map((r) => r.id);
     const localizedText = isTranslated
-      ? await getImageTranslations(db, ids, language, 'text')
+      ? await getImageTranslations(db, ids, language)
       : new Map<number, string>();
-    const localizedUrl = isTranslated
-      ? await getImageTranslations(db, ids, language, 'url')
-      : new Map<number, string>();
+    const served = await getServedImages(db, ids, language);
+
     for (const row of rows) {
-      const stored = localizedUrl.get(row.id);
-      if (stored) localizedByKey.set(row.key, stored);
+      // Translated pages prefer the localized render, else the original; an
+      // untranslated (JA) page always shows the original.
+      const renders = served.get(row.id);
+      const file = isTranslated
+        ? (renders?.localized ?? renders?.original)
+        : renders?.original;
+      if (file) {
+        servedByKey.set(row.key, {
+          src: `${originalBase}/${file.key}`,
+          width: file.width,
+          height: file.height,
+        });
+      }
     }
+
+    // Alt text: translated spans when available, else the JA transcription.
     for (const img of imgs) {
       const key = imageKey(img.src);
       const row = key ? byKey.get(key) : undefined;
@@ -74,10 +87,10 @@ export async function hydrateArticleImages(
     }
   }
 
-  return (src: string): string => {
+  return (src: string): string | ResolvedImageSrc => {
     const key = imageKey(src);
-    const stored = key ? localizedByKey.get(key) : undefined;
-    if (stored) return `${originalBase}/${stored}`;
+    const served = key ? servedByKey.get(key) : undefined;
+    if (served) return served;
     return rewriteImageSrc(src, originalBase);
   };
 }

@@ -16,8 +16,9 @@ import { env } from 'cloudflare:workers';
 import {
   createDb,
   getEnabledLanguages,
-  getImageById,
+  getImageSourceById,
   getImageTranslationRows,
+  getLatestRendersBySource,
 } from '@hiroba/db';
 import { hasJapanese } from '@hiroba/shared';
 
@@ -45,33 +46,33 @@ export const GET: APIRoute = async ({ params }) => {
   const id = Number(params.id);
   if (!Number.isInteger(id)) return json({ error: 'Invalid id' }, 400);
 
-  const image = await getImageById(db, id);
+  const image = await getImageSourceById(db, id);
   if (!image) return json({ error: 'Not found' }, 404);
 
   const enabled = await getEnabledLanguages(db);
   const rows = await getImageTranslationRows(db, id);
   const textByLang = new Map<string, (typeof rows)[number]>();
-  const urlByLang = new Map<string, (typeof rows)[number]>();
-  for (const r of rows) {
-    (r.field === 'url' ? urlByLang : textByLang).set(r.language, r);
-  }
+  for (const r of rows) textByLang.set(r.language, r);
+
+  // The localized image is a render now — newest per language, no `url` row.
+  const localizedByLang = await getLatestRendersBySource(db, id);
 
   const textsJa = image.textsJa ?? null;
   const translations = Object.fromEntries(
     enabled.map((l) => {
       const text = textByLang.get(l.code) ?? null;
-      const urlRow = urlByLang.get(l.code) ?? null;
+      const localized = localizedByLang.get(l.code) ?? null;
       return [
         l.code,
         {
           textState: text?.state ?? null,
           texts: parseSpans(text?.value),
-          urlState: urlRow?.state ?? null,
-          localizedKey: urlRow?.value ?? null,
-          urlModel: urlRow?.model ?? null,
-          error: urlRow?.error ?? text?.error ?? null,
+          urlState: localized ? 'done' : null,
+          localizedKey: localized?.key ?? null,
+          urlModel: localized?.model ?? null,
+          error: text?.error ?? null,
           translatedAt:
-            (urlRow?.translatedAt ?? text?.translatedAt)?.toString() ?? null,
+            (localized?.createdAt ?? text?.translatedAt)?.toString() ?? null,
         },
       ];
     }),

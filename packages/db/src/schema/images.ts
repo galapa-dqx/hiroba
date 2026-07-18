@@ -1,50 +1,54 @@
 /**
- * Images table — one canonical row per distinct image (keyed by a surrogate id,
- * with the imageKey `<host>/<path>` as the natural unique key). Holds the source
- * (JA) transcription, deduped across topics. Whether an image is worth localizing
- * ("has >=1 Japanese span") is derived from `textsJa` at the point of use.
+ * images — one row per render of an image source: the mirrored original
+ * (`language` NULL) and every localized raster (`language` = its target).
+ * Introduced in DQX-45, when a render became a first-class entity instead of a
+ * magic `url` string on a `translations` row.
  *
- * The English outputs live in the `translations` table, keyed by this row's id:
- *   (item_type='image', item_id=<id>, language='en', field='text')  → EN spans
- *   (item_type='image', item_id=<id>, language='en', field='url')   → R2 key of
- *                                                                      the localized image
+ * The `id` is a client-allocated UUID (crypto.randomUUID()): allocating it up
+ * front lets the render's row and all its `image_files` rows land in ONE
+ * `db.batch` (atomic on D1) — a render either exists complete or never existed,
+ * so there are no half-written cruft rows.
+ *
+ * Serving is latest-wins: the newest render per (source_id, language) is the one
+ * served (order by created_at DESC, id tiebreak) — no `current` flag, no state
+ * columns. Flow owns in-flight/failure (hub keyed dedup + run errors); a
+ * superseded render just lingers until DQX-47 prunes it.
+ *
+ * `model` carries the skip identity (gpt-image-2 / 'manual' / NULL for mirrors)
+ * — the localize step regenerates only when the newest render's model differs.
  */
 
-import { sql } from 'drizzle-orm';
-import { check, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-import type { PhaseState } from '@hiroba/shared';
+import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 import { instant } from '../types/instant';
-import { json } from '../types/json';
+import { imageSources } from './image-sources';
 
 export const images = sqliteTable(
   'images',
   {
-    // Surrogate primary key (translations.item_id references this, kept short).
-    id: integer('id').primaryKey({ autoIncrement: true }),
+    // Client-allocated UUID — see the file header (atomic complete-at-birth).
+    id: text('id').primaryKey(),
 
-    // Natural key — the imageKey <host>/<path> (see @hiroba/richtext imageKey).
-    key: text('key').notNull().unique(),
-
-    // Transcribed source spans. NULL = not yet transcribed; [] = transcribed, no text.
-    textsJa: json<string[]>('texts_ja'),
-
-    transcribeModel: text('transcribe_model'),
-    mirrorState: text('mirror_state')
-      .$type<PhaseState>()
+    // The source this renders (image_sources.id).
+    sourceId: integer('source_id')
       .notNull()
-      .default('pending'),
-    transcribeState: text('transcribe_state')
-      .$type<PhaseState>()
-      .notNull()
-      .default('pending'),
-    updatedAt: instant('updated_at').notNull(),
+      .references(() => imageSources.id),
+
+    // Target language, or NULL for the mirrored original.
+    language: text('language'),
+
+    // Skip identity: 'gpt-image-2' | 'manual' | NULL (mirrors).
+    model: text('model'),
+
+    createdAt: instant('created_at').notNull(),
   },
   (table) => [
-    check(
-      'images_texts_ja_json',
-      sql`${table.textsJa} IS NULL OR json_valid(${table.textsJa})`,
+    // Latest-wins serving + per-language skip lookups walk (source, language)
+    // newest-first.
+    index('images_by_source_language').on(
+      table.sourceId,
+      table.language,
+      table.createdAt,
     ),
   ],
 );

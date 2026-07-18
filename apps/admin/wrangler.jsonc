@@ -40,6 +40,11 @@
       "bucket_name": "galapa--images",
     },
   ],
+  // Cloudflare Images binding — measures dimensions of uploaded localized
+  // rasters at write time (the image_files primary row, DQX-45).
+  "images": {
+    "binding": "IMAGES",
+  },
   "durable_objects": {
     "bindings": [
       // The flow framework's control plane (DQX-19) — one 'hub' instance

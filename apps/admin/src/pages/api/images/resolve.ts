@@ -12,7 +12,7 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 
-import { createDb, getImagesByKeys } from '@hiroba/db';
+import { createDb, getImageSourcesByKeys } from '@hiroba/db';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -27,7 +27,7 @@ export const GET: APIRoute = async ({ url }) => {
   const key = url.searchParams.get('key');
   if (!key) return json({ error: 'Missing key' }, 400);
 
-  const [image] = await getImagesByKeys(db, [key]);
+  const [image] = await getImageSourcesByKeys(db, [key]);
   if (!image) return json({ error: 'Not found' }, 404);
 
   return json({ id: image.id, key: image.key });

@@ -8,7 +8,7 @@
  */
 
 import {
-  getImagesByKeys,
+  getImageSourcesByKeys,
   getImageTranslations,
   type Database,
   type EventWithTitle,
@@ -40,13 +40,12 @@ export async function labelScheduleIcons(
   }
   if (keys.size === 0) return;
 
-  const images = await getImagesByKeys(db, [...keys]);
+  const images = await getImageSourcesByKeys(db, [...keys]);
   const imageByKey = new Map(images.map((img) => [img.key, img]));
   const translated = await getImageTranslations(
     db,
     images.map((img) => img.id),
     language,
-    'text',
   );
 
   for (const [event, key] of keyByEvent) {

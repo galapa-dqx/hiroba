@@ -13,5 +13,7 @@ export * from './glossary';
 export * from './languages';
 export * from './events';
 export * from './reset-milestones';
+export * from './image-sources';
 export * from './images';
+export * from './image-files';
 export * from './banners';

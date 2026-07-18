@@ -13,7 +13,7 @@
 
 import {
   findMatchingGlossaryEntries,
-  getImagesByKeys,
+  getImageSourcesByKeys,
   getImageTranslations,
   upsertImageTranslation,
   type Database,
@@ -109,7 +109,6 @@ async function translateImageRow(
   await upsertImageTranslation(db, {
     imageId: row.id,
     language: target.code,
-    field: 'text',
     value: JSON.stringify(out),
     model: GEMINI_MODEL,
   });
@@ -136,7 +135,7 @@ export async function translateImageTexts(
   ];
   if (keys.length === 0) return { translated: 0, skipped: 0, failed: 0 };
 
-  const rows = await getImagesByKeys(db, keys);
+  const rows = await getImageSourcesByKeys(db, keys);
   const client = createGemini(apiKey);
   const result: ImageTextResult = { translated: 0, skipped: 0, failed: 0 };
 
@@ -145,7 +144,6 @@ export async function translateImageTexts(
       db,
       rows.map((r) => r.id),
       target.code,
-      'text',
     );
     await mapWithConcurrency(rows, CONCURRENCY, async (row) => {
       if (already.has(row.id)) {

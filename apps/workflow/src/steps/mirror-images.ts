@@ -7,10 +7,19 @@
  * which is the same key the web `/img` route and any bucket custom-domain read.
  * Idempotent: skips keys already in the bucket, so re-runs are cheap and the
  * transcribe step can read the bytes back from R2 (one CDN fetch per image ever).
+ *
+ * Mirroring a NEW object also records the mirrored original as a render (its
+ * `images` row + primary `image_files` at the source key, dims measured via the
+ * Images binding) — the reader now serves from that render, and its existence is
+ * the "mirror done" signal. One original per source: a re-mirror hits the
+ * bucket-head skip, so the render is written exactly once.
  */
 
 import {
-  ensureImageRows,
+  ensureImageSourceRows,
+  getImageSourcesByKeys,
+  hasOriginalRender,
+  insertImageRender,
   setImageMirrorState,
   type Database,
 } from '@hiroba/db';
@@ -22,6 +31,7 @@ import {
 } from '@hiroba/richtext';
 
 import { mapWithConcurrency } from '../concurrency';
+import { measurePrimaryFile } from '../image-measure';
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -47,15 +57,42 @@ export type MirrorResult = {
 export type MirrorOutcome = 'mirrored' | 'skipped' | 'failed';
 
 /**
+ * Record the mirrored original as a render — its `images` row (language NULL)
+ * plus a primary `image_files` at the source key, dims measured. Once per
+ * source: guarded on `hasOriginalRender`, since the file key is the fixed
+ * source key and latest-wins never needs a second original.
+ */
+async function recordOriginalRender(
+  db: Database,
+  images: ImagesBinding,
+  key: string,
+  bytes: Uint8Array,
+  contentType: string,
+): Promise<void> {
+  const [source] = await getImageSourcesByKeys(db, [key]);
+  if (!source) return; // ensureImageSourceRows runs first; defensive only.
+  if (await hasOriginalRender(db, source.id)) return;
+  const file = await measurePrimaryFile(images, key, bytes, contentType);
+  await insertImageRender(db, {
+    id: crypto.randomUUID(),
+    sourceId: source.id,
+    language: null,
+    model: null,
+    files: [file],
+  });
+}
+
+/**
  * Mirror a single image key into R2 (the per-unit worker behind
  * `mirrorImages`, exported for the flow framework's per-image `map` units).
- * Assumes the key's `images` row exists (ensureImageRows ran). Never throws
- * for an upstream failure — the row is marked failed and the outcome says so,
- * because one bad image degrades the article, never blocks it.
+ * Assumes the key's image_sources row exists (ensureImageSourceRows ran). Never
+ * throws for an upstream failure — the row is marked failed and the outcome
+ * says so, because one bad image degrades the article, never blocks it.
  */
 export async function mirrorOneImage(
   db: Database,
   bucket: R2Bucket,
+  images: ImagesBinding,
   key: string,
 ): Promise<MirrorOutcome> {
   if (await bucket.head(key)) {
@@ -71,14 +108,14 @@ export async function mirrorOneImage(
       await setImageMirrorState(db, key, 'failed');
       return 'failed';
     }
-    await bucket.put(key, res.body, {
-      httpMetadata: {
-        contentType:
-          res.headers.get('content-type') ?? 'application/octet-stream',
-        cacheControl: CACHE_CONTROL,
-      },
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const contentType =
+      res.headers.get('content-type') ?? 'application/octet-stream';
+    await bucket.put(key, bytes, {
+      httpMetadata: { contentType, cacheControl: CACHE_CONTROL },
     });
     await setImageMirrorState(db, key, 'done');
+    await recordOriginalRender(db, images, key, bytes, contentType);
     return 'mirrored';
   } catch {
     await setImageMirrorState(db, key, 'failed');
@@ -91,12 +128,13 @@ export async function mirrorOneImage(
  * from the DQX CDN once and streams it into R2 with a content type + long TTL.
  *
  * Also the pipeline's image-discovery point: every referenced key gets an
- * `images` row here (pending), and its mirror_state tracks the copy — that's
- * what feeds the "Downloading images (x/y)" progress in the SSE snapshot.
+ * image_sources row here (pending), and its mirror_state tracks the copy —
+ * that's what feeds the "Downloading images (x/y)" progress in the SSE snapshot.
  */
 export async function mirrorImages(
   db: Database,
   bucket: R2Bucket,
+  images: ImagesBinding,
   blocks: Block[],
 ): Promise<MirrorResult> {
   // Dedup to distinct storage keys (many srcs collapse to one key via aliasing).
@@ -106,11 +144,11 @@ export async function mirrorImages(
     if (key) keys.add(key);
   }
 
-  await ensureImageRows(db, [...keys]);
+  await ensureImageSourceRows(db, [...keys]);
 
   const result: MirrorResult = { mirrored: 0, skipped: 0, failed: 0 };
   await mapWithConcurrency([...keys], MIRROR_CONCURRENCY, async (key) => {
-    const outcome = await mirrorOneImage(db, bucket, key);
+    const outcome = await mirrorOneImage(db, bucket, images, key);
     result[outcome]++;
   });
   return result;

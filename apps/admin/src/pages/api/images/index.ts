@@ -71,7 +71,7 @@ export const GET: APIRoute = async ({ url }) => {
     source,
   });
 
-  const items = rows.map(({ image, text, url: urlRow, isBanner }) => {
+  const items = rows.map(({ image, text, localized, isBanner }) => {
     // textsJa is a json<string[]> column — already parsed on read. The `text`
     // translation, by contrast, is a plain TEXT column holding a JSON array.
     const textsJa = image.textsJa ?? null;
@@ -87,11 +87,13 @@ export const GET: APIRoute = async ({ url }) => {
       translation: {
         textState: text?.state ?? null,
         texts: parseSpans(text?.value),
-        urlState: urlRow?.state ?? null,
-        localizedKey: urlRow?.value ?? null,
-        error: urlRow?.error ?? text?.error ?? null,
+        // The localized image is now a render — its existence IS the "done"
+        // signal; in-flight/failure lives on the flow run, not a state column.
+        urlState: localized ? 'done' : null,
+        localizedKey: localized?.key ?? null,
+        error: text?.error ?? null,
         translatedAt:
-          (urlRow?.translatedAt ?? text?.translatedAt)?.toString() ?? null,
+          (localized?.createdAt ?? text?.translatedAt)?.toString() ?? null,
       },
     };
   });

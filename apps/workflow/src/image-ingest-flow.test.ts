@@ -12,7 +12,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ensureImageRows } from '@hiroba/db';
+import { ensureImageSourceRows } from '@hiroba/db';
 import { runFlowInline } from '@hiroba/flow';
 import { ImageIngestFlow } from '@hiroba/flows';
 
@@ -25,7 +25,7 @@ import { transcribeOneImage } from './steps/transcribe-images';
 
 vi.mock('@hiroba/db', () => ({
   createDb: vi.fn(() => ({})),
-  ensureImageRows: vi.fn(),
+  ensureImageSourceRows: vi.fn(),
 }));
 
 vi.mock('./steps/mirror-images', () => ({
@@ -39,6 +39,7 @@ vi.mock('./steps/transcribe-images', () => ({
 const env = {
   DB: {},
   IMAGES_BUCKET: {},
+  IMAGES: {},
   GEMINI_API_KEY: 'gemini-key',
 } as unknown as ImageIngestFlowEnv;
 
@@ -70,9 +71,10 @@ describe('image ingest flow — one shared child per image', () => {
 
     // Self-contained discovery: the child ensures its own row, whichever
     // parent started it.
-    expect(vi.mocked(ensureImageRows)).toHaveBeenCalledWith(expect.anything(), [
-      IMG_KEY,
-    ]);
+    expect(vi.mocked(ensureImageSourceRows)).toHaveBeenCalledWith(
+      expect.anything(),
+      [IMG_KEY],
+    );
     expect(vi.mocked(transcribeOneImage)).toHaveBeenCalledWith(
       expect.anything(),
       IMG_KEY,
