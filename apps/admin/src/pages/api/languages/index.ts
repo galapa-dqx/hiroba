@@ -9,7 +9,7 @@ import { env } from 'cloudflare:workers';
 import { createDb, listLanguages, upsertLanguage } from '@hiroba/db';
 
 /** BCP-47-ish shape we accept as a code (it becomes a URL path prefix). */
-export const CODE_PATTERN = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/;
+const CODE_PATTERN = /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {

@@ -18,11 +18,9 @@ import {
   type NewsItem,
 } from '../lib/api';
 import { subscribeFlowRun } from '../lib/flow-stream';
+import { MAX_RECENT_TRIGGER } from '../lib/trigger-limits';
 import { useItemRunStreams } from '../lib/use-item-run';
 import { usePrimaryLanguage } from '../lib/use-primary-language';
-
-/** Matches the server-side cap in lib/trigger-recent.ts. */
-const MAX_RECENT_TRIGGER = 50;
 
 /**
  * One line for the archive scrape run: the category segment being drained plus

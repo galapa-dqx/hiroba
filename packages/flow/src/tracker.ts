@@ -62,7 +62,7 @@ export type EngineStep = {
 };
 
 /**
- * Bounded step defaults, inherited from today's `runStep`: the platform
+ * Bounded step defaults: the platform
  * default (5 retries × 10-minute timeout, exponential backoff) lets a
  * persistently-failing LLM step churn for ~40 minutes before settling. Cap
  * retries at 2; keep the 10-minute per-attempt timeout as a backstop for the

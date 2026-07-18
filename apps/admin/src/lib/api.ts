@@ -479,15 +479,6 @@ export async function importGlossaryFromGitHub(): Promise<{
   return adminFetch('/api/glossary/import-github', { method: 'POST' });
 }
 
-export async function deleteGlossaryEntry(
-  sourceText: string,
-  lang: string,
-): Promise<{ success: boolean }> {
-  return adminFetch(`/api/glossary/${encodeURIComponent(sourceText)}/${lang}`, {
-    method: 'DELETE',
-  });
-}
-
 export type GlossaryMatch = {
   sourceText: string;
   translatedText: string;

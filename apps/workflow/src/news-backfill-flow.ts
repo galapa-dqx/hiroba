@@ -39,7 +39,7 @@ import type {
  * merely overlaps a couple of round-trips. Also bounds the harmless overrun
  * past the first empty page.
  */
-export const NEWS_BACKFILL_CONCURRENCY = 2;
+const NEWS_BACKFILL_CONCURRENCY = 2;
 
 /** The slice of the worker env the body actually touches. */
 export type NewsBackfillFlowEnv = Pick<Env, 'DB'>;

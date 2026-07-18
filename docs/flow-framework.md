@@ -108,10 +108,7 @@ sleep 24h in batch translate).
 - [flow-framework/progress-design.md](flow-framework/progress-design.md) —
   design rationale (invariants and the reasoning behind them; reconstructed
   from the original design conversation).
-- [flow-framework/sketch-progress-v3.ts](flow-framework/sketch-progress-v3.ts) —
-  the progress-tracking type sketch (definition-as-value, reporting protocol,
-  DO schema).
-- [flow-framework/sketch-usage-v2.ts](flow-framework/sketch-usage-v2.ts) — the
-  framework applied to the real flows: fragment composition, `phase`+`poll`
-  translate, joins for shared image work, hub schema + lock-free start
-  pseudocode. **This is the API spec for DQX-17/18.**
+
+The pre-implementation type sketches (`sketch-progress-v3.ts`,
+`sketch-usage-v2.ts`) were removed once the framework landed in
+`packages/flow`; see git history if you need them.

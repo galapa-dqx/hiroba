@@ -30,7 +30,7 @@ export function localizeTimeElement(el: HTMLTimeElement): void {
   el.textContent = formatLocalDateTime(date, UI_LOCALE);
 }
 
-export function localizeArticleTimes(root: ParentNode = document): void {
+function localizeArticleTimes(root: ParentNode = document): void {
   if (!localizeTimes()) return; // viewer chose JST — keep the SSR baseline
   const els = root.querySelectorAll<HTMLTimeElement>('time.rt-time[datetime]');
   for (const el of els) {

@@ -8,9 +8,9 @@
  * are React islands, so this is plain DOM + a CustomEvent.
  */
 
-export const PRIMARY_LANG_KEY = 'dqx-admin-primary-lang';
-export const PRIMARY_LANG_EVENT = 'dqx-admin-primary-lang-change';
-export const DEFAULT_PRIMARY_LANG = 'en';
+const PRIMARY_LANG_KEY = 'dqx-admin-primary-lang';
+const PRIMARY_LANG_EVENT = 'dqx-admin-primary-lang-change';
+const DEFAULT_PRIMARY_LANG = 'en';
 
 /** The stored primary language, or the English default when unset/unavailable. */
 export function getPrimaryLanguage(): string {
