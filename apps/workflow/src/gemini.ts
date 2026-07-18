@@ -19,7 +19,8 @@ export function createGemini(apiKey: string): OpenAI {
     // edge returns a 524 (~6½ min) — which the enclosing workflow step then
     // retries, burning tens of minutes before giving up. Fail a hung call fast
     // and cap the SDK's own transient retries; the durable retry that actually
-    // matters lives at the workflow-step layer (see runStep).
+    // matters lives at the workflow-step layer (the flow engine's bounded
+    // step defaults, see packages/flow/src/tracker.ts).
     timeout: 120_000, // 2 minutes per request
     maxRetries: 1,
   });

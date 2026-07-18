@@ -26,7 +26,7 @@ import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 import { validateBlocks } from './validate-blocks';
 
 /** Model attribution recorded on translation rows edited by hand. */
-export const MANUAL_EDIT_MODEL = 'manual-edit';
+const MANUAL_EDIT_MODEL = 'manual-edit';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {

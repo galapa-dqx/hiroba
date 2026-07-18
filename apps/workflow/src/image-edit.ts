@@ -16,7 +16,7 @@ export const IMAGE_QUALITIES = ['low', 'medium', 'high', 'auto'] as const;
 export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
 
 /** Default when a caller doesn't specify — the nightly pipeline's cheap tier. */
-export const DEFAULT_IMAGE_QUALITY: ImageQuality = 'low';
+const DEFAULT_IMAGE_QUALITY: ImageQuality = 'low';
 
 /**
  * White padding around a matted two-up input: separates the artwork from the

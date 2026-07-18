@@ -13,11 +13,9 @@ import {
   type ArticleTypeStats,
   type TopicItem,
 } from '../lib/api';
+import { MAX_RECENT_TRIGGER } from '../lib/trigger-limits';
 import { useItemRunStreams } from '../lib/use-item-run';
 import { usePrimaryLanguage } from '../lib/use-primary-language';
-
-/** Matches the server-side cap in lib/trigger-recent.ts. */
-const MAX_RECENT_TRIGGER = 50;
 
 export default function TopicsList() {
   const followItemRun = useItemRunStreams();

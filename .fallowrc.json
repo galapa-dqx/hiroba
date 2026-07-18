@@ -14,6 +14,23 @@
     "**/.astro/**", // `astro sync` type cache
     "**/*.gen.ts" // codegen output, if any
   ],
+  "ignoreDependencies": [
+    // Activated by name via `'import-x/resolver': { typescript: true }` in
+    // eslint.config.mjs — fallow can't see string-based activation.
+    "eslint-import-resolver-typescript"
+  ],
+  "usedClassMembers": [
+    // Lexical node subclasses (rtml-nodes.tsx): the editor framework invokes
+    // the node API (getType/clone/createDOM/importJSON/...) reflectively.
+    { "extends": "HeadingNode", "members": ["*"] },
+    { "extends": "ListNode", "members": ["*"] },
+    { "extends": "TableNode", "members": ["*"] },
+    { "extends": "ElementNode", "members": ["*"] },
+    { "extends": "DecoratorNode", "members": ["*"] },
+    // Cloudflare Workflows runtime calls `run()` on WorkflowEntrypoint
+    // subclasses (packages/flow FlowEntrypoint).
+    { "extends": "WorkflowEntrypoint", "members": ["run"] }
+  ],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste
     // worth refactoring. Lower to 2 to report every duplicate pair.

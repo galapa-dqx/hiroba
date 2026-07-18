@@ -63,7 +63,7 @@ const BY_ICON: Record<string, Corps> = {
 };
 
 /** Neutral fallback for an unrecognized badge (a newly added corps). */
-export const UNKNOWN_CORPS: Corps = {
+const UNKNOWN_CORPS: Corps = {
   key: 'unknown',
   full: '???',
   bg: '#6b6f76',

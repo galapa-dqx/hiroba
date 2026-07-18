@@ -35,7 +35,7 @@ const BG_ALPHA = 8;
  * keep its slightly-off dimensions rather than shaving a sliver off every
  * image for no real gain.
  */
-export const ASPECT_TOLERANCE = 0.05;
+const ASPECT_TOLERANCE = 0.05;
 
 export type Raster = {
   data: Uint8Array;

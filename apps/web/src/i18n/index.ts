@@ -43,7 +43,7 @@ export function useTranslations(lang: string): Translate {
 }
 
 /** One-off lookup when building a translator isn't worth it. */
-export function t(lang: string, key: MessageKey, params?: Params): string {
+function t(lang: string, key: MessageKey, params?: Params): string {
   return interpolate(lookup(lang, key), params);
 }
 

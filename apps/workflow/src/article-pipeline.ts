@@ -134,7 +134,7 @@ function imageIngestItems(blocks: Block[]): ImageIngestItem[] {
  * survives restarts — then its results are applied in a final step. Event
  * titles are small and always sync.
  */
-export async function translateSizeGated(
+async function translateSizeGated(
   s: PhaseStep,
   env: Pick<ArticlePipelineEnv, 'DB' | 'GEMINI_API_KEY'>,
   itemType: ItemType,

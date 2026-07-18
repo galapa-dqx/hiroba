@@ -40,7 +40,6 @@ export {
   deleteTranslation,
   upsertGlossaryOverride,
   deleteGlossaryOverride,
-  upsertListItems,
 };
 
 /**

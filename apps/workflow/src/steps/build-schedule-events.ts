@@ -21,7 +21,7 @@ import type {
   TsuyosaForecast,
 } from '@hiroba/scraper';
 
-export const SCHEDULE_SOURCE_TYPE = 'schedule';
+const SCHEDULE_SOURCE_TYPE = 'schedule';
 const ZONE = 'Asia/Tokyo';
 const CHANGEOVER_HOUR = 6; // rotations flip at 06:00 JST
 
