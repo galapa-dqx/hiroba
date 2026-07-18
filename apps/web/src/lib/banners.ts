@@ -26,6 +26,10 @@ import { resolveFromSources } from './article-images';
 
 export type CarouselBanner = {
   imageUrl: string;
+  /** The raster's recorded intrinsic dimensions (image_sources primary row);
+   *  the carousel falls back to the nominal slot size when unrecorded. */
+  width?: number;
+  height?: number;
   /** Recorded alternate encodings of the image (image_sources rows), most-
    *  preferred first — rendered as `<picture>` sources with `imageUrl` as
    *  the fallback. */
@@ -85,6 +89,9 @@ export async function resolveBanners(
     );
     return {
       imageUrl: resolved.src,
+      ...(resolved.width && resolved.height
+        ? { width: resolved.width, height: resolved.height }
+        : {}),
       ...(resolved.sources ? { sources: resolved.sources } : {}),
       href: b.linkTopicId
         ? `/${language}/topics/${b.linkTopicId}`

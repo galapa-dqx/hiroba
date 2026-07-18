@@ -27,6 +27,7 @@ import {
 } from '@hiroba/db';
 import {
   collectImages,
+  collectImageUrls,
   imageKey,
   rewriteImageSrc,
   type Block,
@@ -47,6 +48,17 @@ export async function hydrateArticleImages(
       imgs.map((i) => imageKey(i.src)).filter((k): k is string => !!k),
     ),
   ];
+  // EVERY mirrorable key the renderer will resolve — block images plus the
+  // inline icons and speech-bubble portraits collectImages doesn't walk. The
+  // text/localization hydration above only concerns block images (imgKeys),
+  // but variant rows exist for all of them.
+  const allKeys = [
+    ...new Set(
+      collectImageUrls(blocks)
+        .map((src) => imageKey(src))
+        .filter((k): k is string => !!k),
+    ),
+  ];
 
   // Original key → stored localized (versioned) R2 key, where one exists.
   // Whichever key a src resolves to is also its image_sources group key, so
@@ -55,7 +67,6 @@ export async function hydrateArticleImages(
   // recorded rows (never derived): a <picture> source that 404s would NOT
   // fall back to the <img>.
   const localizedByKey = new Map<string, string>();
-  let sourcesByGroup = new Map<string, ImageSource[]>();
   if (imgKeys.length > 0) {
     const rows = await getImagesByKeys(db, imgKeys);
     const byKey = new Map(rows.map((r) => [r.key, r]));
@@ -70,9 +81,6 @@ export async function hydrateArticleImages(
       const stored = localizedUrl.get(row.id);
       if (stored) localizedByKey.set(row.key, stored);
     }
-    sourcesByGroup = await getImageSourcesByGroups(db, [
-      ...new Set([...imgKeys, ...localizedByKey.values()]),
-    ]);
     for (const img of imgs) {
       const key = imageKey(img.src);
       const row = key ? byKey.get(key) : undefined;
@@ -85,6 +93,12 @@ export async function hydrateArticleImages(
       else delete img.text;
     }
   }
+  const sourcesByGroup =
+    allKeys.length > 0
+      ? await getImageSourcesByGroups(db, [
+          ...new Set([...allKeys, ...localizedByKey.values()]),
+        ])
+      : new Map<string, ImageSource[]>();
 
   return (src: string): ResolvedImage => {
     const key = imageKey(src);

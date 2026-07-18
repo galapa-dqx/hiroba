@@ -49,8 +49,8 @@ const t = useTranslations(Astro.locals.lang ?? "en");
                     <img
                       src={b.imageUrl}
                       alt={b.alt}
-                      width="632"
-                      height="157"
+                      width={b.width ?? 632}
+                      height={b.height ?? 157}
                       loading={i === 0 ? "eager" : "lazy"}
                       decoding="async"
                     />

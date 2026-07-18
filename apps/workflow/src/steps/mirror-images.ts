@@ -11,6 +11,7 @@
 
 import {
   ensureImageRows,
+  getImageSourcesByGroups,
   setImageMirrorState,
   type Database,
 } from '@hiroba/db';
@@ -62,9 +63,31 @@ export async function mirrorOneImage(
   key: string,
 ): Promise<MirrorOutcome> {
   if (await bucket.head(key)) {
-    // Already mirrored (possibly before AVIF variants existed) — the
-    // avif-backfill flow owns catching those up, not the hot path.
     await setImageMirrorState(db, key, 'done');
+    // Self-heal: an object can exist without its variant rows (mirrored
+    // before image_sources existed, or a crash between put and register) —
+    // register on the spot rather than waiting for a manual backfill.
+    // Best-effort like registration itself: a failure here leaves the image
+    // serving as a bare <img>, never fails the mirror.
+    try {
+      if (!(await getImageSourcesByGroups(db, [key])).has(key)) {
+        const obj = await bucket.get(key);
+        if (obj) {
+          const bytes = new Uint8Array(await obj.arrayBuffer());
+          await registerImageSources(
+            db,
+            images,
+            bucket,
+            key,
+            bytes,
+            CACHE_CONTROL,
+            { fallbackMime: obj.httpMetadata?.contentType },
+          );
+        }
+      }
+    } catch (err) {
+      console.warn(`mirror: variant self-heal failed for ${key}:`, err);
+    }
     return 'skipped';
   }
   await setImageMirrorState(db, key, 'running');
