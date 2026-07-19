@@ -63,11 +63,16 @@ const EXTENSION_BY_TYPE: Record<string, string> = {
  * PNG bytes. Only used when minting keys in our own namespaces (versioned
  * `l10n/` keys are unique per render, so a swap can't collide); mirrored
  * originals keep their upstream path verbatim, since that path IS their
- * identity. Unknown content types leave the key untouched rather than guess.
+ * identity.
+ *
+ * Every key we mint is for bytes we produced or validated (gpt-image-2 output,
+ * an admin upload restricted to known raster types), so the content type is
+ * always one we know — an unknown type is a programmer error, not a case to
+ * serve, and throws rather than minting a lying URL.
  */
 export function keyWithExtension(key: string, contentType: string): string {
   const ext = EXTENSION_BY_TYPE[contentType];
-  if (!ext) return key;
+  if (!ext) throw new Error(`no canonical extension for '${contentType}'`);
   const slash = key.lastIndexOf('/');
   const dot = key.lastIndexOf('.');
   if (dot <= slash + 1) return `${key}${ext}`; // no (or dot-file) extension
@@ -78,19 +83,20 @@ export function keyWithExtension(key: string, contentType: string): string {
 /**
  * The versioned R2 key for one localized render of a mirrored image.
  * `version` must be unique per render (epoch-ms in base36 is the convention);
- * `imageKey` is the original's `<host>/<path>` storage key. Pass the render's
- * `contentType` to correct the inherited extension to match the stored bytes
- * (see keyWithExtension); omitted, the source extension is kept as-is.
+ * `imageKey` is the original's `<host>/<path>` storage key. The render's
+ * `contentType` corrects the inherited extension to match the stored bytes
+ * (see keyWithExtension) — every minted l10n key has a truthful extension.
+ * (Readers never derive these keys — they read the recorded `image_files`
+ * rows — so the scheme is free to change; the source-path tail is kept for
+ * human ops and debuggability.)
  */
 export const localizedImageKey = (
   language: string,
   version: string,
   imageKey: string,
-  contentType?: string,
+  contentType: string,
 ): string =>
-  `l10n/${language}/v${version}/${
-    contentType ? keyWithExtension(imageKey, contentType) : imageKey
-  }`;
+  `l10n/${language}/v${version}/${keyWithExtension(imageKey, contentType)}`;
 
 /**
  * Scraping configuration - source URLs and paths.

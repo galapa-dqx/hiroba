@@ -37,7 +37,7 @@ function base64ToBytes(b64: string): Uint8Array {
 }
 
 /** Detect the real image type from magic bytes — don't trust upstream headers. */
-function sniffMimeType(bytes: Uint8Array): string | null {
+export function sniffMimeType(bytes: Uint8Array): string | null {
   const b = bytes;
   if (b.length >= 3 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46)
     return 'image/gif'; // "GIF"

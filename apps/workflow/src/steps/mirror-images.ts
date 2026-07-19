@@ -20,6 +20,7 @@ import {
   getImageSourcesByKeys,
   hasOriginalRender,
   insertImageRender,
+  measureImage,
   setImageMirrorState,
   type Database,
 } from '@hiroba/db';
@@ -31,7 +32,7 @@ import {
 } from '@hiroba/richtext';
 
 import { mapWithConcurrency } from '../concurrency';
-import { measurePrimaryFile } from '../image-measure';
+import { sniffMimeType } from '../image-edit';
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -72,13 +73,22 @@ async function recordOriginalRender(
   const [source] = await getImageSourcesByKeys(db, [key]);
   if (!source) return; // ensureImageSourceRows runs first; defensive only.
   if (await hasOriginalRender(db, source.id)) return;
-  const file = await measurePrimaryFile(images, key, bytes, contentType);
+  const measured = await measureImage(images, bytes);
   await insertImageRender(db, {
     id: crypto.randomUUID(),
     sourceId: source.id,
     language: null,
     model: null,
-    files: [file],
+    files: [
+      {
+        key,
+        isPrimary: true,
+        mime: measured.mime ?? contentType,
+        width: measured.width,
+        height: measured.height,
+        bytes: bytes.byteLength,
+      },
+    ],
   });
 }
 
@@ -109,8 +119,17 @@ export async function mirrorOneImage(
       return 'failed';
     }
     const bytes = new Uint8Array(await res.arrayBuffer());
+    // A mirrored object must be an image: trust the magic bytes first, the
+    // upstream header only when it at least claims image/* (SVG has no
+    // sniffable signature). Anything else — an HTML error page served with a
+    // 200, a redirect stub — must not be stored under an image key at all.
+    const header = res.headers.get('content-type');
     const contentType =
-      res.headers.get('content-type') ?? 'application/octet-stream';
+      sniffMimeType(bytes) ?? (header?.startsWith('image/') ? header : null);
+    if (!contentType) {
+      await setImageMirrorState(db, key, 'failed');
+      return 'failed';
+    }
     await bucket.put(key, bytes, {
       httpMetadata: { contentType, cacheControl: CACHE_CONTROL },
     });

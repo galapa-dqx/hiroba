@@ -2749,6 +2749,9 @@ export async function getImageTranslationRows(
       and(
         eq(translations.itemType, 'image'),
         eq(translations.itemId, String(imageId)),
+        // `text` is the only image field since DQX-45; the filter also shields
+        // the caller's per-language map from any pre-migration `url` stragglers.
+        eq(translations.field, 'text'),
       ),
     )
     .all();

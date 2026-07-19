@@ -28,20 +28,22 @@ describe('keyWithExtension', () => {
     );
   });
 
-  it('leaves unknown content types untouched', () => {
-    expect(keyWithExtension('host/a.jpg', 'image/tiff')).toBe('host/a.jpg');
+  it('throws on an unknown content type rather than minting a lying URL', () => {
+    expect(() => keyWithExtension('host/a.jpg', 'image/tiff')).toThrow(
+      /no canonical extension/,
+    );
   });
 });
 
 describe('localizedImageKey', () => {
-  it('keeps the source extension when no content type is given', () => {
-    expect(localizedImageKey('en', '123', 'host/a.jpg')).toBe(
-      'l10n/en/v123/host/a.jpg',
+  it('corrects the extension to the render content type', () => {
+    expect(localizedImageKey('en', '123', 'host/a.jpg', 'image/png')).toBe(
+      'l10n/en/v123/host/a.png',
     );
   });
 
-  it('corrects the extension to the render content type', () => {
-    expect(localizedImageKey('en', '123', 'host/a.jpg', 'image/png')).toBe(
+  it('keeps an already-truthful extension', () => {
+    expect(localizedImageKey('en', '123', 'host/a.png', 'image/png')).toBe(
       'l10n/en/v123/host/a.png',
     );
   });

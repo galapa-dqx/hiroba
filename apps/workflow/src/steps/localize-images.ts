@@ -21,6 +21,7 @@ import {
   getLatestRenderModels,
   insertImageRender,
   MANUAL_IMAGE_MODEL,
+  measureImage,
   type Database,
 } from '@hiroba/db';
 import {
@@ -48,7 +49,6 @@ import {
   recoverAlphaFromTwoUp,
   TWO_UP_PROMPT,
 } from '../image-matte';
-import { measurePrimaryFile } from '../image-measure';
 import { trimToAspect } from '../image-trim';
 import type { TargetLanguage } from './translate';
 
@@ -281,18 +281,22 @@ async function localizeRowForLanguage(
       httpMetadata: { contentType, cacheControl: CACHE_CONTROL },
     });
     // Record the render + its primary file (dims measured) in one atomic batch.
-    const file = await measurePrimaryFile(
-      images,
-      localizedKey,
-      localizedBytes,
-      contentType,
-    );
+    const measured = await measureImage(images, localizedBytes);
     await insertImageRender(db, {
       id: crypto.randomUUID(),
       sourceId: row.id,
       language,
       model,
-      files: [file],
+      files: [
+        {
+          key: localizedKey,
+          isPrimary: true,
+          mime: measured.mime ?? contentType,
+          width: measured.width,
+          height: measured.height,
+          bytes: localizedBytes.byteLength,
+        },
+      ],
     });
     return 'localized';
   } catch (err) {

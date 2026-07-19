@@ -23,6 +23,7 @@ import {
   getImageSourceById,
   insertImageRender,
   MANUAL_IMAGE_MODEL,
+  measureImage,
 } from '@hiroba/db';
 import {
   LOCALIZED_IMAGE_CACHE_CONTROL,
@@ -43,28 +44,6 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
-}
-
-/** Measure a raster's mime + pixel dimensions via the Images binding
- *  (best-effort — undecodable bytes measure to nulls, still a valid row). */
-async function measure(
-  images: ImagesBinding,
-  bytes: ArrayBuffer,
-): Promise<{
-  mime: string | null;
-  width: number | null;
-  height: number | null;
-}> {
-  try {
-    const info = await images.info(
-      new Response(bytes).body as ReadableStream<Uint8Array>,
-    );
-    if ('width' in info)
-      return { mime: info.format, width: info.width, height: info.height };
-    return { mime: info.format, width: null, height: null };
-  } catch {
-    return { mime: null, width: null, height: null };
-  }
 }
 
 export const POST: APIRoute = async ({ params, request }) => {
@@ -111,7 +90,7 @@ export const POST: APIRoute = async ({ params, request }) => {
   });
 
   // Record the render + its primary file (dims measured) in one atomic batch.
-  const dims = await measure(env.IMAGES, bytes);
+  const dims = await measureImage(env.IMAGES, bytes);
   await insertImageRender(db, {
     id: crypto.randomUUID(),
     sourceId: id,
