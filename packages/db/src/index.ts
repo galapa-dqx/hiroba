@@ -6,7 +6,7 @@
  */
 
 export { createDb, type Database } from './client';
-export { relations, withTitleEn } from './relations';
+export { relations, withLocalizedTitle } from './relations';
 export * from './schema';
 export * from './queries';
 export * from './reset-events';

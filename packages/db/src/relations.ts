@@ -15,8 +15,8 @@ import * as schema from './schema';
  * Deliberately NOT filtered on `state`: a running re-translation keeps its
  * previous value, which is still the best thing to render
  * (stale-while-revalidate). A row whose value is null (never translated, or
- * first translation still in flight) flattens to `titleEn: null` via
- * `withTitleEn` — same outcome as no row at all.
+ * first translation still in flight) flattens to `localizedTitle: null` via
+ * `withLocalizedTitle` — same outcome as no row at all.
  */
 export const relations = defineRelations(schema, (r) => ({
   newsItems: {
@@ -60,12 +60,12 @@ export const relations = defineRelations(schema, (r) => ({
 }));
 
 /**
- * Flatten a row's `title` relation into the flat `titleEn` column shape the
+ * Flatten a row's `title` relation into the flat `localizedTitle` column shape the
  * web components consume (null ⇒ render titleJa).
  */
-export function withTitleEn<
+export function withLocalizedTitle<
   T extends { title: { value: string | null } | null },
->(row: T): Omit<T, 'title'> & { titleEn: string | null } {
+>(row: T): Omit<T, 'title'> & { localizedTitle: string | null } {
   const { title, ...rest } = row;
-  return { ...rest, titleEn: title?.value ?? null };
+  return { ...rest, localizedTitle: title?.value ?? null };
 }

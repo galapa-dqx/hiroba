@@ -17,7 +17,7 @@ function ev(
     id: `${type}-${start}`,
     type,
     titleJa: 'テスト',
-    titleEn: null,
+    localizedTitle: null,
     startTime: Temporal.ZonedDateTime.from(`${start}[Asia/Tokyo]`),
     endTime: end ? Temporal.ZonedDateTime.from(`${end}[Asia/Tokyo]`) : null,
     sourceType: 'topic',

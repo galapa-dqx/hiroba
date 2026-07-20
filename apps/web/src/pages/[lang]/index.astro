@@ -6,7 +6,7 @@ import BannerCarousel from "../../components/BannerCarousel.astro";
 import PanelSection from "../../components/PanelSection.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import * as Sentry from "@sentry/cloudflare";
-import { createDb, withTitleEn } from "@hiroba/db";
+import { createDb, withLocalizedTitle } from "@hiroba/db";
 import { CATEGORIES } from "@hiroba/shared";
 import { maybeTriggerTitleBackfill } from "../../lib/workflow";
 import { resolveBanners } from "../../lib/banners";
@@ -34,7 +34,7 @@ const newsByCategory = await Promise.all(
 				orderBy: { publishedAt: "desc" },
 				limit: 5,
 			});
-			return { category, items: rows.map(withTitleEn) };
+			return { category, items: rows.map(withLocalizedTitle) };
 		} catch (err) {
 			console.error(`home: news query (${category}) threw`, err);
 			Sentry.captureException(err, { tags: { site_area: "home", category } });

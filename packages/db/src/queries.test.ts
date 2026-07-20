@@ -37,7 +37,7 @@ import {
   upsertTopic,
   upsertTopicTranslation,
 } from './queries';
-import { withTitleEn } from './relations';
+import { withLocalizedTitle } from './relations';
 import { events, type NewEvent } from './schema/events';
 import { imageSources } from './schema/image-sources';
 import { newsItems, type ListItem } from './schema/news-items';
@@ -72,7 +72,7 @@ function listItem(index: number, hoursOld: number): ListItem {
 
 /**
  * The news list-page recipe (apps/web [lang]/index + category pages): cursor
- * pagination over db.query with the `title` relation flattened by withTitleEn.
+ * pagination over db.query with the `title` relation flattened by withLocalizedTitle.
  * Duplicated here so the relation's join semantics and the pagination recipe
  * stay pinned against real D1.
  */
@@ -102,7 +102,7 @@ async function listNews(
     limit: limit + 1,
   });
   const hasMore = rows.length > limit;
-  const items = (hasMore ? rows.slice(0, limit) : rows).map(withTitleEn);
+  const items = (hasMore ? rows.slice(0, limit) : rows).map(withLocalizedTitle);
   return {
     items,
     hasMore,
@@ -214,7 +214,7 @@ describe('news list title relation (DQX-11)', () => {
     await upsertListItems(ctx.db, [listItem(1, 1), listItem(2, 2)]);
   });
 
-  it('surfaces titleEn when a title translation exists, null otherwise', async () => {
+  it('surfaces localizedTitle when a title translation exists, null otherwise', async () => {
     await upsertItemTranslation(ctx.db, {
       itemType: 'news',
       itemId: hex(2),
@@ -227,8 +227,8 @@ describe('news list title relation (DQX-11)', () => {
     const { items } = await listNews();
     const byId = new Map(items.map((i) => [i.id, i]));
 
-    expect(byId.get(hex(2))?.titleEn).toBe('Article Two');
-    expect(byId.get(hex(1))?.titleEn).toBeNull();
+    expect(byId.get(hex(2))?.localizedTitle).toBe('Article Two');
+    expect(byId.get(hex(1))?.localizedTitle).toBeNull();
     // titleJa always rides along for the fallback.
     expect(byId.get(hex(2))?.titleJa).toBe('記事2');
   });
@@ -245,8 +245,8 @@ describe('news list title relation (DQX-11)', () => {
 
     const en = await listNews({ language: 'en' });
     const fr = await listNews({ language: 'fr' });
-    expect(en.items.find((i) => i.id === hex(1))?.titleEn).toBe('English');
-    expect(fr.items.find((i) => i.id === hex(1))?.titleEn).toBeNull();
+    expect(en.items.find((i) => i.id === hex(1))?.localizedTitle).toBe('English');
+    expect(fr.items.find((i) => i.id === hex(1))?.localizedTitle).toBeNull();
   });
 
   it('joins only the title field, never content', async () => {
@@ -259,7 +259,7 @@ describe('news list title relation (DQX-11)', () => {
       model: 'm',
     });
     const { items } = await listNews();
-    expect(items.find((i) => i.id === hex(1))?.titleEn).toBeNull();
+    expect(items.find((i) => i.id === hex(1))?.localizedTitle).toBeNull();
   });
 
   it('surfaces a stale value while a re-translation is running', async () => {
@@ -279,7 +279,7 @@ describe('news list title relation (DQX-11)', () => {
       state: 'running',
     });
     const { items } = await listNews();
-    expect(items.find((i) => i.id === hex(1))?.titleEn).toBe('Stale');
+    expect(items.find((i) => i.id === hex(1))?.localizedTitle).toBe('Stale');
   });
 
   it('does not multiply rows when several translation fields exist', async () => {
@@ -295,12 +295,12 @@ describe('news list title relation (DQX-11)', () => {
     }
     const { items } = await listNews();
     expect(items.filter((i) => i.id === hex(1))).toHaveLength(1);
-    expect(items.find((i) => i.id === hex(1))?.titleEn).toBe('T');
+    expect(items.find((i) => i.id === hex(1))?.localizedTitle).toBe('T');
   });
 });
 
 describe('topics list title relation (DQX-11)', () => {
-  it('surfaces titleEn when present, null otherwise', async () => {
+  it('surfaces localizedTitle when present, null otherwise', async () => {
     await upsertTopic(ctx.db, {
       id: hex(1),
       titleJa: 'トピック1',
@@ -324,9 +324,9 @@ describe('topics list title relation (DQX-11)', () => {
       with: { title: { where: { language: 'en' }, columns: { value: true } } },
       orderBy: { publishedAt: 'desc' },
     });
-    const byId = new Map(rows.map(withTitleEn).map((t) => [t.id, t]));
-    expect(byId.get(hex(1))?.titleEn).toBe('Topic One');
-    expect(byId.get(hex(2))?.titleEn).toBeNull();
+    const byId = new Map(rows.map(withLocalizedTitle).map((t) => [t.id, t]));
+    expect(byId.get(hex(1))?.localizedTitle).toBe('Topic One');
+    expect(byId.get(hex(2))?.localizedTitle).toBeNull();
   });
 });
 

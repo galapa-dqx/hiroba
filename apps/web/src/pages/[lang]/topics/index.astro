@@ -8,7 +8,7 @@ import Pagination from "../../../components/Pagination.astro";
 import PanelSection from "../../../components/PanelSection.astro";
 import * as Sentry from "@sentry/cloudflare";
 import { Temporal } from "temporal-polyfill";
-import { createDb, withTitleEn, type LocalizedTopic } from "@hiroba/db";
+import { createDb, withLocalizedTitle, type LocalizedTopic } from "@hiroba/db";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
 import { useTranslations } from "../../../i18n";
 
@@ -36,7 +36,7 @@ try {
 		limit: PAGE_SIZE + 1,
 	});
 	hasMore = rows.length > PAGE_SIZE;
-	items = (hasMore ? rows.slice(0, PAGE_SIZE) : rows).map(withTitleEn);
+	items = (hasMore ? rows.slice(0, PAGE_SIZE) : rows).map(withLocalizedTitle);
 	nextCursor = hasMore ? items[items.length - 1].publishedAt.toString() : undefined;
 	// If this language is meaningfully behind on titles, backfill the archive.
 	await maybeTriggerTitleBackfill(lang, items);

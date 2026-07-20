@@ -6,7 +6,7 @@ import ArticleList from "../../../components/ArticleList.astro";
 import BackLink from "../../../components/BackLink.astro";
 import PanelSection from "../../../components/PanelSection.astro";
 import * as Sentry from "@sentry/cloudflare";
-import { createDb, withTitleEn, type LocalizedPlayguide } from "@hiroba/db";
+import { createDb, withLocalizedTitle, type LocalizedPlayguide } from "@hiroba/db";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
 import { useTranslations } from "../../../i18n";
 
@@ -25,7 +25,7 @@ try {
 		with: { title: { where: { language: lang }, columns: { value: true } } },
 		orderBy: { sortOrder: "asc", id: "asc" },
 	});
-	items = rows.map(withTitleEn);
+	items = rows.map(withLocalizedTitle);
 	// If this language is meaningfully behind on titles, backfill the archive.
 	await maybeTriggerTitleBackfill(lang, items);
 } catch (err) {

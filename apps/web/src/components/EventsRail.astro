@@ -50,7 +50,7 @@ function jstText(zdt: EventWithTitle["startTime"], type: string): string {
 				{events.map((e) => (
 					<li class="event-card" data-etype={e.type}>
 						<span class="event-card__type">{TYPE_LABELS[e.type] ?? e.type}</span>
-						<p class="event-card__name">{e.titleEn ?? e.titleJa}</p>
+						<p class="event-card__name">{e.localizedTitle ?? e.titleJa}</p>
 						<div class="event-card__when">
 							<time datetime={e.startTime.toInstant().toString()} data-etype={e.type}>
 								{jstText(e.startTime, e.type)}

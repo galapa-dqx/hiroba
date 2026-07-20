@@ -145,15 +145,15 @@ async function triggerTitleBackfill(language: string): Promise<void> {
 
 /**
  * Arm the backfill from a rendered list when enough of its titles are still
- * untranslated. Counts the JA fallbacks (`titleEn === null`) in the items the
+ * untranslated. Counts the JA fallbacks (`localizedTitle === null`) in the items the
  * page already fetched — no extra query — and triggers only past the threshold,
  * so a caught-up language never fires it.
  */
 export async function maybeTriggerTitleBackfill(
   language: string,
-  items: ReadonlyArray<{ titleEn: string | null }>,
+  items: ReadonlyArray<{ localizedTitle: string | null }>,
 ): Promise<void> {
-  const missing = items.reduce((n, i) => (i.titleEn === null ? n + 1 : n), 0);
+  const missing = items.reduce((n, i) => (i.localizedTitle === null ? n + 1 : n), 0);
   if (missing >= BACKFILL_TITLE_THRESHOLD) {
     await triggerTitleBackfill(language);
   }

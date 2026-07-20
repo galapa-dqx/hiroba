@@ -26,7 +26,7 @@ import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 import { getNextCheckTime, type PhaseState } from '@hiroba/shared';
 
 import type { Database } from './client';
-import { withTitleEn } from './relations';
+import { withLocalizedTitle } from './relations';
 import {
   buildResetEvents,
   RESET_SOURCE_TYPE,
@@ -140,8 +140,8 @@ export async function upsertListItems(
 
 /** A news item plus its resolved current-language title (null ⇒ show titleJa).
  *  Produced by flattening the `title` relation (see relations.ts) with
- *  `withTitleEn` at list call sites. */
-export type LocalizedNewsItem = NewsItem & { titleEn: string | null };
+ *  `withLocalizedTitle` at list call sites. */
+export type LocalizedNewsItem = NewsItem & { localizedTitle: string | null };
 
 /**
  * Fetch `{id, titleJa}` for a set of items of one type — the input the title
@@ -707,7 +707,7 @@ export async function updateArticleSource(
 }
 
 /** A topic plus its resolved current-language title (null ⇒ show titleJa). */
-export type LocalizedTopic = Topic & { titleEn: string | null };
+export type LocalizedTopic = Topic & { localizedTitle: string | null };
 
 /**
  * Lightweight paginated news list for the admin UI (mirrors listTopicsAdmin):
@@ -985,7 +985,7 @@ export async function updatePlayguideBlocks(
 }
 
 /** A playguide plus its resolved current-language title (null ⇒ show titleJa). */
-export type LocalizedPlayguide = Playguide & { titleEn: string | null };
+export type LocalizedPlayguide = Playguide & { localizedTitle: string | null };
 
 /**
  * Lightweight playguide list for the admin UI (mirrors listTopicsAdmin): a
@@ -1239,7 +1239,7 @@ export async function getArticleTranslations(
 
 /** An extracted event with its English title translation merged in (null when
  * the title hasn't been translated yet — the caller falls back to titleJa). */
-export type EventWithTitle = Event & { titleEn: string | null };
+export type EventWithTitle = Event & { localizedTitle: string | null };
 
 /**
  * Fetch the events extracted from a single source article (news item or topic),
@@ -1261,7 +1261,7 @@ export async function getEventsForSource(
     with: { title: { where: { language }, columns: { value: true } } },
     orderBy: { startTime: 'asc' },
   });
-  return rows.map(withTitleEn);
+  return rows.map(withLocalizedTitle);
 }
 
 /**
@@ -1297,7 +1297,7 @@ export async function getEventsForDay(
     with: { title: { where: { language }, columns: { value: true } } },
     orderBy: { startTime: 'asc' },
   });
-  return rows.map(withTitleEn);
+  return rows.map(withLocalizedTitle);
 }
 
 /**
