@@ -4,13 +4,14 @@
  *   POST /api/images/<id>/<lang>/upload   (multipart/form-data, field `file`)
  *
  * The bytes are stored in R2 at a fresh VERSIONED key (`l10n/<lang>/v<ts>/…`,
- * immutable — see LOCALIZED_IMAGE_CACHE_CONTROL), the image's `url` translation
- * row records the new key, and the pages embedding the image are purged so the
- * new URL reaches readers immediately. The row is marked with the manual
- * sentinel model so the nightly localize step won't overwrite it (an explicit
- * "Regenerate" still can). The admin worker owns the R2 bucket, so the write
- * happens here — only the page purge is proxied over the WORKFLOW service
- * binding (the purge credentials live on the workflow worker).
+ * immutable — see LOCALIZED_IMAGE_CACHE_CONTROL), recorded as a render (its
+ * `images` row + primary `image_files` row, dimensions measured via the Images
+ * binding), and the pages embedding the image are purged so the new URL reaches
+ * readers immediately. The render's model is the manual sentinel so the nightly
+ * localize step won't overwrite it (an explicit "Regenerate" still can). The
+ * admin worker owns the R2 bucket, so the write happens here — only the page
+ * purge is proxied over the WORKFLOW service binding (the purge credentials live
+ * on the workflow worker).
  */
 
 import type { APIRoute } from 'astro';
@@ -19,13 +20,14 @@ import { env } from 'cloudflare:workers';
 import {
   createDb,
   getEnabledLanguages,
-  getImageById,
+  getImageSourceById,
+  insertImageRender,
   MANUAL_IMAGE_MODEL,
-  upsertImageTranslation,
 } from '@hiroba/db';
 import {
   LOCALIZED_IMAGE_CACHE_CONTROL,
   localizedImageKey,
+  measureImage,
 } from '@hiroba/shared';
 
 /** Formats gpt-image-2 emits / the /img route can serve back verbatim. */
@@ -51,7 +53,7 @@ export const POST: APIRoute = async ({ params, request }) => {
   const lang = params.lang!;
   if (!Number.isInteger(id)) return json({ error: 'Invalid id' }, 400);
 
-  const image = await getImageById(db, id);
+  const image = await getImageSourceById(db, id);
   if (!image) return json({ error: 'Not found' }, 404);
 
   const enabled = await getEnabledLanguages(db);
@@ -71,10 +73,13 @@ export const POST: APIRoute = async ({ params, request }) => {
     return json({ error: 'file exceeds 15MB' }, 413);
   }
 
+  // Versioned key with an extension corrected to the uploaded content type
+  // (the source path's extension may lie about the stored bytes).
   const localizedKey = localizedImageKey(
     lang,
     Date.now().toString(36),
     image.key,
+    file.type,
   );
   const bytes = await file.arrayBuffer();
   await env.IMAGES_BUCKET.put(localizedKey, bytes, {
@@ -83,12 +88,24 @@ export const POST: APIRoute = async ({ params, request }) => {
       cacheControl: LOCALIZED_IMAGE_CACHE_CONTROL,
     },
   });
-  await upsertImageTranslation(db, {
-    imageId: id,
+
+  // Record the render + its primary file (dims measured) in one atomic batch.
+  const dims = await measureImage(env.IMAGES, bytes);
+  await insertImageRender(db, {
+    id: crypto.randomUUID(),
+    sourceId: id,
     language: lang,
-    field: 'url',
-    value: localizedKey,
     model: MANUAL_IMAGE_MODEL,
+    files: [
+      {
+        key: localizedKey,
+        isPrimary: true,
+        mime: dims.mime ?? file.type,
+        width: dims.width,
+        height: dims.height,
+        bytes: bytes.byteLength,
+      },
+    ],
   });
 
   // Cached article pages still embed the previous version's URL; purge every

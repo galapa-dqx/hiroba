@@ -17,8 +17,19 @@ import {
   type TableCell,
 } from './schema';
 
+/**
+ * A resolved image source: the servable URL plus (for block images) the
+ * intrinsic pixel dimensions, so the renderer can emit `width`/`height` and
+ * reserve layout space (no CLS). Icons/inline images resolve to a bare string.
+ */
+export type ResolvedImageSrc = {
+  src: string;
+  width?: number | null;
+  height?: number | null;
+};
+
 export type RenderOptions = {
-  imageSrc?: (src: string) => string;
+  imageSrc?: (src: string) => string | ResolvedImageSrc;
   /**
    * Rewrites link/button/image `href`s (pass `rewriteArticleHref` to point
    * article cross-links at our own routes; defaults to identity).
@@ -34,7 +45,12 @@ export function renderBlocks(
   blocks: Block[],
   opts: RenderOptions = {},
 ): string {
-  const src = opts.imageSrc ?? ((s: string) => s);
+  const resolveSrc = opts.imageSrc ?? ((s: string) => s);
+  // Icons/inline images want just the URL; block images also read dimensions.
+  const src = (s: string): string => {
+    const r = resolveSrc(s);
+    return typeof r === 'string' ? r : r.src;
+  };
   const href = opts.linkHref ?? ((h: string) => h);
 
   const inlines = (nodes: Inline[]): string => nodes.map(inline).join('');
@@ -104,7 +120,16 @@ export function renderBlocks(
         // The in-image text (localized into the image itself) rides as alt for
         // accessibility; hydrate `text` with the displayed language's spans.
         const alt = node.text?.length ? node.text.join(' ') : (node.alt ?? '');
-        const img = `<img class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} src="${escAttr(src(node.src))}" alt="${escAttr(alt)}">`;
+        const resolved = resolveSrc(node.src);
+        const url = typeof resolved === 'string' ? resolved : resolved.src;
+        // Emit intrinsic dimensions when the resolver knows them (measured on
+        // the served render) so the browser reserves layout space — no CLS.
+        const w = typeof resolved === 'string' ? undefined : resolved.width;
+        const h = typeof resolved === 'string' ? undefined : resolved.height;
+        const dims =
+          (w != null ? ` width="${w}"` : '') +
+          (h != null ? ` height="${h}"` : '');
+        const img = `<img class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} src="${escAttr(url)}"${dims} alt="${escAttr(alt)}">`;
         const rel = node.external
           ? ' target="_blank" rel="noopener noreferrer"'
           : '';

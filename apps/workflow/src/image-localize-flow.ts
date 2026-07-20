@@ -17,7 +17,7 @@
  * runFlowInline in plain-node vitest.
  */
 
-import { createDb, getImagesByKeys, getLanguageLabel } from '@hiroba/db';
+import { createDb, getImageSourcesByKeys, getLanguageLabel } from '@hiroba/db';
 import type { Flow } from '@hiroba/flow';
 import { type ImageLocalizeFlow } from '@hiroba/flows';
 
@@ -43,7 +43,7 @@ export async function runImageLocalizeFlow(
   const db = createDb(env.DB);
 
   const outcome = await f.step('generate', async () => {
-    const [row] = await getImagesByKeys(db, [imageKey]);
+    const [row] = await getImageSourcesByKeys(db, [imageKey]);
     if (!row) return 'failed' as const;
     // Params carry only the code (it's the dedup key); the prompt label comes
     // from the whitelist, degrading to the code for an unknown language.

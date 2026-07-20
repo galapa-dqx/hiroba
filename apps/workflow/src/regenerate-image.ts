@@ -9,9 +9,8 @@
 import {
   createDb,
   getEnabledLanguages,
-  getImageById,
-  getImageTranslations,
-  getImageTranslationStates,
+  getImageSourceById,
+  getServedImages,
   MANUAL_IMAGE_MODEL,
 } from '@hiroba/db';
 import { imageUpstreamUrl, type Block } from '@hiroba/richtext';
@@ -60,7 +59,7 @@ export async function regenerateImage(
   }
 
   const db = createDb(env.DB);
-  const image = await getImageById(db, imageId);
+  const image = await getImageSourceById(db, imageId);
   if (!image) {
     return Response.json({ error: 'Image not found' }, { status: 404 });
   }
@@ -90,22 +89,18 @@ export async function regenerateImage(
     { force: true, model: MANUAL_IMAGE_MODEL, quality },
   );
 
-  // Report the url row's settled state so the client can show the new image
-  // or the failure reason without a second round-trip.
-  const states = await getImageTranslationStates(
-    db,
-    [imageId],
-    language,
-    'url',
-  );
-  const values = await getImageTranslations(db, [imageId], language, 'url');
-  const state = states.get(imageId) ?? null;
-  const localizedKey = values.get(imageId) ?? null;
+  // Report the newest render's primary file so the client can show the new
+  // image (or the failure) without a second round-trip. There's no persisted
+  // url-row state now — the render's existence is the settled signal, so state
+  // mirrors whether this run produced one.
+  const served = await getServedImages(db, [imageId], language);
+  const localizedKey = served.get(imageId)?.localized?.key ?? null;
+  const done = result.localized > 0;
 
   // The fresh render lives at a NEW versioned URL; what's stale is every
   // cached page still embedding the previous version's URL. Purge them for an
   // immediate refresh (best-effort; no-ops until purge is configured).
-  if (result.localized > 0 && localizedKey) {
+  if (done && localizedKey) {
     await purgeImagePages(env, db, image.key, language, {
       warn: (m) => console.warn(m),
       debug: () => {},
@@ -113,8 +108,8 @@ export async function regenerateImage(
   }
 
   return Response.json({
-    status: result.localized > 0 ? 'done' : 'failed',
-    state,
+    status: done ? 'done' : 'failed',
+    state: done ? 'done' : 'failed',
     localizedKey,
   });
 }

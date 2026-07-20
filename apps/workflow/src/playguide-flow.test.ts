@@ -14,7 +14,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getEnabledLanguages, getImagesByKeys } from '@hiroba/db';
+import { getEnabledLanguages, getImageSourcesByKeys } from '@hiroba/db';
 import {
   inlineJoinPort,
   runFlowInline,
@@ -42,8 +42,8 @@ import {
 vi.mock('@hiroba/db', () => ({
   createDb: vi.fn(() => ({})),
   getEnabledLanguages: vi.fn(),
-  ensureImageRows: vi.fn(),
-  getImagesByKeys: vi.fn(),
+  ensureImageSourceRows: vi.fn(),
+  getImageSourcesByKeys: vi.fn(),
 }));
 
 vi.mock('./article', () => ({
@@ -149,7 +149,7 @@ beforeEach(() => {
     titleJa: 'ガイド',
     blocksJa: BLOCKS,
   } as never);
-  vi.mocked(getImagesByKeys).mockResolvedValue([IMG_ROW] as never);
+  vi.mocked(getImageSourcesByKeys).mockResolvedValue([IMG_ROW] as never);
   vi.mocked(bodyMarkupSize).mockReturnValue(100); // sync-sized by default
   vi.mocked(translateArticle).mockResolvedValue({
     success: true,
@@ -209,7 +209,7 @@ describe('playguide flow — the split pipeline', () => {
         params: { imageKey: IMG_KEY, lang: 'ko' },
       },
     ]);
-    expect(vi.mocked(getImagesByKeys)).toHaveBeenCalledWith(expect.anything(), [
+    expect(vi.mocked(getImageSourcesByKeys)).toHaveBeenCalledWith(expect.anything(), [
       IMG_KEY,
     ]);
 
@@ -238,7 +238,7 @@ describe('playguide flow — the split pipeline', () => {
   });
 
   it('skips localize children for images whose text has no Japanese', async () => {
-    vi.mocked(getImagesByKeys).mockResolvedValue([
+    vi.mocked(getImageSourcesByKeys).mockResolvedValue([
       { id: 7, key: IMG_KEY, textsJa: ['LEVEL UP!'] },
     ] as never);
     const { joins, children } = makeJoins();

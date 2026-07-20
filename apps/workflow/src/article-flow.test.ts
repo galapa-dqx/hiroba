@@ -17,7 +17,7 @@
 import { Temporal } from 'temporal-polyfill';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getEnabledLanguages, getImagesByKeys } from '@hiroba/db';
+import { getEnabledLanguages, getImageSourcesByKeys } from '@hiroba/db';
 import {
   inlineJoinPort,
   runFlowInline,
@@ -47,8 +47,8 @@ import {
 vi.mock('@hiroba/db', () => ({
   createDb: vi.fn(() => ({})),
   getEnabledLanguages: vi.fn(),
-  ensureImageRows: vi.fn(),
-  getImagesByKeys: vi.fn(),
+  ensureImageSourceRows: vi.fn(),
+  getImageSourcesByKeys: vi.fn(),
 }));
 
 vi.mock('./article', () => ({
@@ -175,7 +175,7 @@ beforeEach(() => {
     titleJa: '記事',
     blocksJa: TOPIC_BLOCKS,
   } as never);
-  vi.mocked(getImagesByKeys).mockResolvedValue([IMG_ROW] as never);
+  vi.mocked(getImageSourcesByKeys).mockResolvedValue([IMG_ROW] as never);
   vi.mocked(bodyMarkupSize).mockReturnValue(100); // sync-sized by default
   vi.mocked(translateArticle).mockResolvedValue({
     success: true,
@@ -272,7 +272,7 @@ describe('article flow — news + topics on the shared fragments', () => {
     // to plain data before it hits step storage. Since DQX-27 the units are
     // (key, lang) pairs and the child re-reads its row from D1; pin that no
     // row field leaks back into the list step's return.
-    vi.mocked(getImagesByKeys).mockResolvedValue([
+    vi.mocked(getImageSourcesByKeys).mockResolvedValue([
       { ...IMG_ROW, updatedAt: Temporal.Now.instant() },
     ] as never);
 
@@ -296,7 +296,7 @@ describe('article flow — news + topics on the shared fragments', () => {
       titleJa: 'ニュース',
       blocksJa: NEWS_BLOCKS,
     } as never);
-    vi.mocked(getImagesByKeys).mockResolvedValue([] as never);
+    vi.mocked(getImageSourcesByKeys).mockResolvedValue([] as never);
     const { joins, spy } = makeJoins();
 
     const result = await runFlowInline(

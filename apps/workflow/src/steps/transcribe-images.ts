@@ -13,8 +13,8 @@
 import type OpenAI from 'openai';
 
 import {
-  ensureImageRows,
-  getImagesByKeys,
+  ensureImageSourceRows,
+  getImageSourcesByKeys,
   setImageTranscribeState,
   upsertImageTranscription,
   type Database,
@@ -131,7 +131,7 @@ export async function transcribeOneImage(
   apiKey: string,
   bucket: R2Bucket,
 ): Promise<TranscribeOutcome> {
-  const [existing] = await getImagesByKeys(db, [key]);
+  const [existing] = await getImageSourcesByKeys(db, [key]);
   if (existing?.transcribeState === 'done') return 'skipped';
   return (await transcribeKey(db, createGemini(apiKey), bucket, key))
     ? 'transcribed'
@@ -189,9 +189,9 @@ export async function transcribeImages(
 
   // Discovery: every referenced image gets a row (pending) so the pipeline
   // snapshot can see the full set before transcription completes.
-  await ensureImageRows(db, keys);
+  await ensureImageSourceRows(db, keys);
 
-  const existing = await getImagesByKeys(db, keys);
+  const existing = await getImageSourcesByKeys(db, keys);
   const done = new Set(
     existing.filter((r) => r.transcribeState === 'done').map((r) => r.key),
   );

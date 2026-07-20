@@ -8,7 +8,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getImagesByKeys, getLanguageLabel } from '@hiroba/db';
+import { getImageSourcesByKeys, getLanguageLabel } from '@hiroba/db';
 import { runFlowInline } from '@hiroba/flow';
 import { ImageLocalizeFlow } from '@hiroba/flows';
 
@@ -20,7 +20,7 @@ import { localizeImageLanguage } from './steps/localize-images';
 
 vi.mock('@hiroba/db', () => ({
   createDb: vi.fn(() => ({})),
-  getImagesByKeys: vi.fn(),
+  getImageSourcesByKeys: vi.fn(),
   getLanguageLabel: vi.fn(),
 }));
 
@@ -40,7 +40,7 @@ const IMG_ROW = { id: 7, key: IMG_KEY, textsJa: ['冒険'] };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(getImagesByKeys).mockResolvedValue([IMG_ROW] as never);
+  vi.mocked(getImageSourcesByKeys).mockResolvedValue([IMG_ROW] as never);
   vi.mocked(getLanguageLabel).mockResolvedValue('English');
   vi.mocked(localizeImageLanguage).mockResolvedValue('localized');
 });
@@ -78,7 +78,7 @@ describe('image localize flow — one shared child per (image, language)', () =>
   });
 
   it('settles as a failed OUTCOME when the image row is missing', async () => {
-    vi.mocked(getImagesByKeys).mockResolvedValue([] as never);
+    vi.mocked(getImageSourcesByKeys).mockResolvedValue([] as never);
 
     const result = await runFlowInline(
       ImageLocalizeFlow,
