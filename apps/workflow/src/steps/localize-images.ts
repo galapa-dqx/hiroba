@@ -21,7 +21,6 @@ import {
   getLatestRenderModels,
   insertImageRender,
   MANUAL_IMAGE_MODEL,
-  measureImage,
   type Database,
 } from '@hiroba/db';
 import {
@@ -34,6 +33,7 @@ import {
   hasJapanese,
   LOCALIZED_IMAGE_CACHE_CONTROL,
   localizedImageKey,
+  measureImage,
 } from '@hiroba/shared';
 
 import { mapWithConcurrency } from '../concurrency';

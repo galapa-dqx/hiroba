@@ -20,7 +20,6 @@ import {
   getImageSourcesByKeys,
   hasOriginalRender,
   insertImageRender,
-  measureImage,
   setImageMirrorState,
   type Database,
 } from '@hiroba/db';
@@ -30,6 +29,7 @@ import {
   imageUpstreamUrl,
   type Block,
 } from '@hiroba/richtext';
+import { measureImage } from '@hiroba/shared';
 
 import { mapWithConcurrency } from '../concurrency';
 import { sniffMimeType } from '../image-edit';
@@ -67,16 +67,14 @@ async function recordOriginalRender(
   db: Database,
   images: ImagesBinding,
   key: string,
+  sourceId: number,
   bytes: Uint8Array,
-  contentType: string,
+  contentType: string | null,
 ): Promise<void> {
-  const [source] = await getImageSourcesByKeys(db, [key]);
-  if (!source) return; // ensureImageSourceRows runs first; defensive only.
-  if (await hasOriginalRender(db, source.id)) return;
   const measured = await measureImage(images, bytes);
   await insertImageRender(db, {
     id: crypto.randomUUID(),
-    sourceId: source.id,
+    sourceId,
     language: null,
     model: null,
     files: [
@@ -93,6 +91,36 @@ async function recordOriginalRender(
 }
 
 /**
+ * Ensure the original render exists for a source whose bytes are already in
+ * the bucket, reading them back to measure. Renders normally land with the
+ * mirror itself, but bytes can reach R2 without one — the web/admin `/img`
+ * routes self-heal objects on a miss without touching D1, and pre-migration
+ * sources that weren't mirror_state='done' got no seeded render — so the skip
+ * path heals the row here. Cheap in steady state: one indexed existence check;
+ * the R2 read + measure run only when the render is actually missing.
+ */
+async function ensureOriginalRender(
+  db: Database,
+  bucket: R2Bucket,
+  images: ImagesBinding,
+  key: string,
+  sourceId: number,
+): Promise<void> {
+  if (await hasOriginalRender(db, sourceId)) return;
+  const obj = await bucket.get(key);
+  if (!obj) return; // raced a delete; the next mirror pass re-copies.
+  const bytes = new Uint8Array(await obj.arrayBuffer());
+  await recordOriginalRender(
+    db,
+    images,
+    key,
+    sourceId,
+    bytes,
+    obj.httpMetadata?.contentType ?? null,
+  );
+}
+
+/**
  * Mirror a single image key into R2 (the per-unit worker behind
  * `mirrorImages`, exported for the flow framework's per-image `map` units).
  * Assumes the key's image_sources row exists (ensureImageSourceRows ran). Never
@@ -105,8 +133,10 @@ export async function mirrorOneImage(
   images: ImagesBinding,
   key: string,
 ): Promise<MirrorOutcome> {
+  const [source] = await getImageSourcesByKeys(db, [key]);
   if (await bucket.head(key)) {
     await setImageMirrorState(db, key, 'done');
+    if (source) await ensureOriginalRender(db, bucket, images, key, source.id);
     return 'skipped';
   }
   await setImageMirrorState(db, key, 'running');
@@ -134,7 +164,16 @@ export async function mirrorOneImage(
       httpMetadata: { contentType, cacheControl: CACHE_CONTROL },
     });
     await setImageMirrorState(db, key, 'done');
-    await recordOriginalRender(db, images, key, bytes, contentType);
+    if (source && !(await hasOriginalRender(db, source.id))) {
+      await recordOriginalRender(
+        db,
+        images,
+        key,
+        source.id,
+        bytes,
+        contentType,
+      );
+    }
     return 'mirrored';
   } catch {
     await setImageMirrorState(db, key, 'failed');

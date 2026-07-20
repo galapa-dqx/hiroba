@@ -23,11 +23,11 @@ import {
   getImageSourceById,
   insertImageRender,
   MANUAL_IMAGE_MODEL,
-  measureImage,
 } from '@hiroba/db';
 import {
   LOCALIZED_IMAGE_CACHE_CONTROL,
   localizedImageKey,
+  measureImage,
 } from '@hiroba/shared';
 
 /** Formats gpt-image-2 emits / the /img route can serve back verbatim. */

@@ -5,10 +5,6 @@
  * (DQX-45), and DQX-49's encode-skip + `<source>` rules build on the same
  * numbers. Best-effort: bytes the binding can't decode measure to nulls (the
  * row still lands; its existence is the "render written" signal).
- *
- * Lives in @hiroba/db (not @hiroba/shared) because it needs the Workers
- * runtime types (ImagesBinding), which the platform-free packages that consume
- * shared don't have — every consumer of this package is a worker.
  */
 
 export type Measured = {
