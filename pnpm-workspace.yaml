@@ -1,6 +1,11 @@
 packages:
   - "apps/*"
   - "packages/*"
+# drizzle-orm@1.0-beta grew a zod peer; pin its resolution to the zod major
+# apps/workflow already uses so every package shares ONE drizzle instance
+# (split instances make drizzle types mutually incompatible across packages).
+overrides:
+  "drizzle-orm>zod": "^3.24.4"
 allowBuilds:
   '@google/genai': true
   esbuild: true
