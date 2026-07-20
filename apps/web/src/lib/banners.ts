@@ -13,7 +13,6 @@
  */
 
 import {
-  getActiveBanners,
   getImagesByKeys,
   getImageTranslations,
   getTitleTranslations,
@@ -35,7 +34,10 @@ export async function resolveBanners(
 ): Promise<CarouselBanner[]> {
   const { language, imageBase } = options;
 
-  const rows = await getActiveBanners(db);
+  const rows = await db.query.banners.findMany({
+    where: { active: true },
+    orderBy: { sortOrder: 'asc' },
+  });
   if (rows.length === 0) return [];
 
   // Original key → stored localized (versioned) R2 key for this language.

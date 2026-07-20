@@ -13,7 +13,6 @@ import { Temporal } from 'temporal-polyfill';
 import {
   createDb,
   getEnabledLanguages,
-  listResetMilestones,
   materializeResetEvents,
   upsertResetMilestone,
 } from '@hiroba/db';
@@ -32,7 +31,9 @@ export const GET: APIRoute = async () => {
   const db = createDb(env.DB);
 
   const [resets, languages] = await Promise.all([
-    listResetMilestones(db),
+    db.query.resetMilestones.findMany({
+      orderBy: { sortOrder: 'asc', id: 'asc' },
+    }),
     getEnabledLanguages(db),
   ]);
   return json({

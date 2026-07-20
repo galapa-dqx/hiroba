@@ -12,11 +12,7 @@
  * language URLs ourselves.
  */
 
-import {
-  getArticlesByImageKey,
-  isBannerImage,
-  type Database,
-} from '@hiroba/db';
+import type { Database } from '@hiroba/db';
 
 import type { Env, ItemType } from './types';
 
@@ -141,11 +137,21 @@ export async function purgeImagePages(
     return;
   }
   const base = env.WEB_BASE_URL.replace(/\/+$/, '');
-  const articles = await getArticlesByImageKey(db, imageKey);
+  // The article_images reverse index: every article whose block tree embeds
+  // this image.
+  const articles = await db.query.articleImages.findMany({
+    columns: { itemType: true, itemId: true },
+    where: { imageKey },
+  });
   const urls = articles.map(
-    (a) => `${base}/${language}/${ARTICLE_PATH[a.itemType]}/${a.itemId}`,
+    (a) =>
+      `${base}/${language}/${ARTICLE_PATH[a.itemType as ItemType]}/${a.itemId}`,
   );
-  if (await isBannerImage(db, imageKey)) {
+  const banner = await db.query.banners.findFirst({
+    columns: { imageKey: true },
+    where: { imageKey },
+  });
+  if (banner) {
     // The home page renders the banner carousel; purge both slash variants
     // since the edge caches whichever shape was requested.
     urls.push(`${base}/${language}`, `${base}/${language}/`);

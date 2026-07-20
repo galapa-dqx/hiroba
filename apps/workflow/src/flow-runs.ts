@@ -10,13 +10,7 @@
 
 import { Temporal } from 'temporal-polyfill';
 
-import {
-  createDb,
-  getNewsItem,
-  getPlayguide,
-  getTitleTranslations,
-  getTopic,
-} from '@hiroba/db';
+import { createDb, getTitleTranslations } from '@hiroba/db';
 import type { Snapshot } from '@hiroba/flow';
 import { getFlowHub, isActiveStatus, type RunInfo } from '@hiroba/flow/hub';
 import type { FlowRunItem } from '@hiroba/shared';
@@ -82,12 +76,19 @@ export async function listFlowRuns(env: Env, url: URL): Promise<Response> {
     for (const [id, title] of titles) titleEn.set(`${itemType}:${id}`, title);
   }
 
-  const itemFor = (itemType: ItemType, itemId: string) =>
-    itemType === 'topic'
-      ? getTopic(db, itemId)
+  // Only the JA title is needed here — skip the block-tree blobs the full
+  // article rows carry.
+  const itemFor = (itemType: ItemType, itemId: string) => {
+    const config = {
+      where: { id: itemId },
+      columns: { titleJa: true },
+    } as const;
+    return itemType === 'topic'
+      ? db.query.topics.findFirst(config)
       : itemType === 'playguide'
-        ? getPlayguide(db, itemId)
-        : getNewsItem(db, itemId);
+        ? db.query.playguides.findFirst(config)
+        : db.query.newsItems.findFirst(config);
+  };
 
   const items = new Map<string, FlowRunItem>();
   for (const { runId, itemType, itemId } of itemRuns) {

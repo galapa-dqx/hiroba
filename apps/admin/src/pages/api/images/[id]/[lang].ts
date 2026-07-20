@@ -15,7 +15,6 @@ import { env } from 'cloudflare:workers';
 import {
   createDb,
   getEnabledLanguages,
-  getImageById,
   MANUAL_IMAGE_MODEL,
   upsertImageTranslation,
 } from '@hiroba/db';
@@ -34,7 +33,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
   const lang = params.lang!;
   if (!Number.isInteger(id)) return json({ error: 'Invalid id' }, 400);
 
-  const image = await getImageById(db, id);
+  const image = await db.query.images.findFirst({ where: { id } });
   if (!image) return json({ error: 'Not found' }, 404);
 
   const enabled = await getEnabledLanguages(db);

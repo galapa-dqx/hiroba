@@ -37,7 +37,7 @@ import {
   type ResetTitleMap,
 } from './reset-events';
 import { articleImages } from './schema/article-images';
-import { banners, type Banner } from './schema/banners';
+import { banners } from './schema/banners';
 import {
   events,
   eventSources,
@@ -55,7 +55,6 @@ import {
 import {
   resetMilestones,
   type NewResetMilestone,
-  type ResetMilestone,
 } from './schema/reset-milestones';
 import { topics, type NewTopic, type Topic } from './schema/topics';
 import {
@@ -217,21 +216,6 @@ export async function getNewsItems(
       ? items[items.length - 1].publishedAt.toString()
       : undefined,
   };
-}
-
-/**
- * Get a single news item by ID.
- */
-export async function getNewsItem(
-  db: Database,
-  id: string,
-): Promise<NewsItem | null> {
-  const result = await db
-    .select()
-    .from(newsItems)
-    .where(eq(newsItems.id, id))
-    .get();
-  return result ?? null;
 }
 
 /**
@@ -797,17 +781,6 @@ export async function updateArticleSource(
   return result.length > 0;
 }
 
-/**
- * Get a single topic by ID.
- */
-export async function getTopic(
-  db: Database,
-  id: string,
-): Promise<Topic | null> {
-  const result = await db.select().from(topics).where(eq(topics.id, id)).get();
-  return result ?? null;
-}
-
 /** A topic plus its resolved current-language title (null ⇒ show titleJa). */
 export type LocalizedTopic = Topic & { titleEn: string | null };
 
@@ -1126,19 +1099,6 @@ export async function upsertPlayguide(
   if (pg.blocksJa) {
     await syncArticleImages(db, 'playguide', pg.id, pg.blocksJa);
   }
-}
-
-/** Get a single playguide by slug. */
-export async function getPlayguide(
-  db: Database,
-  id: string,
-): Promise<Playguide | null> {
-  const result = await db
-    .select()
-    .from(playguides)
-    .where(eq(playguides.id, id))
-    .get();
-  return result ?? null;
 }
 
 /** Replace a playguide's block tree (used by the transcribe/tag steps). */
@@ -1641,29 +1601,6 @@ export async function pruneScheduleEvents(
 // occurrences into `events` as `mark` rows via `buildResetEvents`, then swaps
 // them in with `replaceResetEvents`. See reset-events.ts.
 
-/** Every reset definition, in display / title-join order. */
-export async function listResetMilestones(
-  db: Database,
-): Promise<ResetMilestone[]> {
-  return db
-    .select()
-    .from(resetMilestones)
-    .orderBy(asc(resetMilestones.sortOrder), asc(resetMilestones.id))
-    .all();
-}
-
-/** A single reset definition by id, or undefined. */
-export async function getResetMilestone(
-  db: Database,
-  id: string,
-): Promise<ResetMilestone | undefined> {
-  return db
-    .select()
-    .from(resetMilestones)
-    .where(eq(resetMilestones.id, id))
-    .get();
-}
-
 /** Create or update a reset definition (admin editor). */
 export async function upsertResetMilestone(
   db: Database,
@@ -1838,7 +1775,9 @@ export async function materializeResetEvents(
   const to = from.add({ days: horizonDays });
 
   const [defs, languages] = await Promise.all([
-    listResetMilestones(db),
+    db.query.resetMilestones.findMany({
+      orderBy: { sortOrder: 'asc', id: 'asc' },
+    }),
     getEnabledLanguages(db),
   ]);
   const { events: rows, titles } = buildResetEvents(
@@ -2376,39 +2315,6 @@ export async function backfillArticleImages(
   };
 }
 
-/**
- * Whether an image backs a rotation banner (banners.imageKey = key) — banner
- * images render on the home page, so the purge fan-out includes it.
- */
-export async function isBannerImage(
-  db: Database,
-  key: string,
-): Promise<boolean> {
-  const row = await db
-    .select({ one: sql`1` })
-    .from(banners)
-    .where(eq(banners.imageKey, key))
-    .get();
-  return !!row;
-}
-
-/**
- * Every article whose block tree embeds the given image — the purge fan-out
- * for a regenerated/uploaded localized image (its versioned URL changed, so
- * the pages carrying it must be re-rendered).
- */
-export async function getArticlesByImageKey(
-  db: Database,
-  key: string,
-): Promise<Array<{ itemType: ArticleType; itemId: string }>> {
-  const rows = await db
-    .select({ itemType: articleImages.itemType, itemId: articleImages.itemId })
-    .from(articleImages)
-    .where(eq(articleImages.imageKey, key))
-    .all();
-  return rows as Array<{ itemType: ArticleType; itemId: string }>;
-}
-
 /** Look up image rows by their natural keys (imageKey). */
 export async function getImagesByKeys(
   db: Database,
@@ -2417,36 +2323,6 @@ export async function getImagesByKeys(
   return chunked(keys, (slice) =>
     db.select().from(images).where(inArray(images.key, slice)).all(),
   );
-}
-
-/** One stored image by its surrogate id — the admin image-edit page's anchor. */
-export async function getImageById(
-  db: Database,
-  id: number,
-): Promise<Image | null> {
-  const row = await db.select().from(images).where(eq(images.id, id)).get();
-  return row ?? null;
-}
-
-/**
- * Every translation row for one image across all languages and both fields
- * (`text`/`url`) — the admin edit page reads these to render each language's
- * span pairs and localized-image state in one shot.
- */
-export async function getImageTranslationRows(
-  db: Database,
-  imageId: number,
-): Promise<Translation[]> {
-  return db
-    .select()
-    .from(translations)
-    .where(
-      and(
-        eq(translations.itemType, 'image'),
-        eq(translations.itemId, String(imageId)),
-      ),
-    )
-    .all();
 }
 
 /** The subset of `imageIds` that already have a translated `text` row for `language`. */
@@ -2825,14 +2701,4 @@ export async function syncBanners(
         ? and(eq(banners.active, true), notInArray(banners.imageKey, keep))
         : eq(banners.active, true),
     );
-}
-
-/** The active banners in rotation order. */
-export async function getActiveBanners(db: Database): Promise<Banner[]> {
-  return db
-    .select()
-    .from(banners)
-    .where(eq(banners.active, true))
-    .orderBy(asc(banners.sortOrder))
-    .all();
 }

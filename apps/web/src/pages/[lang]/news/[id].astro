@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers";
 import ArticlePage from "../../../components/ArticlePage.astro";
 import LocalTime from "../../../components/LocalTime.astro";
 import CategoryDot from "@hiroba/ui/CategoryDot.astro";
-import { createDb, getArticleTranslations, getEventsForSource, getNewsItem } from "@hiroba/db";
+import { createDb, getArticleTranslations, getEventsForSource } from "@hiroba/db";
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import type { Category } from "@hiroba/shared";
 import { hydrateArticleImages } from "../../../lib/article-images";
@@ -25,7 +25,7 @@ const db = createDb(env.DB);
 
 // News items are seeded by list scraping, so an unknown id is a real 404
 // (unlike topics, which are fetched on first view).
-const item = await getNewsItem(db, id);
+const item = await db.query.newsItems.findFirst({ where: { id } });
 if (!item) {
 	return new Response("Not found", {
 		status: 404,

@@ -11,8 +11,6 @@ import { eq } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import {
-  getPlayguide,
-  getTopic,
   newsItems,
   syncArticleImages,
   upsertPlayguide,
@@ -111,7 +109,7 @@ export async function fetchAndSaveTopicBody(
   itemId: string,
 ): Promise<FetchBodyResult> {
   const { titleJa, blocks } = await fetchTopicBody(itemId);
-  const existing = await getTopic(db, itemId);
+  const existing = await db.query.topics.findFirst({ where: { id: itemId } });
   const now = Temporal.Now.instant();
   await upsertTopic(db, {
     id: itemId,
@@ -137,7 +135,9 @@ export async function fetchAndSavePlayguideBody(
   itemId: string,
 ): Promise<FetchBodyResult> {
   const { titleJa, specificTitle, blocks } = await fetchPlayguideBody(itemId);
-  const existing = await getPlayguide(db, itemId);
+  const existing = await db.query.playguides.findFirst({
+    where: { id: itemId },
+  });
   const now = Temporal.Now.instant();
   await upsertPlayguide(db, {
     id: itemId,

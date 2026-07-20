@@ -13,12 +13,7 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 
-import {
-  createDb,
-  getEnabledLanguages,
-  getImageById,
-  getImageTranslationRows,
-} from '@hiroba/db';
+import { createDb, getEnabledLanguages } from '@hiroba/db';
 import { hasJapanese } from '@hiroba/shared';
 
 function json(data: unknown, status = 200): Response {
@@ -45,11 +40,15 @@ export const GET: APIRoute = async ({ params }) => {
   const id = Number(params.id);
   if (!Number.isInteger(id)) return json({ error: 'Invalid id' }, 400);
 
-  const image = await getImageById(db, id);
+  const image = await db.query.images.findFirst({ where: { id } });
   if (!image) return json({ error: 'Not found' }, 404);
 
   const enabled = await getEnabledLanguages(db);
-  const rows = await getImageTranslationRows(db, id);
+  // Every translation row for this image across all languages and both fields
+  // (`text`/`url`) — one read renders each language tab's spans + image state.
+  const rows = await db.query.translations.findMany({
+    where: { itemType: 'image', itemId: String(id) },
+  });
   const textByLang = new Map<string, (typeof rows)[number]>();
   const urlByLang = new Map<string, (typeof rows)[number]>();
   for (const r of rows) {

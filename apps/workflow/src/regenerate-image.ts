@@ -9,7 +9,6 @@
 import {
   createDb,
   getEnabledLanguages,
-  getImageById,
   getImageTranslations,
   getImageTranslationStates,
   MANUAL_IMAGE_MODEL,
@@ -60,7 +59,7 @@ export async function regenerateImage(
   }
 
   const db = createDb(env.DB);
-  const image = await getImageById(db, imageId);
+  const image = await db.query.images.findFirst({ where: { id: imageId } });
   if (!image) {
     return Response.json({ error: 'Image not found' }, { status: 404 });
   }

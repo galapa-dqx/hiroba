@@ -8,9 +8,6 @@
  */
 
 import {
-  getNewsItem,
-  getPlayguide,
-  getTopic,
   updateNewsBlocks,
   updatePlayguideBlocks,
   updateTopicBlocks,
@@ -29,11 +26,13 @@ export async function getArticle(
   itemType: ItemType,
   id: string,
 ): Promise<NewsItem | Topic | Playguide | null> {
-  return itemType === 'topic'
-    ? getTopic(db, id)
-    : itemType === 'playguide'
-      ? getPlayguide(db, id)
-      : getNewsItem(db, id);
+  const item =
+    itemType === 'topic'
+      ? await db.query.topics.findFirst({ where: { id } })
+      : itemType === 'playguide'
+        ? await db.query.playguides.findFirst({ where: { id } })
+        : await db.query.newsItems.findFirst({ where: { id } });
+  return item ?? null;
 }
 
 /**
