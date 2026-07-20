@@ -6,7 +6,7 @@ import BannerCarousel from "../../components/BannerCarousel.astro";
 import PanelSection from "../../components/PanelSection.astro";
 import Ornament from "@hiroba/ui/Ornament.astro";
 import * as Sentry from "@sentry/cloudflare";
-import { createDb, getNewsItems } from "@hiroba/db";
+import { createDb, withTitleEn } from "@hiroba/db";
 import { CATEGORIES } from "@hiroba/shared";
 import { maybeTriggerTitleBackfill } from "../../lib/workflow";
 import { resolveBanners } from "../../lib/banners";
@@ -28,10 +28,15 @@ const banners = await resolveBanners(db, {
 const newsByCategory = await Promise.all(
 	CATEGORIES.map(async (category) => {
 		try {
-			const { items } = await getNewsItems(db, { category, limit: 5, language: lang });
-			return { category, items };
+			const rows = await db.query.newsItems.findMany({
+				where: { category },
+				with: { title: { where: { language: lang }, columns: { value: true } } },
+				orderBy: { publishedAt: "desc" },
+				limit: 5,
+			});
+			return { category, items: rows.map(withTitleEn) };
 		} catch (err) {
-			console.error(`home: getNewsItems(${category}) threw`, err);
+			console.error(`home: news query (${category}) threw`, err);
 			Sentry.captureException(err, { tags: { site_area: "home", category } });
 			return { category, items: [] };
 		}

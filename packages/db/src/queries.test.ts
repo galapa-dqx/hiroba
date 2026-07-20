@@ -11,11 +11,9 @@ import {
   getImageTranslations,
   getImageTranslationStates,
   getItemTitles,
-  getNewsItems,
   getRecheckQueue,
   getStats,
   getTitleTranslations,
-  getTopics,
   getTranslationStates,
   getUntranslatedTitles,
   listImagesForAdmin,
@@ -39,6 +37,7 @@ import {
   upsertTopic,
   upsertTopicTranslation,
 } from './queries';
+import { withTitleEn } from './relations';
 import { events, type NewEvent } from './schema/events';
 import { images } from './schema/images';
 import { newsItems, type ListItem } from './schema/news-items';
@@ -68,6 +67,48 @@ function listItem(index: number, hoursOld: number): ListItem {
     titleJa: `記事${index}`,
     category: 'news',
     publishedAt: BASE.add({ hours: hoursOld }),
+  };
+}
+
+/**
+ * The news list-page recipe (apps/web [lang]/index + category pages): cursor
+ * pagination over db.query with the `title` relation flattened by withTitleEn.
+ * Duplicated here so the relation's join semantics and the pagination recipe
+ * stay pinned against real D1.
+ */
+async function listNews(
+  options: {
+    category?: string;
+    limit?: number;
+    cursor?: string;
+    language?: string;
+  } = {},
+) {
+  const limit = options.limit ?? 20;
+  const rows = await ctx.db.query.newsItems.findMany({
+    where: {
+      ...(options.category ? { category: options.category } : {}),
+      ...(options.cursor
+        ? { publishedAt: { lt: Temporal.Instant.from(options.cursor) } }
+        : {}),
+    },
+    with: {
+      title: {
+        where: { language: options.language ?? 'en' },
+        columns: { value: true },
+      },
+    },
+    orderBy: { publishedAt: 'desc' },
+    limit: limit + 1,
+  });
+  const hasMore = rows.length > limit;
+  const items = (hasMore ? rows.slice(0, limit) : rows).map(withTitleEn);
+  return {
+    items,
+    hasMore,
+    nextCursor: hasMore
+      ? items[items.length - 1].publishedAt.toString()
+      : undefined,
   };
 }
 
@@ -109,7 +150,7 @@ describe('upsertListItems', () => {
   });
 });
 
-describe('getNewsItems pagination', () => {
+describe('news list recipe (cursor pagination)', () => {
   beforeEach(async () => {
     // 5 items, publishedAt strictly increasing with index (index 5 is newest).
     await upsertListItems(
@@ -119,7 +160,7 @@ describe('getNewsItems pagination', () => {
   });
 
   it('orders newest-first and reports hasMore + nextCursor when truncated', async () => {
-    const page = await getNewsItems(ctx.db, { limit: 2 });
+    const page = await listNews({ limit: 2 });
 
     expect(page.items.map((i) => i.id)).toEqual([hex(5), hex(4)]);
     expect(page.hasMore).toBe(true);
@@ -127,12 +168,12 @@ describe('getNewsItems pagination', () => {
   });
 
   it('walks the full list across pages without gaps or overlap', async () => {
-    const first = await getNewsItems(ctx.db, { limit: 2 });
-    const second = await getNewsItems(ctx.db, {
+    const first = await listNews({ limit: 2 });
+    const second = await listNews({
       limit: 2,
       cursor: first.nextCursor,
     });
-    const third = await getNewsItems(ctx.db, {
+    const third = await listNews({
       limit: 2,
       cursor: second.nextCursor,
     });
@@ -147,7 +188,7 @@ describe('getNewsItems pagination', () => {
   it('excludes the cursor boundary item (strict less-than)', async () => {
     // Cursor at item 3's timestamp should return only strictly older items.
     const cursor = BASE.add({ hours: 3 }).toString();
-    const page = await getNewsItems(ctx.db, { cursor });
+    const page = await listNews({ cursor });
 
     expect(page.items.map((i) => i.id)).toEqual([hex(2), hex(1)]);
   });
@@ -160,22 +201,15 @@ describe('getNewsItems pagination', () => {
       publishedAt: BASE.add({ hours: 99 }),
     });
 
-    const news = await getNewsItems(ctx.db, { category: 'news' });
-    const events = await getNewsItems(ctx.db, { category: 'event' });
+    const news = await listNews({ category: 'news' });
+    const events = await listNews({ category: 'event' });
 
     expect(news.items).toHaveLength(5);
     expect(events.items.map((i) => i.id)).toEqual([hex(99)]);
   });
-
-  it('caps the limit at 100', async () => {
-    const page = await getNewsItems(ctx.db, { limit: 10_000 });
-    // Only 5 rows exist; the cap just must not throw or over-fetch.
-    expect(page.items).toHaveLength(5);
-    expect(page.hasMore).toBe(false);
-  });
 });
 
-describe('getNewsItems current-language title join (DQX-11)', () => {
+describe('news list title relation (DQX-11)', () => {
   beforeEach(async () => {
     await upsertListItems(ctx.db, [listItem(1, 1), listItem(2, 2)]);
   });
@@ -190,7 +224,7 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
       model: 'gemini-x',
     });
 
-    const { items } = await getNewsItems(ctx.db, {});
+    const { items } = await listNews();
     const byId = new Map(items.map((i) => [i.id, i]));
 
     expect(byId.get(hex(2))?.titleEn).toBe('Article Two');
@@ -209,8 +243,8 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
       model: 'm',
     });
 
-    const en = await getNewsItems(ctx.db, { language: 'en' });
-    const fr = await getNewsItems(ctx.db, { language: 'fr' });
+    const en = await listNews({ language: 'en' });
+    const fr = await listNews({ language: 'fr' });
     expect(en.items.find((i) => i.id === hex(1))?.titleEn).toBe('English');
     expect(fr.items.find((i) => i.id === hex(1))?.titleEn).toBeNull();
   });
@@ -224,7 +258,7 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
       value: '[]',
       model: 'm',
     });
-    const { items } = await getNewsItems(ctx.db, {});
+    const { items } = await listNews();
     expect(items.find((i) => i.id === hex(1))?.titleEn).toBeNull();
   });
 
@@ -244,7 +278,7 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
       fields: ['title'],
       state: 'running',
     });
-    const { items } = await getNewsItems(ctx.db, {});
+    const { items } = await listNews();
     expect(items.find((i) => i.id === hex(1))?.titleEn).toBe('Stale');
   });
 
@@ -259,13 +293,13 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
         model: 'm',
       });
     }
-    const { items } = await getNewsItems(ctx.db, {});
+    const { items } = await listNews();
     expect(items.filter((i) => i.id === hex(1))).toHaveLength(1);
     expect(items.find((i) => i.id === hex(1))?.titleEn).toBe('T');
   });
 });
 
-describe('getTopics current-language title join (DQX-11)', () => {
+describe('topics list title relation (DQX-11)', () => {
   it('surfaces titleEn when present, null otherwise', async () => {
     await upsertTopic(ctx.db, {
       id: hex(1),
@@ -286,8 +320,11 @@ describe('getTopics current-language title join (DQX-11)', () => {
       model: 'm',
     });
 
-    const { items } = await getTopics(ctx.db, {});
-    const byId = new Map(items.map((t) => [t.id, t]));
+    const rows = await ctx.db.query.topics.findMany({
+      with: { title: { where: { language: 'en' }, columns: { value: true } } },
+      orderBy: { publishedAt: 'desc' },
+    });
+    const byId = new Map(rows.map(withTitleEn).map((t) => [t.id, t]));
     expect(byId.get(hex(1))?.titleEn).toBe('Topic One');
     expect(byId.get(hex(2))?.titleEn).toBeNull();
   });

@@ -8,7 +8,6 @@ import {
   desc,
   eq,
   exists,
-  getTableColumns,
   gt,
   gte,
   inArray,
@@ -24,13 +23,10 @@ import type { BatchItem } from 'drizzle-orm/batch';
 import { Temporal } from 'temporal-polyfill';
 
 import { collectImages, imageKey, type Block } from '@hiroba/richtext';
-import {
-  getNextCheckTime,
-  type Category,
-  type PhaseState,
-} from '@hiroba/shared';
+import { getNextCheckTime, type PhaseState } from '@hiroba/shared';
 
 import type { Database } from './client';
+import { withTitleEn } from './relations';
 import {
   buildResetEvents,
   RESET_SOURCE_TYPE,
@@ -38,12 +34,7 @@ import {
 } from './reset-events';
 import { articleImages } from './schema/article-images';
 import { banners } from './schema/banners';
-import {
-  events,
-  eventSources,
-  type Event,
-  type NewEvent,
-} from './schema/events';
+import { events, type Event, type NewEvent } from './schema/events';
 import { images, type Image } from './schema/images';
 import { getEnabledLanguages } from './schema/languages';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
@@ -145,78 +136,10 @@ export async function upsertListItems(
   return inserted;
 }
 
-/** A news item plus its resolved current-language title (null ⇒ show titleJa). */
+/** A news item plus its resolved current-language title (null ⇒ show titleJa).
+ *  Produced by flattening the `title` relation (see relations.ts) with
+ *  `withTitleEn` at list call sites. */
 export type LocalizedNewsItem = NewsItem & { titleEn: string | null };
-
-/**
- * Get paginated list of news items, each carrying its current-language title
- * (`titleEn`) joined from the translations table so lists read in the target
- * language before the article is ever opened (DQX-11).
- *
- * The join is one-to-one — the translations PK is unique per
- * (item_type, item_id, language, field) — so it never multiplies rows. `titleEn`
- * is null when no translation exists yet; a stale value from an in-flight
- * re-translation is still the best thing to render, so the row's state is not
- * filtered (mirrors the detail page).
- */
-export async function getNewsItems(
-  db: Database,
-  options: {
-    category?: Category;
-    limit?: number;
-    cursor?: string;
-    language?: string;
-  } = {},
-): Promise<{
-  items: LocalizedNewsItem[];
-  hasMore: boolean;
-  nextCursor?: string;
-}> {
-  const limit = Math.min(options.limit ?? 20, 100);
-  const language = options.language ?? 'en';
-
-  const conditions = [];
-
-  if (options.category) {
-    conditions.push(eq(newsItems.category, options.category));
-  }
-
-  if (options.cursor) {
-    const cursorInstant = Temporal.Instant.from(options.cursor);
-    conditions.push(lt(newsItems.publishedAt, cursorInstant));
-  }
-
-  const query = db
-    .select({
-      ...getTableColumns(newsItems),
-      titleEn: translations.value,
-    })
-    .from(newsItems)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'news'),
-        eq(translations.itemId, newsItems.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(newsItems.publishedAt))
-    .limit(limit + 1);
-
-  const results = await query.all();
-  const hasMore = results.length > limit;
-  const items = hasMore ? results.slice(0, -1) : results;
-
-  return {
-    items,
-    hasMore,
-    nextCursor: hasMore
-      ? items[items.length - 1].publishedAt.toString()
-      : undefined,
-  };
-}
 
 /**
  * Fetch `{id, titleJa}` for a set of items of one type — the input the title
@@ -785,64 +708,6 @@ export async function updateArticleSource(
 export type LocalizedTopic = Topic & { titleEn: string | null };
 
 /**
- * Get paginated list of topics (mirrors getNewsItems, including the
- * current-language title join — see getNewsItems for the join's semantics).
- */
-export async function getTopics(
-  db: Database,
-  options: {
-    category?: string;
-    limit?: number;
-    cursor?: string;
-    language?: string;
-  } = {},
-): Promise<{ items: LocalizedTopic[]; hasMore: boolean; nextCursor?: string }> {
-  const limit = Math.min(options.limit ?? 20, 100);
-  const language = options.language ?? 'en';
-
-  const conditions = [];
-  if (options.category) {
-    conditions.push(eq(topics.category, options.category));
-  }
-  if (options.cursor) {
-    conditions.push(
-      lt(topics.publishedAt, Temporal.Instant.from(options.cursor)),
-    );
-  }
-
-  const results = await db
-    .select({
-      ...getTableColumns(topics),
-      titleEn: translations.value,
-    })
-    .from(topics)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'topic'),
-        eq(translations.itemId, topics.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(topics.publishedAt))
-    .limit(limit + 1)
-    .all();
-
-  const hasMore = results.length > limit;
-  const items = hasMore ? results.slice(0, -1) : results;
-
-  return {
-    items,
-    hasMore,
-    nextCursor: hasMore
-      ? items[items.length - 1].publishedAt.toString()
-      : undefined,
-  };
-}
-
-/**
  * Lightweight paginated news list for the admin UI (mirrors listTopicsAdmin):
  * no block trees on the wire — a `hasBody` flag plus per-item translation
  * status.
@@ -1121,36 +986,6 @@ export async function updatePlayguideBlocks(
 export type LocalizedPlayguide = Playguide & { titleEn: string | null };
 
 /**
- * Playguide list in crawl order, each carrying its current-language title
- * (mirrors getTopics; ordered by sortOrder since guides have no date). Not
- * cursor-paginated — the guide set is small and bounded.
- */
-export async function getPlayguides(
-  db: Database,
-  options: { language?: string; limit?: number } = {},
-): Promise<LocalizedPlayguide[]> {
-  const language = options.language ?? 'en';
-  const query = db
-    .select({
-      ...getTableColumns(playguides),
-      titleEn: translations.value,
-    })
-    .from(playguides)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'playguide'),
-        eq(translations.itemId, playguides.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .orderBy(asc(playguides.sortOrder), asc(playguides.id));
-
-  return options.limit ? query.limit(options.limit).all() : query.all();
-}
-
-/**
  * Lightweight playguide list for the admin UI (mirrors listTopicsAdmin): a
  * `hasBody` flag plus per-item translation status, no block trees on the wire.
  */
@@ -1416,22 +1251,15 @@ export async function getEventsForSource(
   sourceId: string,
   language: string = 'en',
 ): Promise<EventWithTitle[]> {
-  // Via the provenance join, not events.source_id: a campaign mentioned here
-  // but whose *primary* source is a different article (its own dedicated page)
-  // must still appear in this article's rail.
-  const rows = await db
-    .select(getTableColumns(events))
-    .from(events)
-    .innerJoin(eventSources, eq(eventSources.eventId, events.id))
-    .where(
-      and(
-        eq(eventSources.sourceType, sourceType),
-        eq(eventSources.sourceId, sourceId),
-      ),
-    )
-    .orderBy(asc(events.startTime))
-    .all();
-  return mergeEventTitles(db, rows, language);
+  // Via the provenance relation, not events.source_id: a campaign mentioned
+  // here but whose *primary* source is a different article (its own dedicated
+  // page) must still appear in this article's rail.
+  const rows = await db.query.events.findMany({
+    where: { sources: { sourceType, sourceId } },
+    with: { title: { where: { language }, columns: { value: true } } },
+    orderBy: { startTime: 'asc' },
+  });
+  return rows.map(withTitleEn);
 }
 
 /**
@@ -1452,58 +1280,22 @@ export async function getEventsForDay(
 ): Promise<EventWithTitle[]> {
   const dayStart = jstDate.toZonedDateTime('Asia/Tokyo');
   const dayEnd = dayStart.add({ days: 1 });
-  const rows = await db
-    .select()
-    .from(events)
-    .where(
-      and(
-        lt(events.startTime, dayEnd),
-        or(
-          // Starts within the day (covers point-in-time events at 00:00)…
-          gte(events.startTime, dayStart),
-          // …or began earlier and runs strictly past 00:00. An event ending
-          // exactly at 00:00 belongs to the previous day, so it no longer shows
-          // as a zero-height sliver pinned to the top of this one.
-          gt(events.endTime, dayStart),
-        ),
-      ),
-    )
-    .orderBy(asc(events.startTime))
-    .all();
-  return mergeEventTitles(db, rows, language);
-}
-
-/**
- * Merge each event row with its title translation for `language`. Shared by the
- * per-source and per-day fetches. Stale-while-revalidate: keep a running
- * re-translation's prior value; skip only value-less rows (mirrors
- * getArticleTranslations).
- */
-async function mergeEventTitles(
-  db: Database,
-  rows: Event[],
-  language: string,
-): Promise<EventWithTitle[]> {
-  if (rows.length === 0) return [];
-  const ids = rows.map((r) => r.id);
-  const trans = await chunked(ids, (slice) =>
-    db
-      .select()
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'event'),
-          eq(translations.language, language),
-          eq(translations.field, 'title'),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
-  );
-  const byId = new Map(
-    trans.filter((t) => t.value !== null).map((t) => [t.itemId, t.value]),
-  );
-  return rows.map((r) => ({ ...r, titleEn: byId.get(r.id) ?? null }));
+  const rows = await db.query.events.findMany({
+    where: {
+      startTime: { lt: dayEnd },
+      OR: [
+        // Starts within the day (covers point-in-time events at 00:00)…
+        { startTime: { gte: dayStart } },
+        // …or began earlier and runs strictly past 00:00. An event ending
+        // exactly at 00:00 belongs to the previous day, so it no longer shows
+        // as a zero-height sliver pinned to the top of this one.
+        { endTime: { gt: dayStart } },
+      ],
+    },
+    with: { title: { where: { language }, columns: { value: true } } },
+    orderBy: { startTime: 'asc' },
+  });
+  return rows.map(withTitleEn);
 }
 
 /**

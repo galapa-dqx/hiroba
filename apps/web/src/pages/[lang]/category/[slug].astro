@@ -7,7 +7,8 @@ import BackLink from "../../../components/BackLink.astro";
 import Pagination from "../../../components/Pagination.astro";
 import PanelSection from "../../../components/PanelSection.astro";
 import * as Sentry from "@sentry/cloudflare";
-import { createDb, getNewsItems, type LocalizedNewsItem } from "@hiroba/db";
+import { Temporal } from "temporal-polyfill";
+import { createDb, withTitleEn, type LocalizedNewsItem } from "@hiroba/db";
 import { CATEGORIES, type Category } from "@hiroba/shared";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
 import { categoryLabel, useTranslations } from "../../../i18n";
@@ -30,16 +31,28 @@ let items: LocalizedNewsItem[] = [];
 let hasMore = false;
 let nextCursor: string | undefined;
 
+const PAGE_SIZE = 20;
+
 try {
-	const result = await getNewsItems(db, { category, limit: 20, cursor, language: lang });
-	items = result.items;
-	hasMore = result.hasMore;
-	nextCursor = result.nextCursor;
+	// Newest-first cursor pagination: over-fetch by one to learn hasMore; the
+	// cursor is the last row's publishedAt (strict less-than on the next page).
+	const rows = await db.query.newsItems.findMany({
+		where: {
+			category,
+			...(cursor ? { publishedAt: { lt: Temporal.Instant.from(cursor) } } : {}),
+		},
+		with: { title: { where: { language: lang }, columns: { value: true } } },
+		orderBy: { publishedAt: "desc" },
+		limit: PAGE_SIZE + 1,
+	});
+	hasMore = rows.length > PAGE_SIZE;
+	items = (hasMore ? rows.slice(0, PAGE_SIZE) : rows).map(withTitleEn);
+	nextCursor = hasMore ? items[items.length - 1].publishedAt.toString() : undefined;
 	// If this language is meaningfully behind on titles, backfill the archive.
 	await maybeTriggerTitleBackfill(lang, items);
 } catch (err) {
 	// Show empty list on error — but surface the (previously swallowed) cause.
-	console.error(`category ${category}: getNewsItems threw`, err);
+	console.error(`category ${category}: news query threw`, err);
 	Sentry.captureException(err, {
 		tags: { site_area: "category-list", category },
 	});

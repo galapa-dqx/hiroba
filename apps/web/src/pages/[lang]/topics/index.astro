@@ -7,7 +7,8 @@ import BackLink from "../../../components/BackLink.astro";
 import Pagination from "../../../components/Pagination.astro";
 import PanelSection from "../../../components/PanelSection.astro";
 import * as Sentry from "@sentry/cloudflare";
-import { createDb, getTopics, type LocalizedTopic } from "@hiroba/db";
+import { Temporal } from "temporal-polyfill";
+import { createDb, withTitleEn, type LocalizedTopic } from "@hiroba/db";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
 import { useTranslations } from "../../../i18n";
 
@@ -22,16 +23,26 @@ let items: LocalizedTopic[] = [];
 let hasMore = false;
 let nextCursor: string | undefined;
 
+const PAGE_SIZE = 20;
+
 try {
-	const result = await getTopics(db, { limit: 20, cursor, language: lang });
-	items = result.items;
-	hasMore = result.hasMore;
-	nextCursor = result.nextCursor;
+	// Newest-first cursor pagination (mirrors the category list page).
+	const rows = await db.query.topics.findMany({
+		where: cursor
+			? { publishedAt: { lt: Temporal.Instant.from(cursor) } }
+			: undefined,
+		with: { title: { where: { language: lang }, columns: { value: true } } },
+		orderBy: { publishedAt: "desc" },
+		limit: PAGE_SIZE + 1,
+	});
+	hasMore = rows.length > PAGE_SIZE;
+	items = (hasMore ? rows.slice(0, PAGE_SIZE) : rows).map(withTitleEn);
+	nextCursor = hasMore ? items[items.length - 1].publishedAt.toString() : undefined;
 	// If this language is meaningfully behind on titles, backfill the archive.
 	await maybeTriggerTitleBackfill(lang, items);
 } catch (err) {
 	// Show empty list on error — surface the (previously swallowed) cause.
-	console.error("topics: getTopics threw", err);
+	console.error("topics: topic query threw", err);
 	Sentry.captureException(err, { tags: { site_area: "topics" } });
 }
 
