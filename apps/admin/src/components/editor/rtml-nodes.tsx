@@ -68,7 +68,7 @@ import { resolveImageId } from '../../lib/api';
  * it rewrites the rendered `<img src>` and never touches the stored block, so
  * saving still round-trips the original source URL.
  */
-export type PreservedRenderContextValue = {
+type PreservedRenderContextValue = {
   /** Rewrites image/icon URLs (e.g. → `/img/l10n/<lang>/v<ts>/<key>`). */
   imageSrc?: (src: string) => string;
 };

@@ -5,7 +5,7 @@ import {
   findArticlesContainingSourcePage,
   findImagesContainingSourcePage,
 } from './queries';
-import { images } from './schema/images';
+import { imageSources } from './schema/image-sources';
 import { newsItems } from './schema/news-items';
 import { playguides } from './schema/playguides';
 import { topics } from './schema/topics';
@@ -147,7 +147,7 @@ describe('findArticlesContainingSourcePage', () => {
 
 describe('findImagesContainingSourcePage', () => {
   const imageWith = (key: string, textsJa: string[] | null) =>
-    ctx.db.insert(images).values({ key, textsJa, updatedAt: AT });
+    ctx.db.insert(imageSources).values({ key, textsJa, updatedAt: AT });
 
   it('matches only images whose transcribed spans contain the term', async () => {
     await imageWith('host/hit.png', [`${TERM}の看板`, 'その他']);

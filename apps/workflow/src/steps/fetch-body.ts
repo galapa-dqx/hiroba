@@ -43,7 +43,7 @@ export function fetchAndSaveArticleBody(
  * scraping seeds it); a fetched block tree is left untouched so a mid-pipeline
  * re-run is cheap.
  */
-export async function fetchAndSaveNewsBody(
+async function fetchAndSaveNewsBody(
   db: Database,
   itemId: string,
 ): Promise<FetchBodyResult> {
@@ -104,7 +104,7 @@ export async function fetchAndSaveNewsBody(
  * yet, so this upserts — keeping an accurate published date if list scraping
  * seeded one, otherwise stamping now (the topics list scraper backfills later).
  */
-export async function fetchAndSaveTopicBody(
+async function fetchAndSaveTopicBody(
   db: Database,
   itemId: string,
 ): Promise<FetchBodyResult> {
@@ -130,7 +130,7 @@ export async function fetchAndSaveTopicBody(
  * wins when present, else the crawl-seeded anchor label is kept, else the
  * scraper's self-contained fallback (tit_icon / #cttTitle / slug).
  */
-export async function fetchAndSavePlayguideBody(
+async function fetchAndSavePlayguideBody(
   db: Database,
   itemId: string,
 ): Promise<FetchBodyResult> {

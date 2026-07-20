@@ -13,7 +13,7 @@ import type { ItemType } from './types';
 export const ARTICLE_ITEM_TYPES = ['news', 'topic', 'playguide'] as const;
 
 /** Parse a wire `itemType` string to a pipeline item type (news default). */
-export function parseItemType(value: string | null | undefined): ItemType {
+function parseItemType(value: string | null | undefined): ItemType {
   return (ARTICLE_ITEM_TYPES as readonly string[]).includes(value ?? '')
     ? (value as ItemType)
     : 'news';

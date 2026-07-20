@@ -33,7 +33,7 @@
  * plain-node vitest.
  */
 
-import { createDb, ensureImageRows, getImagesByKeys } from '@hiroba/db';
+import { createDb, ensureImageSourceRows, getImageSourcesByKeys } from '@hiroba/db';
 import { joinRequest, type Flow, type PhaseStep } from '@hiroba/flow';
 import {
   ImageIngestFlow,
@@ -134,7 +134,7 @@ function imageIngestItems(blocks: Block[]): ImageIngestItem[] {
  * survives restarts — then its results are applied in a final step. Event
  * titles are small and always sync.
  */
-export async function translateSizeGated(
+async function translateSizeGated(
   s: PhaseStep,
   env: Pick<ArticlePipelineEnv, 'DB' | 'GEMINI_API_KEY'>,
   itemType: ItemType,
@@ -249,7 +249,7 @@ export async function imageAndOutputPipeline(
       const items = imageIngestItems(
         await getArticleBlocks(db, itemType, itemId),
       );
-      await ensureImageRows(
+      await ensureImageSourceRows(
         db,
         items.map((i) => i.key),
       );
@@ -285,7 +285,7 @@ export async function imageAndOutputPipeline(
             .filter((k): k is string => !!k),
         ),
       ];
-      const rows = keys.length > 0 ? await getImagesByKeys(db, keys) : [];
+      const rows = keys.length > 0 ? await getImageSourcesByKeys(db, keys) : [];
       // Plain-literal pairs, never the rows themselves: the memoized unit set
       // is engine-serialized, and a full row's Temporal.Instant updatedAt
       // isn't serializable (the child re-reads its row from D1 instead).

@@ -100,7 +100,7 @@ export async function getItemRun(
  * language shows a whole page of JA fallbacks, which clears it. Small enough
  * that a language that's genuinely behind self-heals on the next visit.
  */
-export const BACKFILL_TITLE_THRESHOLD = 5;
+const BACKFILL_TITLE_THRESHOLD = 5;
 
 /**
  * Minimum gap between page-driven backfill starts for one language. A run in
@@ -125,7 +125,7 @@ const BACKFILL_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
  * start); failures are logged, never thrown — the list still renders its JA
  * fallbacks.
  */
-export async function triggerTitleBackfill(language: string): Promise<void> {
+async function triggerTitleBackfill(language: string): Promise<void> {
   try {
     const ns = env.FLOW_HUB;
     const stub = ns.get(ns.idFromName('hub'));

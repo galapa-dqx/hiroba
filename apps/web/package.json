@@ -17,7 +17,6 @@
     "@hiroba/flow": "workspace:*",
     "@hiroba/flows": "workspace:*",
     "@hiroba/richtext": "workspace:*",
-    "@hiroba/scraper": "workspace:*",
     "@hiroba/shared": "workspace:*",
     "@hiroba/ui": "workspace:*",
     "@sentry/cloudflare": "^10.34.0",

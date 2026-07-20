@@ -16,7 +16,7 @@
  * runFlowInline in plain-node vitest.
  */
 
-import { createDb, ensureImageRows } from '@hiroba/db';
+import { createDb, ensureImageSourceRows } from '@hiroba/db';
 import type { Flow } from '@hiroba/flow';
 import { type ImageIngestFlow } from '@hiroba/flows';
 
@@ -31,7 +31,7 @@ import type {
 /** The slice of the worker env the body actually touches. */
 export type ImageIngestFlowEnv = Pick<
   Env,
-  'DB' | 'IMAGES_BUCKET' | 'GEMINI_API_KEY'
+  'DB' | 'IMAGES_BUCKET' | 'IMAGES' | 'GEMINI_API_KEY'
 >;
 
 export async function runImageIngestFlow(
@@ -46,8 +46,8 @@ export async function runImageIngestFlow(
     // Self-contained discovery: the parent's list step ensures rows for its
     // whole set (the SSE progress denominator), but this child must not
     // depend on which parent started it.
-    await ensureImageRows(db, [imageKey]);
-    return mirrorOneImage(db, env.IMAGES_BUCKET, imageKey);
+    await ensureImageSourceRows(db, [imageKey]);
+    return mirrorOneImage(db, env.IMAGES_BUCKET, env.IMAGES, imageKey);
   });
 
   if (!transcribe) {

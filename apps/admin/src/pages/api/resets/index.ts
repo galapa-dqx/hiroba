@@ -18,7 +18,7 @@ import {
 } from '@hiroba/db';
 
 /** Slug we accept as a reset id (also the events-row id seed). */
-export const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
+const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/;
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {

@@ -98,7 +98,7 @@ export async function runBannerFlow(
 
   // 3. Mirror every banner image into R2.
   const mirror = await f.step('mirror', () =>
-    mirrorImages(db, env.IMAGES_BUCKET, blocks),
+    mirrorImages(db, env.IMAGES_BUCKET, env.IMAGES, blocks),
   );
 
   // 4. Transcribe the baked-in Japanese text.

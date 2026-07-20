@@ -35,7 +35,9 @@ import {
 import { articleImages } from './schema/article-images';
 import { banners } from './schema/banners';
 import { events, type Event, type NewEvent } from './schema/events';
-import { images, type Image } from './schema/images';
+import { imageFiles } from './schema/image-files';
+import { imageSources, type ImageSource } from './schema/image-sources';
+import { images } from './schema/images';
 import { getEnabledLanguages } from './schema/languages';
 import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
 import {
@@ -1159,15 +1161,15 @@ export async function findImagesContainingSourcePage(
   limit: number,
 ): Promise<Array<{ id: number; textsJa: string[] | null }>> {
   return db
-    .select({ id: images.id, textsJa: images.textsJa })
-    .from(images)
+    .select({ id: imageSources.id, textsJa: imageSources.textsJa })
+    .from(imageSources)
     .where(
       and(
-        sql`instr(${images.textsJa}, ${sourceText}) > 0`,
-        afterId != null ? gt(images.id, afterId) : undefined,
+        sql`instr(${imageSources.textsJa}, ${sourceText}) > 0`,
+        afterId != null ? gt(imageSources.id, afterId) : undefined,
       ),
     )
-    .orderBy(asc(images.id))
+    .orderBy(asc(imageSources.id))
     .limit(limit)
     .all();
 }
@@ -1870,10 +1872,11 @@ export async function failPipelineStates(
 }
 
 /**
- * Ensure an image row exists for every key, so the pipeline has rows to hang
- * transcription state on. Existing rows (any state) are left untouched.
+ * Ensure an image-source row exists for every key, so the pipeline has rows to
+ * hang transcription state (and renders) on. Existing rows (any state) are left
+ * untouched.
  */
-export async function ensureImageRows(
+export async function ensureImageSourceRows(
   db: Database,
   keys: string[],
 ): Promise<void> {
@@ -1883,7 +1886,7 @@ export async function ensureImageRows(
   const ROWS_PER_INSERT = 20;
   for (let i = 0; i < keys.length; i += ROWS_PER_INSERT) {
     await db
-      .insert(images)
+      .insert(imageSources)
       .values(
         keys
           .slice(i, i + ROWS_PER_INSERT)
@@ -1893,38 +1896,39 @@ export async function ensureImageRows(
   }
 }
 
-/** Set the transcription state on an image row (running/failed transitions). */
+/** Set the transcription state on an image-source row (running/failed transitions). */
 export async function setImageTranscribeState(
   db: Database,
   key: string,
   state: Exclude<PhaseState, 'done'>, // 'done' lands with texts via upsertImageTranscription
 ): Promise<void> {
   await db
-    .update(images)
+    .update(imageSources)
     .set({ transcribeState: state, updatedAt: Temporal.Now.instant() })
-    .where(eq(images.key, key));
+    .where(eq(imageSources.key, key));
 }
 
-/** Set the mirror (CDN → R2 copy) state on an image row. */
+/** Set the mirror (CDN → R2 copy) state on an image-source row. */
 export async function setImageMirrorState(
   db: Database,
   key: string,
   state: PhaseState,
 ): Promise<void> {
   await db
-    .update(images)
+    .update(imageSources)
     .set({ mirrorState: state, updatedAt: Temporal.Now.instant() })
-    .where(eq(images.key, key));
+    .where(eq(imageSources.key, key));
 }
 
 /* ------------------------------------------------------------------ *
- * Images (per-distinct-image transcription + localization state)
+ * Image sources (per-distinct-image transcription state) + renders
  * ------------------------------------------------------------------ */
 
 /**
- * Record an image's transcription (get-or-create by key). `textsJa` is every
- * transcribed span ([] if none). Returns the surrogate image id (used as
- * translations.item_id). Whether it's worth localizing is derived from textsJa.
+ * Record an image source's transcription (get-or-create by key). `textsJa` is
+ * every transcribed span ([] if none). Returns the surrogate source id (used as
+ * translations.item_id and images.source_id). Whether it's worth localizing is
+ * derived from textsJa.
  */
 export async function upsertImageTranscription(
   db: Database,
@@ -1932,7 +1936,7 @@ export async function upsertImageTranscription(
 ): Promise<number> {
   const now = Temporal.Now.instant();
   const rows = await db
-    .insert(images)
+    .insert(imageSources)
     .values({
       key: params.key,
       textsJa: params.textsJa,
@@ -1941,7 +1945,7 @@ export async function upsertImageTranscription(
       updatedAt: now,
     })
     .onConflictDoUpdate({
-      target: images.key,
+      target: imageSources.key,
       set: {
         textsJa: params.textsJa,
         transcribeModel: params.model,
@@ -1949,8 +1953,301 @@ export async function upsertImageTranscription(
         updatedAt: now,
       },
     })
-    .returning({ id: images.id });
+    .returning({ id: imageSources.id });
   return rows[0].id;
+}
+
+/* ------------------------------------------------------------------ *
+ * Renders (images + image_files) — one render per (source, language),
+ * latest-wins serving, complete-at-birth.
+ * ------------------------------------------------------------------ */
+
+/** Newest-wins comparison for renders: created_at, then id as tiebreak. */
+function renderIsNewer(
+  a: { createdAt: Temporal.Instant; id: string },
+  b: { createdAt: Temporal.Instant; id: string },
+): boolean {
+  const c = Temporal.Instant.compare(a.createdAt, b.createdAt);
+  return c > 0 || (c === 0 && a.id > b.id);
+}
+
+/** One stored file of a render — measured at write time (NULLs on seeds). */
+export type RenderFileInput = {
+  key: string;
+  isPrimary: boolean;
+  mime: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+};
+
+/**
+ * Insert one render (an `images` row) plus all its `image_files` in ONE atomic
+ * D1 batch — complete-at-birth, so a render either exists with its files or
+ * never existed. `id` is client-allocated (crypto.randomUUID()); `language` is
+ * NULL for a mirrored original.
+ */
+export async function insertImageRender(
+  db: Database,
+  params: {
+    id: string;
+    sourceId: number;
+    language: string | null;
+    model: string | null;
+    files: RenderFileInput[];
+  },
+): Promise<void> {
+  const now = Temporal.Now.instant();
+  const statements: BatchItem<'sqlite'>[] = [
+    db.insert(images).values({
+      id: params.id,
+      sourceId: params.sourceId,
+      language: params.language,
+      model: params.model,
+      createdAt: now,
+    }),
+    ...params.files.map((f) =>
+      db.insert(imageFiles).values({
+        key: f.key,
+        imageId: params.id,
+        isPrimary: f.isPrimary,
+        mime: f.mime,
+        width: f.width,
+        height: f.height,
+        bytes: f.bytes,
+        createdAt: now,
+      }),
+    ),
+  ];
+  await db.batch(statements as [BatchItem<'sqlite'>, ...BatchItem<'sqlite'>[]]);
+}
+
+/** Whether a source already has a mirrored-original render (language NULL). One
+ *  original per source — mirror creates it once, so re-mirrors don't duplicate
+ *  it (its primary file sits at the fixed source key). */
+export async function hasOriginalRender(
+  db: Database,
+  sourceId: number,
+): Promise<boolean> {
+  const row = await db
+    .select({ id: images.id })
+    .from(images)
+    .where(and(eq(images.sourceId, sourceId), isNull(images.language)))
+    .limit(1)
+    .get();
+  return !!row;
+}
+
+/** The served primary file of a render — the object key + measured metadata. */
+export type ServedFile = {
+  key: string;
+  mime: string | null;
+  width: number | null;
+  height: number | null;
+};
+
+/** The renders serving a source in one language: the newest localized render
+ *  (language match) and the mirrored original (language NULL) fallback. */
+export type ServedRenders = {
+  localized: ServedFile | null;
+  original: ServedFile | null;
+};
+
+/**
+ * Latest-wins serving for a set of sources in one language. For each source
+ * returns the newest localized render's primary file (for `language`) and the
+ * newest original's primary file (the mirrored fallback). Readers serve the
+ * localized file on translated pages, else the original, else the raw source.
+ */
+export async function getServedImages(
+  db: Database,
+  sourceIds: number[],
+  language: string,
+): Promise<Map<number, ServedRenders>> {
+  const result = new Map<number, ServedRenders>();
+  if (sourceIds.length === 0) return result;
+
+  const rows = await chunked(sourceIds, (slice) =>
+    db
+      .select({
+        sourceId: images.sourceId,
+        language: images.language,
+        createdAt: images.createdAt,
+        id: images.id,
+        key: imageFiles.key,
+        mime: imageFiles.mime,
+        width: imageFiles.width,
+        height: imageFiles.height,
+      })
+      .from(images)
+      .innerJoin(
+        imageFiles,
+        and(eq(imageFiles.imageId, images.id), eq(imageFiles.isPrimary, true)),
+      )
+      .where(
+        and(
+          inArray(images.sourceId, slice),
+          or(eq(images.language, language), isNull(images.language)),
+        ),
+      )
+      .all(),
+  );
+
+  // Keep the newest render per (source, localized|original) bucket.
+  const best = new Map<
+    string,
+    { createdAt: Temporal.Instant; id: string; file: ServedFile }
+  >();
+  for (const r of rows) {
+    const mapKey = `${r.sourceId}:${r.language === null ? 'o' : 'l'}`;
+    const cand = {
+      createdAt: r.createdAt,
+      id: r.id,
+      file: { key: r.key, mime: r.mime, width: r.width, height: r.height },
+    };
+    const prev = best.get(mapKey);
+    if (!prev || renderIsNewer(cand, prev)) best.set(mapKey, cand);
+  }
+  for (const sourceId of sourceIds) {
+    result.set(sourceId, {
+      localized: best.get(`${sourceId}:l`)?.file ?? null,
+      original: best.get(`${sourceId}:o`)?.file ?? null,
+    });
+  }
+  return result;
+}
+
+/**
+ * Model of the newest render per (source, language) — the localize step's skip
+ * identity (regenerate only when the newest render's model changed or none
+ * exists). Sources without a localized render are absent from the map.
+ */
+export async function getLatestRenderModels(
+  db: Database,
+  sourceIds: number[],
+  language: string,
+): Promise<Map<number, string | null>> {
+  const result = new Map<number, string | null>();
+  if (sourceIds.length === 0) return result;
+
+  const rows = await chunked(sourceIds, (slice) =>
+    db
+      .select({
+        sourceId: images.sourceId,
+        model: images.model,
+        createdAt: images.createdAt,
+        id: images.id,
+      })
+      .from(images)
+      .where(
+        and(inArray(images.sourceId, slice), eq(images.language, language)),
+      )
+      .all(),
+  );
+
+  const best = new Map<
+    number,
+    { createdAt: Temporal.Instant; id: string; model: string | null }
+  >();
+  for (const r of rows) {
+    const prev = best.get(r.sourceId);
+    if (!prev || renderIsNewer(r, prev)) best.set(r.sourceId, r);
+  }
+  for (const [sourceId, v] of best) result.set(sourceId, v.model);
+  return result;
+}
+
+/** The newest localized render for a source in one language — its primary file
+ *  key, producing model, and timestamp (the admin panels' localized-image
+ *  state, now that there's no `url` translation row). */
+export type LatestRender = {
+  key: string;
+  model: string | null;
+  createdAt: Temporal.Instant;
+};
+
+/**
+ * Newest localized render per source for one language (primary file key + model
+ * + created_at) — the admin Images list's localized-image column.
+ */
+export async function getLatestLocalizedRenders(
+  db: Database,
+  sourceIds: number[],
+  language: string,
+): Promise<Map<number, LatestRender>> {
+  const result = new Map<number, LatestRender>();
+  if (sourceIds.length === 0) return result;
+
+  const rows = await chunked(sourceIds, (slice) =>
+    db
+      .select({
+        sourceId: images.sourceId,
+        model: images.model,
+        createdAt: images.createdAt,
+        id: images.id,
+        key: imageFiles.key,
+      })
+      .from(images)
+      .innerJoin(
+        imageFiles,
+        and(eq(imageFiles.imageId, images.id), eq(imageFiles.isPrimary, true)),
+      )
+      .where(
+        and(inArray(images.sourceId, slice), eq(images.language, language)),
+      )
+      .all(),
+  );
+
+  const best = new Map<number, { createdAt: Temporal.Instant; id: string }>();
+  for (const r of rows) {
+    const prev = best.get(r.sourceId);
+    if (!prev || renderIsNewer(r, prev)) {
+      best.set(r.sourceId, r);
+      result.set(r.sourceId, {
+        key: r.key,
+        model: r.model,
+        createdAt: r.createdAt,
+      });
+    }
+  }
+  return result;
+}
+
+/**
+ * Newest localized render per language for ONE source (primary file key + model
+ * + created_at) — the admin image-edit screen's per-language state.
+ */
+export async function getLatestRendersBySource(
+  db: Database,
+  sourceId: number,
+): Promise<Map<string, LatestRender>> {
+  const rows = await db
+    .select({
+      language: images.language,
+      model: images.model,
+      createdAt: images.createdAt,
+      id: images.id,
+      key: imageFiles.key,
+    })
+    .from(images)
+    .innerJoin(
+      imageFiles,
+      and(eq(imageFiles.imageId, images.id), eq(imageFiles.isPrimary, true)),
+    )
+    .where(and(eq(images.sourceId, sourceId), isNotNull(images.language)))
+    .all();
+
+  const result = new Map<string, LatestRender>();
+  const best = new Map<string, { createdAt: Temporal.Instant; id: string }>();
+  for (const r of rows) {
+    const lang = r.language!;
+    const prev = best.get(lang);
+    if (!prev || renderIsNewer(r, prev)) {
+      best.set(lang, r);
+      result.set(lang, { key: r.key, model: r.model, createdAt: r.createdAt });
+    }
+  }
+  return result;
 }
 
 /** One row of an image's restructured Japanese spans. `from` is the index the
@@ -1992,9 +2289,9 @@ export async function restructureImageTexts(
 
   const statements: BatchItem<'sqlite'>[] = [
     db
-      .update(images)
+      .update(imageSources)
       .set({ textsJa: spans.map((s) => s.text), updatedAt: now })
-      .where(eq(images.id, imageId)),
+      .where(eq(imageSources.id, imageId)),
   ];
 
   for (const row of rows) {
@@ -2107,13 +2404,17 @@ export async function backfillArticleImages(
   };
 }
 
-/** Look up image rows by their natural keys (imageKey). */
-export async function getImagesByKeys(
+/** Look up image-source rows by their natural keys (imageKey). */
+export async function getImageSourcesByKeys(
   db: Database,
   keys: string[],
-): Promise<Image[]> {
+): Promise<ImageSource[]> {
   return chunked(keys, (slice) =>
-    db.select().from(images).where(inArray(images.key, slice)).all(),
+    db
+      .select()
+      .from(imageSources)
+      .where(inArray(imageSources.key, slice))
+      .all(),
   );
 }
 
@@ -2142,38 +2443,14 @@ export async function getTranslatedImageIds(
 }
 
 /**
- * Map image id → pipeline state of its translation row for a `field` and
- * language. Ids without a row are absent (i.e. derived-pending).
+ * Map image-source id → its translated `text` spans (the JSON array string) for
+ * one language. Only the translated-spans field lives in `translations` now;
+ * the localized raster lives on renders (see getServedImages).
  */
-export async function getImageTranslationStates(
-  db: Database,
-  imageIds: number[],
-  language: string,
-  field: 'text' | 'url',
-): Promise<Map<number, PhaseState>> {
-  const rows = await chunked(imageIds.map(String), (slice) =>
-    db
-      .select({ itemId: translations.itemId, state: translations.state })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'image'),
-          eq(translations.language, language),
-          eq(translations.field, field),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
-  );
-  return new Map(rows.map((r) => [Number(r.itemId), r.state]));
-}
-
-/** Map image id → translation value for a given `field` ('text' | 'url') and language. */
 export async function getImageTranslations(
   db: Database,
   imageIds: number[],
   language: string,
-  field: 'text' | 'url',
 ): Promise<Map<number, string>> {
   const rows = await chunked(imageIds.map(String), (slice) =>
     db
@@ -2183,7 +2460,7 @@ export async function getImageTranslations(
         and(
           eq(translations.itemType, 'image'),
           eq(translations.language, language),
-          eq(translations.field, field),
+          eq(translations.field, 'text'),
           isNotNull(translations.value),
           inArray(translations.itemId, slice),
         ),
@@ -2194,43 +2471,15 @@ export async function getImageTranslations(
 }
 
 /**
- * Map image id → the model that produced its localized image (the `url` row's
- * model), for a language. Lets the localize step regenerate only when the model
- * changed (or is missing).
- */
-export async function getLocalizedImageModels(
-  db: Database,
-  imageIds: number[],
-  language: string,
-): Promise<Map<number, string>> {
-  const rows = await chunked(imageIds.map(String), (slice) =>
-    db
-      .select({ itemId: translations.itemId, model: translations.model })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'image'),
-          eq(translations.language, language),
-          eq(translations.field, 'url'),
-          eq(translations.state, 'done'),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
-  );
-  return new Map(rows.map((r) => [Number(r.itemId), r.model!]));
-}
-
-/**
- * One stored image plus its per-language translation rows — the shape behind
- * the admin Images screen. `text` is the translated spans row, `url` the
- * localized-image row (its `value` is the R2 key). Either is null when that
- * step hasn't created a row yet for the language.
+ * One image source plus its per-language state — the shape behind the admin
+ * Images screen. `text` is the translated-spans row (null until that step runs);
+ * `localized` is the newest localized render for the language (null until one
+ * exists — its presence IS the "localized" signal, there's no `url` row now).
  */
 export type AdminImageRow = {
-  image: Image;
+  image: ImageSource;
   text: Translation | null;
-  url: Translation | null;
+  localized: LatestRender | null;
   /** True when this image backs a rotation banner (banners.imageKey = key). */
   isBanner: boolean;
 };
@@ -2248,9 +2497,9 @@ export type ImageSourceFilter = 'banner';
 const JAPANESE_GLOB = '*[぀-ヿ㐀-䶿一-鿿ｦ-ﾟ]*';
 
 /**
- * List stored images newest-first (by surrogate id), each paired with its
- * `text`/`url` translation rows for one language. Cursor-paginated on the id so
- * the admin can lazily page the whole corpus.
+ * List image sources newest-first (by surrogate id), each paired with its
+ * translated-spans row and newest localized render for one language.
+ * Cursor-paginated on the id so the admin can lazily page the whole corpus.
  *
  * `onlyText` and `source` filter server-side (in the WHERE clause), so paging
  * and the has-more/next-cursor accounting are computed over the filtered set —
@@ -2273,11 +2522,11 @@ export async function listImagesForAdmin(
   // above every id (ids are autoincrement, so MAX_SAFE_INTEGER matches all).
   const cursor = opts.cursor ?? Number.MAX_SAFE_INTEGER;
 
-  const conditions = [lt(images.id, cursor)];
+  const conditions = [lt(imageSources.id, cursor)];
   if (opts.onlyText) {
     // Transcribed (non-null) and carrying at least one Japanese character.
-    conditions.push(isNotNull(images.textsJa));
-    conditions.push(sql`${images.textsJa} GLOB ${JAPANESE_GLOB}`);
+    conditions.push(isNotNull(imageSources.textsJa));
+    conditions.push(sql`${imageSources.textsJa} GLOB ${JAPANESE_GLOB}`);
   }
   if (opts.source === 'banner') {
     conditions.push(
@@ -2285,26 +2534,26 @@ export async function listImagesForAdmin(
         db
           .select({ one: sql`1` })
           .from(banners)
-          .where(eq(banners.imageKey, images.key)),
+          .where(eq(banners.imageKey, imageSources.key)),
       ),
     );
   }
 
   const imgRows = await db
     .select()
-    .from(images)
+    .from(imageSources)
     .where(and(...conditions))
-    .orderBy(desc(images.id))
+    .orderBy(desc(imageSources.id))
     .limit(limit + 1)
     .all();
 
   const hasMore = imgRows.length > limit;
   const page = hasMore ? imgRows.slice(0, limit) : imgRows;
 
-  // Pull this language's text + url rows for the whole page in one fan-out.
-  const ids = page.map((r) => String(r.id));
+  // This language's translated-spans rows + newest localized render per source.
+  const ids = page.map((r) => r.id);
   const trRows = ids.length
-    ? await chunked(ids, (slice) =>
+    ? await chunked(ids.map(String), (slice) =>
         db
           .select()
           .from(translations)
@@ -2312,19 +2561,17 @@ export async function listImagesForAdmin(
             and(
               eq(translations.itemType, 'image'),
               eq(translations.language, opts.language),
-              inArray(translations.field, ['text', 'url']),
+              eq(translations.field, 'text'),
               inArray(translations.itemId, slice),
             ),
           )
           .all(),
       )
     : [];
-
   const textById = new Map<number, Translation>();
-  const urlById = new Map<number, Translation>();
-  for (const tr of trRows) {
-    (tr.field === 'url' ? urlById : textById).set(Number(tr.itemId), tr);
-  }
+  for (const tr of trRows) textById.set(Number(tr.itemId), tr);
+
+  const localizedById = await getLatestLocalizedRenders(db, ids, opts.language);
 
   // Which of this page's images back a rotation banner (banners.imageKey = key).
   // Banners are the one image source with a first-class join, so we can tag them
@@ -2349,7 +2596,7 @@ export async function listImagesForAdmin(
   const rows = page.map((image) => ({
     image,
     text: textById.get(image.id) ?? null,
-    url: urlById.get(image.id) ?? null,
+    localized: localizedById.get(image.id) ?? null,
     isBanner: bannerKeys.has(image.key),
   }));
 
@@ -2399,13 +2646,15 @@ export async function getTitleTranslations(
  */
 export const MANUAL_IMAGE_MODEL = 'manual';
 
-/** Upsert a per-image translation row (item_type='image', item_id=image id). */
+/**
+ * Upsert an image source's translated-spans row (item_type='image', field='text',
+ * item_id=source id). The localized raster is written as a render, not here.
+ */
 export async function upsertImageTranslation(
   db: Database,
   params: {
     imageId: number;
     language: string;
-    field: 'text' | 'url';
     value: string;
     model: string;
   },
@@ -2417,7 +2666,7 @@ export async function upsertImageTranslation(
       itemType: 'image',
       itemId: String(params.imageId),
       language: params.language,
-      field: params.field,
+      field: 'text',
       state: 'done',
       value: params.value,
       translatedAt: now,

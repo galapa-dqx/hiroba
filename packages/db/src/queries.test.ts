@@ -4,18 +4,18 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   backfillArticleImages,
-  ensureImageRows,
+  ensureImageSourceRows,
   failPipelineStates,
   getEventsForDay,
-  getImagesByKeys,
-  getImageTranslations,
-  getImageTranslationStates,
+  getImageSourcesByKeys,
   getItemTitles,
   getRecheckQueue,
+  getServedImages,
   getStats,
   getTitleTranslations,
   getTranslationStates,
   getUntranslatedTitles,
+  insertImageRender,
   listImagesForAdmin,
   pruneScheduleEvents,
   replaceScheduleEvents,
@@ -39,7 +39,7 @@ import {
 } from './queries';
 import { withTitleEn } from './relations';
 import { events, type NewEvent } from './schema/events';
-import { images } from './schema/images';
+import { imageSources } from './schema/image-sources';
 import { newsItems, type ListItem } from './schema/news-items';
 import { topics } from './schema/topics';
 import { translations } from './schema/translations';
@@ -970,12 +970,12 @@ describe('pipeline state transitions', () => {
   });
 
   it('tracks image discovery and transcription state', async () => {
-    await ensureImageRows(ctx.db, ['host/a.png', 'host/b.png']);
+    await ensureImageSourceRows(ctx.db, ['host/a.png', 'host/b.png']);
     // Idempotent — a second discovery pass must not reset anything.
     await setImageTranscribeState(ctx.db, 'host/a.png', 'running');
-    await ensureImageRows(ctx.db, ['host/a.png']);
+    await ensureImageSourceRows(ctx.db, ['host/a.png']);
 
-    let rows = await ctx.db.select().from(images).all();
+    let rows = await ctx.db.select().from(imageSources).all();
     expect(rows.map((r) => r.transcribeState).sort()).toEqual([
       'pending',
       'running',
@@ -986,7 +986,7 @@ describe('pipeline state transitions', () => {
       textsJa: ['テキスト'],
       model: 'gemini',
     });
-    rows = await ctx.db.select().from(images).all();
+    rows = await ctx.db.select().from(imageSources).all();
     const a = rows.find((r) => r.key === 'host/a.png');
     expect(a?.transcribeState).toBe('done');
     expect(a?.textsJa).toEqual(['テキスト']);
@@ -1004,14 +1004,12 @@ describe('restructureImageTexts', () => {
     await upsertImageTranslation(ctx.db, {
       imageId: id,
       language: 'en',
-      field: 'text',
       value: JSON.stringify(['one', 'two', 'three']),
       model: 'gpt-4',
     });
     await upsertImageTranslation(ctx.db, {
       imageId: id,
       language: 'fr',
-      field: 'text',
       value: JSON.stringify(['un', 'deux', 'trois']),
       model: 'gpt-4',
     });
@@ -1035,8 +1033,13 @@ describe('restructureImageTexts', () => {
   };
 
   const jaFor = async (id: number) =>
-    (await ctx.db.select().from(images).where(eq(images.id, id)).get())
-      ?.textsJa;
+    (
+      await ctx.db
+        .select()
+        .from(imageSources)
+        .where(eq(imageSources.id, id))
+        .get()
+    )?.textsJa;
 
   it('drops a middle span from every language at once', async () => {
     const id = await seed();
@@ -1089,7 +1092,6 @@ describe('restructureImageTexts', () => {
     await upsertImageTranslation(ctx.db, {
       imageId: id,
       language: 'de',
-      field: 'text',
       value: JSON.stringify(['eins']),
       model: 'gpt-4',
     });
@@ -1118,37 +1120,39 @@ describe('IN-list chunking (D1 variable cap)', () => {
   it('handles image sets far beyond 100 bound parameters', async () => {
     const keys = Array.from({ length: 130 }, (_, i) => `host/img-${i}.png`);
 
-    await ensureImageRows(ctx.db, keys);
-    const rows = await getImagesByKeys(ctx.db, keys);
+    await ensureImageSourceRows(ctx.db, keys);
+    const rows = await getImageSourcesByKeys(ctx.db, keys);
     expect(rows).toHaveLength(130);
     expect(new Set(rows.map((r) => r.key)).size).toBe(130);
 
-    // Give every image a done url translation, then read them all back.
+    // Give the first 5 sources a localized render, then read all 130 back
+    // through the chunked serving query.
     for (const row of rows.slice(0, 5)) {
-      await upsertImageTranslation(ctx.db, {
-        imageId: row.id,
+      await insertImageRender(ctx.db, {
+        id: crypto.randomUUID(),
+        sourceId: row.id,
         language: 'en',
-        field: 'url',
-        value: `l10n/en/${row.key}`,
         model: 'gpt-image-2',
+        files: [
+          {
+            key: `l10n/en/${row.key}`,
+            isPrimary: true,
+            mime: 'image/png',
+            width: 10,
+            height: 10,
+            bytes: 100,
+          },
+        ],
       });
     }
-    const states = await getImageTranslationStates(
+    const served = await getServedImages(
       ctx.db,
       rows.map((r) => r.id),
       'en',
-      'url',
     );
-    expect(states.size).toBe(5);
-    expect([...states.values()].every((s) => s === 'done')).toBe(true);
-
-    const urls = await getImageTranslations(
-      ctx.db,
-      rows.map((r) => r.id),
-      'en',
-      'url',
-    );
-    expect(urls.size).toBe(5);
+    expect(served.size).toBe(130);
+    const localized = [...served.values()].filter((v) => v.localized);
+    expect(localized).toHaveLength(5);
   });
 });
 
@@ -1206,7 +1210,7 @@ describe('listImagesForAdmin', () => {
     expect(second.rows[0].image.id).toBeLessThan(first.nextCursor!);
   });
 
-  it('attaches the text + url translation rows for the requested language only', async () => {
+  it('attaches the text row + localized render for the requested language only', async () => {
     const id = await upsertImageTranscription(ctx.db, {
       key: 'host/localized.png',
       textsJa: ['こんにちは'],
@@ -1215,35 +1219,38 @@ describe('listImagesForAdmin', () => {
     await upsertImageTranslation(ctx.db, {
       imageId: id,
       language: 'en',
-      field: 'text',
       value: JSON.stringify(['Hello']),
       model: 'gpt-4',
     });
-    await upsertImageTranslation(ctx.db, {
-      imageId: id,
-      language: 'en',
-      field: 'url',
-      value: 'l10n/en/host/localized.png',
+    const render = (language: string) => ({
+      id: crypto.randomUUID(),
+      sourceId: id,
+      language,
       model: 'gpt-image-2',
+      files: [
+        {
+          key: `l10n/${language}/host/localized.png`,
+          isPrimary: true,
+          mime: 'image/png' as const,
+          width: null,
+          height: null,
+          bytes: null,
+        },
+      ],
     });
-    // A French row that must not leak into the English view.
-    await upsertImageTranslation(ctx.db, {
-      imageId: id,
-      language: 'fr',
-      field: 'url',
-      value: 'l10n/fr/host/localized.png',
-      model: 'gpt-image-2',
-    });
+    await insertImageRender(ctx.db, render('en'));
+    // A French render that must not leak into the English view.
+    await insertImageRender(ctx.db, render('fr'));
 
     const en = await listImagesForAdmin(ctx.db, { language: 'en' });
     const row = en.rows.find((r) => r.image.id === id)!;
     expect(row.text?.value).toBe(JSON.stringify(['Hello']));
-    expect(row.url?.value).toBe('l10n/en/host/localized.png');
-    expect(row.url?.state).toBe('done');
+    expect(row.localized?.key).toBe('l10n/en/host/localized.png');
+    expect(row.localized?.model).toBe('gpt-image-2');
 
     const fr = await listImagesForAdmin(ctx.db, { language: 'fr' });
     const frRow = fr.rows.find((r) => r.image.id === id)!;
-    expect(frRow.url?.value).toBe('l10n/fr/host/localized.png');
+    expect(frRow.localized?.key).toBe('l10n/fr/host/localized.png');
     // No French text was translated → no text row yet.
     expect(frRow.text).toBeNull();
   });

@@ -356,7 +356,7 @@ async function refreshSchedule(
         type: 'image',
         src: imageUpstreamUrl(key),
       }));
-      await mirrorImages(db, env.IMAGES_BUCKET, blocks);
+      await mirrorImages(db, env.IMAGES_BUCKET, env.IMAGES, blocks);
       await transcribeImages(db, blocks, env.GEMINI_API_KEY, env.IMAGES_BUCKET);
       await translateImageTexts(db, env.GEMINI_API_KEY, blocks, languages);
       log.info(`Transcribed/translated ${keys.size} schedule icons`);

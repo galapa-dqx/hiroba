@@ -9,5 +9,6 @@
 export * from './constants';
 export * from './freshness';
 export * from './dates';
+export * from './image-measure';
 export * from './japanese';
 export * from './pipeline-state';

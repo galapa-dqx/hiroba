@@ -16,6 +16,7 @@
     "@hiroba/shared": "workspace:*"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250507.0",
     "typescript": "^5.9.3"
   }
 }

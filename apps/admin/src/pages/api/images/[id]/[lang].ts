@@ -33,7 +33,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
   const lang = params.lang!;
   if (!Number.isInteger(id)) return json({ error: 'Invalid id' }, 400);
 
-  const image = await db.query.images.findFirst({ where: { id } });
+  const image = await db.query.imageSources.findFirst({ where: { id } });
   if (!image) return json({ error: 'Not found' }, 404);
 
   const enabled = await getEnabledLanguages(db);
@@ -62,7 +62,6 @@ export const PUT: APIRoute = async ({ params, request }) => {
   await upsertImageTranslation(db, {
     imageId: id,
     language: lang,
-    field: 'text',
     value: JSON.stringify(texts),
     model: MANUAL_IMAGE_MODEL,
   });

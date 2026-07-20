@@ -19,13 +19,16 @@ const MIGRATIONS_DIR = fileURLToPath(
   new URL('../../../apps/workflow/migrations', import.meta.url),
 );
 
-/** Tables to wipe on `reset()`, in no particular order (no cross-table FKs). */
+/** Tables to wipe on `reset()`. Render tables first (image_files → images →
+ *  image_sources) so a FK-enforcing run can't trip on the delete order. */
 const TABLES = [
   'article_images',
   'events',
   'event_sources',
   'glossary',
+  'image_files',
   'images',
+  'image_sources',
   'languages',
   'news_items',
   'topics',

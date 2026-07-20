@@ -13,8 +13,8 @@
  */
 
 import {
-  getImagesByKeys,
-  getImageTranslations,
+  getImageSourcesByKeys,
+  getServedImages,
   getTitleTranslations,
   type Database,
 } from '@hiroba/db';
@@ -40,20 +40,19 @@ export async function resolveBanners(
   });
   if (rows.length === 0) return [];
 
-  // Original key → stored localized (versioned) R2 key for this language.
-  const imgRows = await getImagesByKeys(
+  // Original key → the localized render's primary file key for this language.
+  const imgRows = await getImageSourcesByKeys(
     db,
     rows.map((r) => r.imageKey),
   );
-  const localizedUrl = await getImageTranslations(
+  const served = await getServedImages(
     db,
     imgRows.map((r) => r.id),
     language,
-    'url',
   );
   const localizedByKey = new Map<string, string>();
   for (const r of imgRows) {
-    const stored = localizedUrl.get(r.id);
+    const stored = served.get(r.id)?.localized?.key;
     if (stored) localizedByKey.set(r.key, stored);
   }
 

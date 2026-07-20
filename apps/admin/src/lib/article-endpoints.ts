@@ -12,8 +12,8 @@ import {
   createDb,
   getArticleTranslations,
   getEnabledLanguages,
-  getImagesByKeys,
-  getImageTranslations,
+  getImageSourcesByKeys,
+  getServedImages,
   updateArticleSource,
   upsertItemTranslation,
   type ArticleType,
@@ -23,7 +23,7 @@ import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 import { validateBlocks } from './validate-blocks';
 
 /** Model attribution recorded on translation rows edited by hand. */
-export const MANUAL_EDIT_MODEL = 'manual-edit';
+const MANUAL_EDIT_MODEL = 'manual-edit';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -69,7 +69,9 @@ export function createArticleGet(itemType: ArticleType): APIRoute {
           .filter((k): k is string => !!k),
       ),
     ];
-    const imageRows = imgKeys.length ? await getImagesByKeys(db, imgKeys) : [];
+    const imageRows = imgKeys.length
+      ? await getImageSourcesByKeys(db, imgKeys)
+      : [];
     const imageIds = imageRows.map((r) => r.id);
 
     const translations: Record<
@@ -85,9 +87,9 @@ export function createArticleGet(itemType: ArticleType): APIRoute {
       const t = await getArticleTranslations(db, itemType, id, lang.code);
       const localizedImages: Record<string, string> = {};
       if (imageIds.length) {
-        const urls = await getImageTranslations(db, imageIds, lang.code, 'url');
+        const served = await getServedImages(db, imageIds, lang.code);
         for (const row of imageRows) {
-          const stored = urls.get(row.id);
+          const stored = served.get(row.id)?.localized?.key;
           if (stored) localizedImages[row.key] = stored;
         }
       }

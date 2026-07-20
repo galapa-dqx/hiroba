@@ -13,7 +13,11 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 
-import { createDb, getEnabledLanguages } from '@hiroba/db';
+import {
+  createDb,
+  getEnabledLanguages,
+  getLatestRendersBySource,
+} from '@hiroba/db';
 import { hasJapanese } from '@hiroba/shared';
 
 function json(data: unknown, status = 200): Response {
@@ -40,37 +44,39 @@ export const GET: APIRoute = async ({ params }) => {
   const id = Number(params.id);
   if (!Number.isInteger(id)) return json({ error: 'Invalid id' }, 400);
 
-  const image = await db.query.images.findFirst({ where: { id } });
+  const image = await db.query.imageSources.findFirst({ where: { id } });
   if (!image) return json({ error: 'Not found' }, 404);
 
   const enabled = await getEnabledLanguages(db);
-  // Every translation row for this image across all languages and both fields
-  // (`text`/`url`) — one read renders each language tab's spans + image state.
+  // Every translated-spans row for this image across all languages — one read
+  // renders each language tab's span pairs. `text` is the only image field
+  // since DQX-45; the filter also shields the per-language map from any
+  // pre-migration `url` stragglers.
   const rows = await db.query.translations.findMany({
-    where: { itemType: 'image', itemId: String(id) },
+    where: { itemType: 'image', itemId: String(id), field: 'text' },
   });
   const textByLang = new Map<string, (typeof rows)[number]>();
-  const urlByLang = new Map<string, (typeof rows)[number]>();
-  for (const r of rows) {
-    (r.field === 'url' ? urlByLang : textByLang).set(r.language, r);
-  }
+  for (const r of rows) textByLang.set(r.language, r);
+
+  // The localized image is a render now — newest per language, no `url` row.
+  const localizedByLang = await getLatestRendersBySource(db, id);
 
   const textsJa = image.textsJa ?? null;
   const translations = Object.fromEntries(
     enabled.map((l) => {
       const text = textByLang.get(l.code) ?? null;
-      const urlRow = urlByLang.get(l.code) ?? null;
+      const localized = localizedByLang.get(l.code) ?? null;
       return [
         l.code,
         {
           textState: text?.state ?? null,
           texts: parseSpans(text?.value),
-          urlState: urlRow?.state ?? null,
-          localizedKey: urlRow?.value ?? null,
-          urlModel: urlRow?.model ?? null,
-          error: urlRow?.error ?? text?.error ?? null,
+          urlState: localized ? 'done' : null,
+          localizedKey: localized?.key ?? null,
+          urlModel: localized?.model ?? null,
+          error: text?.error ?? null,
           translatedAt:
-            (urlRow?.translatedAt ?? text?.translatedAt)?.toString() ?? null,
+            (localized?.createdAt ?? text?.translatedAt)?.toString() ?? null,
         },
       ];
     }),

@@ -39,7 +39,7 @@ type PurgeLog = {
 };
 
 /** Every per-language detail URL for an article. */
-export function articleUrls(
+function articleUrls(
   webBase: string,
   itemType: ItemType,
   id: string,
@@ -55,7 +55,7 @@ export function articleUrls(
  * cap. Never throws — a purge failure must not fail the pipeline step that
  * triggered it; it just means the content refreshes on its TTL instead.
  */
-export async function purgeUrls(
+async function purgeUrls(
   env: PurgeEnv,
   urls: string[],
   log?: PurgeLog,

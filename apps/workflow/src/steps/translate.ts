@@ -31,7 +31,7 @@ import { Temporal } from 'temporal-polyfill';
 import {
   events,
   findMatchingGlossaryEntries,
-  getImagesByKeys,
+  getImageSourcesByKeys,
   getTranslatedImageIds,
   setTranslationStates,
   translations,
@@ -131,7 +131,7 @@ export type BodyContext = {
   /** Image nodes in document order (references into `blocks`). */
   blockImages: ReturnType<typeof collectImages>;
   /** imageKey → image row, for the images the doc references. */
-  byKey: Map<string, Awaited<ReturnType<typeof getImagesByKeys>>[number]>;
+  byKey: Map<string, Awaited<ReturnType<typeof getImageSourcesByKeys>>[number]>;
 };
 
 /**
@@ -155,7 +155,7 @@ export async function buildBodyContext(
       blockImages.map((i) => imageKey(i.src)).filter((k): k is string => !!k),
     ),
   ];
-  const imageRows = await getImagesByKeys(db, keys);
+  const imageRows = await getImageSourcesByKeys(db, keys);
   const byKey = new Map(imageRows.map((r) => [r.key, r]));
   const alreadyTranslated = await getTranslatedImageIds(
     db,
@@ -277,7 +277,6 @@ export async function applyBodyTranslation(
         await upsertImageTranslation(db, {
           imageId: row.id,
           language,
-          field: 'text',
           value: JSON.stringify(spans),
           model: GEMINI_MODEL,
         });

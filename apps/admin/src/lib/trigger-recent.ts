@@ -2,9 +2,7 @@ import { listNewsAdmin, listTopicsAdmin, type Database } from '@hiroba/db';
 import { ArticleFlow } from '@hiroba/flows';
 
 import { startFlowViaHub } from './start-flow';
-
-/** Upper bound on how many workflows one "translate recent N" action fans out to. */
-export const MAX_RECENT_TRIGGER = 50;
+import { MAX_RECENT_TRIGGER } from './trigger-limits';
 
 /**
  * Trigger the ArticleFlow for the most-recent `count` items of a type via the
