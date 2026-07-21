@@ -9,7 +9,6 @@
 import {
   createDb,
   getEnabledLanguages,
-  getImageSourceById,
   getServedImages,
   MANUAL_IMAGE_MODEL,
 } from '@hiroba/db';
@@ -59,7 +58,9 @@ export async function regenerateImage(
   }
 
   const db = createDb(env.DB);
-  const image = await getImageSourceById(db, imageId);
+  const image = await db.query.imageSources.findFirst({
+    where: { id: imageId },
+  });
   if (!image) {
     return Response.json({ error: 'Image not found' }, { status: 404 });
   }

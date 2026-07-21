@@ -13,10 +13,7 @@ import {
   getArticleTranslations,
   getEnabledLanguages,
   getImageSourcesByKeys,
-  getNewsItem,
-  getPlayguide,
   getServedImages,
-  getTopic,
   updateArticleSource,
   upsertItemTranslation,
   type ArticleType,
@@ -55,10 +52,10 @@ export function createArticleGet(itemType: ArticleType): APIRoute {
 
     const item =
       itemType === 'news'
-        ? await getNewsItem(db, id)
+        ? await db.query.newsItems.findFirst({ where: { id } })
         : itemType === 'playguide'
-          ? await getPlayguide(db, id)
-          : await getTopic(db, id);
+          ? await db.query.playguides.findFirst({ where: { id } })
+          : await db.query.topics.findFirst({ where: { id } });
     if (!item) return json({ error: 'Not found' }, 404);
 
     const languages = await getEnabledLanguages(db);

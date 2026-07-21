@@ -52,7 +52,7 @@ function dateRange(e: BandItem["event"]): string {
 		<ol class="agenda-band" aria-label={t("band.aria")}>
 			{band.map(({ event }) => {
 				const { href, external } = eventLink(event);
-				const title = event.titleEn ?? event.titleJa;
+				const title = event.localizedTitle ?? event.titleJa;
 				const sched = scheduleInfo(event);
 				return (
 					<li

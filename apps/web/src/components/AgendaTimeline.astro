@@ -122,7 +122,7 @@ const empty =
 		<ul class="agenda-tl__bars">
 			{bars.map(({ event, startFrac, endFrac, openStart, openEnd, lane, laneCount }) => {
 				const { href, external } = eventLink(event);
-				const title = event.titleEn ?? event.titleJa;
+				const title = event.localizedTitle ?? event.titleJa;
 				const sched = scheduleInfo(event);
 				const Inner = href ? "a" : "div";
 				return (
@@ -171,7 +171,7 @@ const empty =
 		<ul class="agenda-tl__marks">
 			{milestones.map(({ event, frac }) => {
 				const { href, external } = eventLink(event);
-				const title = event.titleEn ?? event.titleJa;
+				const title = event.localizedTitle ?? event.titleJa;
 				const Label = href ? "a" : "span";
 				return (
 					<li
@@ -201,7 +201,7 @@ const empty =
 	{lanes.map((l, i) => (
 		<ul class="agenda-tl__swim" data-lane={l.key} style={`grid-column:${3 + i}`}>
 			{l.bars.map(({ event, startFrac, endFrac }) => {
-				const title = event.titleEn ?? event.titleJa;
+				const title = event.localizedTitle ?? event.titleJa;
 				const icon = scheduleInfo(event)?.iconUrl;
 				// Defense Force bars swap the Japanese badge for a coloured English pill.
 				const corps = l.key === "defense" ? corpsFromIcon(icon) : null;

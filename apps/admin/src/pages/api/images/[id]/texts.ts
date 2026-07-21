@@ -19,7 +19,6 @@ import { env } from 'cloudflare:workers';
 
 import {
   createDb,
-  getImageSourceById,
   restructureImageTexts,
   type ImageSpanEdit,
 } from '@hiroba/db';
@@ -37,7 +36,7 @@ export const PUT: APIRoute = async ({ params, request }) => {
   const id = Number(params.id);
   if (!Number.isInteger(id)) return json({ error: 'Invalid id' }, 400);
 
-  const image = await getImageSourceById(db, id);
+  const image = await db.query.imageSources.findFirst({ where: { id } });
   if (!image) return json({ error: 'Not found' }, 404);
 
   const body = (await request.json().catch(() => null)) as {

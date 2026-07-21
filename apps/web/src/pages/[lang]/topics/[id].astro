@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 
 import ArticlePage from "../../../components/ArticlePage.astro";
 import LocalTime from "../../../components/LocalTime.astro";
-import { createDb, getArticleTranslations, getEventsForSource, getTopic } from "@hiroba/db";
+import { createDb, getArticleTranslations, getEventsForSource } from "@hiroba/db";
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { hydrateArticleImages } from "../../../lib/article-images";
 import { resolveArticleView } from "../../../lib/article-view";
@@ -21,7 +21,7 @@ if (!id) {
 const db = createDb(env.DB);
 
 // fetch-body creates the row, so a never-seen id is valid — no 404.
-const topic = await getTopic(db, id);
+const topic = await db.query.topics.findFirst({ where: { id } });
 
 const { title: localizedTitle, blocks: localizedBlocks, translatedAt } = await getArticleTranslations(db, "topic", id, lang);
 const isTranslated = !!localizedBlocks;

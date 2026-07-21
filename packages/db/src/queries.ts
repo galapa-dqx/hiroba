@@ -8,7 +8,6 @@ import {
   desc,
   eq,
   exists,
-  getTableColumns,
   gt,
   gte,
   inArray,
@@ -24,26 +23,18 @@ import type { BatchItem } from 'drizzle-orm/batch';
 import { Temporal } from 'temporal-polyfill';
 
 import { collectImages, imageKey, type Block } from '@hiroba/richtext';
-import {
-  getNextCheckTime,
-  type Category,
-  type PhaseState,
-} from '@hiroba/shared';
+import { getNextCheckTime, type PhaseState } from '@hiroba/shared';
 
 import type { Database } from './client';
+import { withLocalizedTitle } from './relations';
 import {
   buildResetEvents,
   RESET_SOURCE_TYPE,
   type ResetTitleMap,
 } from './reset-events';
 import { articleImages } from './schema/article-images';
-import { banners, type Banner } from './schema/banners';
-import {
-  events,
-  eventSources,
-  type Event,
-  type NewEvent,
-} from './schema/events';
+import { banners } from './schema/banners';
+import { events, type Event, type NewEvent } from './schema/events';
 import { imageFiles } from './schema/image-files';
 import { imageSources, type ImageSource } from './schema/image-sources';
 import { images } from './schema/images';
@@ -57,7 +48,6 @@ import {
 import {
   resetMilestones,
   type NewResetMilestone,
-  type ResetMilestone,
 } from './schema/reset-milestones';
 import { topics, type NewTopic, type Topic } from './schema/topics';
 import {
@@ -148,93 +138,10 @@ export async function upsertListItems(
   return inserted;
 }
 
-/** A news item plus its resolved current-language title (null ⇒ show titleJa). */
-export type LocalizedNewsItem = NewsItem & { titleEn: string | null };
-
-/**
- * Get paginated list of news items, each carrying its current-language title
- * (`titleEn`) joined from the translations table so lists read in the target
- * language before the article is ever opened (DQX-11).
- *
- * The join is one-to-one — the translations PK is unique per
- * (item_type, item_id, language, field) — so it never multiplies rows. `titleEn`
- * is null when no translation exists yet; a stale value from an in-flight
- * re-translation is still the best thing to render, so the row's state is not
- * filtered (mirrors the detail page).
- */
-export async function getNewsItems(
-  db: Database,
-  options: {
-    category?: Category;
-    limit?: number;
-    cursor?: string;
-    language?: string;
-  } = {},
-): Promise<{
-  items: LocalizedNewsItem[];
-  hasMore: boolean;
-  nextCursor?: string;
-}> {
-  const limit = Math.min(options.limit ?? 20, 100);
-  const language = options.language ?? 'en';
-
-  const conditions = [];
-
-  if (options.category) {
-    conditions.push(eq(newsItems.category, options.category));
-  }
-
-  if (options.cursor) {
-    const cursorInstant = Temporal.Instant.from(options.cursor);
-    conditions.push(lt(newsItems.publishedAt, cursorInstant));
-  }
-
-  const query = db
-    .select({
-      ...getTableColumns(newsItems),
-      titleEn: translations.value,
-    })
-    .from(newsItems)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'news'),
-        eq(translations.itemId, newsItems.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(newsItems.publishedAt))
-    .limit(limit + 1);
-
-  const results = await query.all();
-  const hasMore = results.length > limit;
-  const items = hasMore ? results.slice(0, -1) : results;
-
-  return {
-    items,
-    hasMore,
-    nextCursor: hasMore
-      ? items[items.length - 1].publishedAt.toString()
-      : undefined,
-  };
-}
-
-/**
- * Get a single news item by ID.
- */
-export async function getNewsItem(
-  db: Database,
-  id: string,
-): Promise<NewsItem | null> {
-  const result = await db
-    .select()
-    .from(newsItems)
-    .where(eq(newsItems.id, id))
-    .get();
-  return result ?? null;
-}
+/** A news item plus its resolved current-language title (null ⇒ show titleJa).
+ *  Produced by flattening the `title` relation (see relations.ts) with
+ *  `withLocalizedTitle` at list call sites. */
+export type LocalizedNewsItem = NewsItem & { localizedTitle: string | null };
 
 /**
  * Fetch `{id, titleJa}` for a set of items of one type — the input the title
@@ -799,77 +706,8 @@ export async function updateArticleSource(
   return result.length > 0;
 }
 
-/**
- * Get a single topic by ID.
- */
-export async function getTopic(
-  db: Database,
-  id: string,
-): Promise<Topic | null> {
-  const result = await db.select().from(topics).where(eq(topics.id, id)).get();
-  return result ?? null;
-}
-
 /** A topic plus its resolved current-language title (null ⇒ show titleJa). */
-export type LocalizedTopic = Topic & { titleEn: string | null };
-
-/**
- * Get paginated list of topics (mirrors getNewsItems, including the
- * current-language title join — see getNewsItems for the join's semantics).
- */
-export async function getTopics(
-  db: Database,
-  options: {
-    category?: string;
-    limit?: number;
-    cursor?: string;
-    language?: string;
-  } = {},
-): Promise<{ items: LocalizedTopic[]; hasMore: boolean; nextCursor?: string }> {
-  const limit = Math.min(options.limit ?? 20, 100);
-  const language = options.language ?? 'en';
-
-  const conditions = [];
-  if (options.category) {
-    conditions.push(eq(topics.category, options.category));
-  }
-  if (options.cursor) {
-    conditions.push(
-      lt(topics.publishedAt, Temporal.Instant.from(options.cursor)),
-    );
-  }
-
-  const results = await db
-    .select({
-      ...getTableColumns(topics),
-      titleEn: translations.value,
-    })
-    .from(topics)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'topic'),
-        eq(translations.itemId, topics.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(topics.publishedAt))
-    .limit(limit + 1)
-    .all();
-
-  const hasMore = results.length > limit;
-  const items = hasMore ? results.slice(0, -1) : results;
-
-  return {
-    items,
-    hasMore,
-    nextCursor: hasMore
-      ? items[items.length - 1].publishedAt.toString()
-      : undefined,
-  };
-}
+export type LocalizedTopic = Topic & { localizedTitle: string | null };
 
 /**
  * Lightweight paginated news list for the admin UI (mirrors listTopicsAdmin):
@@ -1130,19 +968,6 @@ export async function upsertPlayguide(
   }
 }
 
-/** Get a single playguide by slug. */
-export async function getPlayguide(
-  db: Database,
-  id: string,
-): Promise<Playguide | null> {
-  const result = await db
-    .select()
-    .from(playguides)
-    .where(eq(playguides.id, id))
-    .get();
-  return result ?? null;
-}
-
 /** Replace a playguide's block tree (used by the transcribe/tag steps). */
 export async function updatePlayguideBlocks(
   db: Database,
@@ -1160,37 +985,7 @@ export async function updatePlayguideBlocks(
 }
 
 /** A playguide plus its resolved current-language title (null ⇒ show titleJa). */
-export type LocalizedPlayguide = Playguide & { titleEn: string | null };
-
-/**
- * Playguide list in crawl order, each carrying its current-language title
- * (mirrors getTopics; ordered by sortOrder since guides have no date). Not
- * cursor-paginated — the guide set is small and bounded.
- */
-export async function getPlayguides(
-  db: Database,
-  options: { language?: string; limit?: number } = {},
-): Promise<LocalizedPlayguide[]> {
-  const language = options.language ?? 'en';
-  const query = db
-    .select({
-      ...getTableColumns(playguides),
-      titleEn: translations.value,
-    })
-    .from(playguides)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'playguide'),
-        eq(translations.itemId, playguides.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .orderBy(asc(playguides.sortOrder), asc(playguides.id));
-
-  return options.limit ? query.limit(options.limit).all() : query.all();
-}
+export type LocalizedPlayguide = Playguide & { localizedTitle: string | null };
 
 /**
  * Lightweight playguide list for the admin UI (mirrors listTopicsAdmin): a
@@ -1444,7 +1239,7 @@ export async function getArticleTranslations(
 
 /** An extracted event with its English title translation merged in (null when
  * the title hasn't been translated yet — the caller falls back to titleJa). */
-export type EventWithTitle = Event & { titleEn: string | null };
+export type EventWithTitle = Event & { localizedTitle: string | null };
 
 /**
  * Fetch the events extracted from a single source article (news item or topic),
@@ -1458,22 +1253,15 @@ export async function getEventsForSource(
   sourceId: string,
   language: string = 'en',
 ): Promise<EventWithTitle[]> {
-  // Via the provenance join, not events.source_id: a campaign mentioned here
-  // but whose *primary* source is a different article (its own dedicated page)
-  // must still appear in this article's rail.
-  const rows = await db
-    .select(getTableColumns(events))
-    .from(events)
-    .innerJoin(eventSources, eq(eventSources.eventId, events.id))
-    .where(
-      and(
-        eq(eventSources.sourceType, sourceType),
-        eq(eventSources.sourceId, sourceId),
-      ),
-    )
-    .orderBy(asc(events.startTime))
-    .all();
-  return mergeEventTitles(db, rows, language);
+  // Via the provenance relation, not events.source_id: a campaign mentioned
+  // here but whose *primary* source is a different article (its own dedicated
+  // page) must still appear in this article's rail.
+  const rows = await db.query.events.findMany({
+    where: { sources: { sourceType, sourceId } },
+    with: { title: { where: { language }, columns: { value: true } } },
+    orderBy: { startTime: 'asc' },
+  });
+  return rows.map(withLocalizedTitle);
 }
 
 /**
@@ -1494,58 +1282,22 @@ export async function getEventsForDay(
 ): Promise<EventWithTitle[]> {
   const dayStart = jstDate.toZonedDateTime('Asia/Tokyo');
   const dayEnd = dayStart.add({ days: 1 });
-  const rows = await db
-    .select()
-    .from(events)
-    .where(
-      and(
-        lt(events.startTime, dayEnd),
-        or(
-          // Starts within the day (covers point-in-time events at 00:00)…
-          gte(events.startTime, dayStart),
-          // …or began earlier and runs strictly past 00:00. An event ending
-          // exactly at 00:00 belongs to the previous day, so it no longer shows
-          // as a zero-height sliver pinned to the top of this one.
-          gt(events.endTime, dayStart),
-        ),
-      ),
-    )
-    .orderBy(asc(events.startTime))
-    .all();
-  return mergeEventTitles(db, rows, language);
-}
-
-/**
- * Merge each event row with its title translation for `language`. Shared by the
- * per-source and per-day fetches. Stale-while-revalidate: keep a running
- * re-translation's prior value; skip only value-less rows (mirrors
- * getArticleTranslations).
- */
-async function mergeEventTitles(
-  db: Database,
-  rows: Event[],
-  language: string,
-): Promise<EventWithTitle[]> {
-  if (rows.length === 0) return [];
-  const ids = rows.map((r) => r.id);
-  const trans = await chunked(ids, (slice) =>
-    db
-      .select()
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'event'),
-          eq(translations.language, language),
-          eq(translations.field, 'title'),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
-  );
-  const byId = new Map(
-    trans.filter((t) => t.value !== null).map((t) => [t.itemId, t.value]),
-  );
-  return rows.map((r) => ({ ...r, titleEn: byId.get(r.id) ?? null }));
+  const rows = await db.query.events.findMany({
+    where: {
+      startTime: { lt: dayEnd },
+      OR: [
+        // Starts within the day (covers point-in-time events at 00:00)…
+        { startTime: { gte: dayStart } },
+        // …or began earlier and runs strictly past 00:00. An event ending
+        // exactly at 00:00 belongs to the previous day, so it no longer shows
+        // as a zero-height sliver pinned to the top of this one.
+        { endTime: { gt: dayStart } },
+      ],
+    },
+    with: { title: { where: { language }, columns: { value: true } } },
+    orderBy: { startTime: 'asc' },
+  });
+  return rows.map(withLocalizedTitle);
 }
 
 /**
@@ -1642,29 +1394,6 @@ export async function pruneScheduleEvents(
 // `refreshResetEvents` (workflow cron) materializes the next horizon of their
 // occurrences into `events` as `mark` rows via `buildResetEvents`, then swaps
 // them in with `replaceResetEvents`. See reset-events.ts.
-
-/** Every reset definition, in display / title-join order. */
-export async function listResetMilestones(
-  db: Database,
-): Promise<ResetMilestone[]> {
-  return db
-    .select()
-    .from(resetMilestones)
-    .orderBy(asc(resetMilestones.sortOrder), asc(resetMilestones.id))
-    .all();
-}
-
-/** A single reset definition by id, or undefined. */
-export async function getResetMilestone(
-  db: Database,
-  id: string,
-): Promise<ResetMilestone | undefined> {
-  return db
-    .select()
-    .from(resetMilestones)
-    .where(eq(resetMilestones.id, id))
-    .get();
-}
 
 /** Create or update a reset definition (admin editor). */
 export async function upsertResetMilestone(
@@ -1840,7 +1569,9 @@ export async function materializeResetEvents(
   const to = from.add({ days: horizonDays });
 
   const [defs, languages] = await Promise.all([
-    listResetMilestones(db),
+    db.query.resetMilestones.findMany({
+      orderBy: { sortOrder: 'asc', id: 'asc' },
+    }),
     getEnabledLanguages(db),
   ]);
   const { events: rows, titles } = buildResetEvents(
@@ -2673,39 +2404,6 @@ export async function backfillArticleImages(
   };
 }
 
-/**
- * Whether an image backs a rotation banner (banners.imageKey = key) — banner
- * images render on the home page, so the purge fan-out includes it.
- */
-export async function isBannerImage(
-  db: Database,
-  key: string,
-): Promise<boolean> {
-  const row = await db
-    .select({ one: sql`1` })
-    .from(banners)
-    .where(eq(banners.imageKey, key))
-    .get();
-  return !!row;
-}
-
-/**
- * Every article whose block tree embeds the given image — the purge fan-out
- * for a regenerated/uploaded localized image (its versioned URL changed, so
- * the pages carrying it must be re-rendered).
- */
-export async function getArticlesByImageKey(
-  db: Database,
-  key: string,
-): Promise<Array<{ itemType: ArticleType; itemId: string }>> {
-  const rows = await db
-    .select({ itemType: articleImages.itemType, itemId: articleImages.itemId })
-    .from(articleImages)
-    .where(eq(articleImages.imageKey, key))
-    .all();
-  return rows as Array<{ itemType: ArticleType; itemId: string }>;
-}
-
 /** Look up image-source rows by their natural keys (imageKey). */
 export async function getImageSourcesByKeys(
   db: Database,
@@ -2718,43 +2416,6 @@ export async function getImageSourcesByKeys(
       .where(inArray(imageSources.key, slice))
       .all(),
   );
-}
-
-/** One image source by its surrogate id — the admin image-edit page's anchor. */
-export async function getImageSourceById(
-  db: Database,
-  id: number,
-): Promise<ImageSource | null> {
-  const row = await db
-    .select()
-    .from(imageSources)
-    .where(eq(imageSources.id, id))
-    .get();
-  return row ?? null;
-}
-
-/**
- * Every translated-spans (`text`) row for one image source across all languages
- * — the admin edit page reads these to render each language's span pairs. (The
- * localized-image state now lives on renders, not a `url` row.)
- */
-export async function getImageTranslationRows(
-  db: Database,
-  imageId: number,
-): Promise<Translation[]> {
-  return db
-    .select()
-    .from(translations)
-    .where(
-      and(
-        eq(translations.itemType, 'image'),
-        eq(translations.itemId, String(imageId)),
-        // `text` is the only image field since DQX-45; the filter also shields
-        // the caller's per-language map from any pre-migration `url` stragglers.
-        eq(translations.field, 'text'),
-      ),
-    )
-    .all();
 }
 
 /** The subset of `imageIds` that already have a translated `text` row for `language`. */
@@ -3081,14 +2742,4 @@ export async function syncBanners(
         ? and(eq(banners.active, true), notInArray(banners.imageKey, keep))
         : eq(banners.active, true),
     );
-}
-
-/** The active banners in rotation order. */
-export async function getActiveBanners(db: Database): Promise<Banner[]> {
-  return db
-    .select()
-    .from(banners)
-    .where(eq(banners.active, true))
-    .orderBy(asc(banners.sortOrder))
-    .all();
 }

@@ -54,11 +54,11 @@ export async function labelScheduleIcons(
     const spans = parseSpans(translated.get(img.id)) ?? img.textsJa ?? [];
     const name = spans.join(' ').trim();
     if (!name) continue;
-    // Compose onto the localized display title (titleEn is the merged
+    // Compose onto the localized display title (localizedTitle is the merged
     // translation and wins over titleJa in the components), so an EN/FR viewer
     // gets "translated section：translated name".
-    const base = event.titleEn ?? event.titleJa;
-    event.titleEn = `${base}：${name}`;
+    const base = event.localizedTitle ?? event.titleJa;
+    event.localizedTitle = `${base}：${name}`;
   }
 }
 

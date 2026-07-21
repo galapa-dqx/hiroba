@@ -2,7 +2,7 @@
 import { env } from "cloudflare:workers";
 
 import ArticlePage from "../../../components/ArticlePage.astro";
-import { createDb, getArticleTranslations, getPlayguide } from "@hiroba/db";
+import { createDb, getArticleTranslations } from "@hiroba/db";
 import { renderBlocks, rewriteArticleHref, type Block } from "@hiroba/richtext";
 import { hydrateArticleImages } from "../../../lib/article-images";
 import { resolveArticleView } from "../../../lib/article-view";
@@ -20,7 +20,7 @@ if (!slug) {
 const db = createDb(env.DB);
 
 // fetch-body creates the row, so a never-seen (but crawlable) slug is valid — no 404.
-const playguide = await getPlayguide(db, slug);
+const playguide = await db.query.playguides.findFirst({ where: { id: slug } });
 
 const { title: localizedTitle, blocks: localizedBlocks, translatedAt } = await getArticleTranslations(db, "playguide", slug, lang);
 const isTranslated = !!localizedBlocks;

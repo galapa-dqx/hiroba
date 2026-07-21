@@ -16,8 +16,6 @@ import { env } from 'cloudflare:workers';
 import {
   createDb,
   getEnabledLanguages,
-  getImageSourceById,
-  getImageTranslationRows,
   getLatestRendersBySource,
 } from '@hiroba/db';
 import { hasJapanese } from '@hiroba/shared';
@@ -46,11 +44,17 @@ export const GET: APIRoute = async ({ params }) => {
   const id = Number(params.id);
   if (!Number.isInteger(id)) return json({ error: 'Invalid id' }, 400);
 
-  const image = await getImageSourceById(db, id);
+  const image = await db.query.imageSources.findFirst({ where: { id } });
   if (!image) return json({ error: 'Not found' }, 404);
 
   const enabled = await getEnabledLanguages(db);
-  const rows = await getImageTranslationRows(db, id);
+  // Every translated-spans row for this image across all languages — one read
+  // renders each language tab's span pairs. `text` is the only image field
+  // since DQX-45; the filter also shields the per-language map from any
+  // pre-migration `url` stragglers.
+  const rows = await db.query.translations.findMany({
+    where: { itemType: 'image', itemId: String(id), field: 'text' },
+  });
   const textByLang = new Map<string, (typeof rows)[number]>();
   for (const r of rows) textByLang.set(r.language, r);
 

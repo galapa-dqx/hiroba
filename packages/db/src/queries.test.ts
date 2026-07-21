@@ -6,20 +6,16 @@ import {
   backfillArticleImages,
   ensureImageSourceRows,
   failPipelineStates,
-  getArticlesByImageKey,
   getEventsForDay,
   getImageSourcesByKeys,
   getItemTitles,
-  getNewsItems,
   getRecheckQueue,
   getServedImages,
   getStats,
   getTitleTranslations,
-  getTopics,
   getTranslationStates,
   getUntranslatedTitles,
   insertImageRender,
-  isBannerImage,
   listImagesForAdmin,
   pruneScheduleEvents,
   replaceScheduleEvents,
@@ -41,6 +37,7 @@ import {
   upsertTopic,
   upsertTopicTranslation,
 } from './queries';
+import { withLocalizedTitle } from './relations';
 import { events, type NewEvent } from './schema/events';
 import { imageSources } from './schema/image-sources';
 import { newsItems, type ListItem } from './schema/news-items';
@@ -70,6 +67,48 @@ function listItem(index: number, hoursOld: number): ListItem {
     titleJa: `記事${index}`,
     category: 'news',
     publishedAt: BASE.add({ hours: hoursOld }),
+  };
+}
+
+/**
+ * The news list-page recipe (apps/web [lang]/index + category pages): cursor
+ * pagination over db.query with the `title` relation flattened by withLocalizedTitle.
+ * Duplicated here so the relation's join semantics and the pagination recipe
+ * stay pinned against real D1.
+ */
+async function listNews(
+  options: {
+    category?: string;
+    limit?: number;
+    cursor?: string;
+    language?: string;
+  } = {},
+) {
+  const limit = options.limit ?? 20;
+  const rows = await ctx.db.query.newsItems.findMany({
+    where: {
+      ...(options.category ? { category: options.category } : {}),
+      ...(options.cursor
+        ? { publishedAt: { lt: Temporal.Instant.from(options.cursor) } }
+        : {}),
+    },
+    with: {
+      title: {
+        where: { language: options.language ?? 'en' },
+        columns: { value: true },
+      },
+    },
+    orderBy: { publishedAt: 'desc' },
+    limit: limit + 1,
+  });
+  const hasMore = rows.length > limit;
+  const items = (hasMore ? rows.slice(0, limit) : rows).map(withLocalizedTitle);
+  return {
+    items,
+    hasMore,
+    nextCursor: hasMore
+      ? items[items.length - 1].publishedAt.toString()
+      : undefined,
   };
 }
 
@@ -111,7 +150,7 @@ describe('upsertListItems', () => {
   });
 });
 
-describe('getNewsItems pagination', () => {
+describe('news list recipe (cursor pagination)', () => {
   beforeEach(async () => {
     // 5 items, publishedAt strictly increasing with index (index 5 is newest).
     await upsertListItems(
@@ -121,7 +160,7 @@ describe('getNewsItems pagination', () => {
   });
 
   it('orders newest-first and reports hasMore + nextCursor when truncated', async () => {
-    const page = await getNewsItems(ctx.db, { limit: 2 });
+    const page = await listNews({ limit: 2 });
 
     expect(page.items.map((i) => i.id)).toEqual([hex(5), hex(4)]);
     expect(page.hasMore).toBe(true);
@@ -129,12 +168,12 @@ describe('getNewsItems pagination', () => {
   });
 
   it('walks the full list across pages without gaps or overlap', async () => {
-    const first = await getNewsItems(ctx.db, { limit: 2 });
-    const second = await getNewsItems(ctx.db, {
+    const first = await listNews({ limit: 2 });
+    const second = await listNews({
       limit: 2,
       cursor: first.nextCursor,
     });
-    const third = await getNewsItems(ctx.db, {
+    const third = await listNews({
       limit: 2,
       cursor: second.nextCursor,
     });
@@ -149,7 +188,7 @@ describe('getNewsItems pagination', () => {
   it('excludes the cursor boundary item (strict less-than)', async () => {
     // Cursor at item 3's timestamp should return only strictly older items.
     const cursor = BASE.add({ hours: 3 }).toString();
-    const page = await getNewsItems(ctx.db, { cursor });
+    const page = await listNews({ cursor });
 
     expect(page.items.map((i) => i.id)).toEqual([hex(2), hex(1)]);
   });
@@ -162,27 +201,20 @@ describe('getNewsItems pagination', () => {
       publishedAt: BASE.add({ hours: 99 }),
     });
 
-    const news = await getNewsItems(ctx.db, { category: 'news' });
-    const events = await getNewsItems(ctx.db, { category: 'event' });
+    const news = await listNews({ category: 'news' });
+    const events = await listNews({ category: 'event' });
 
     expect(news.items).toHaveLength(5);
     expect(events.items.map((i) => i.id)).toEqual([hex(99)]);
   });
-
-  it('caps the limit at 100', async () => {
-    const page = await getNewsItems(ctx.db, { limit: 10_000 });
-    // Only 5 rows exist; the cap just must not throw or over-fetch.
-    expect(page.items).toHaveLength(5);
-    expect(page.hasMore).toBe(false);
-  });
 });
 
-describe('getNewsItems current-language title join (DQX-11)', () => {
+describe('news list title relation (DQX-11)', () => {
   beforeEach(async () => {
     await upsertListItems(ctx.db, [listItem(1, 1), listItem(2, 2)]);
   });
 
-  it('surfaces titleEn when a title translation exists, null otherwise', async () => {
+  it('surfaces localizedTitle when a title translation exists, null otherwise', async () => {
     await upsertItemTranslation(ctx.db, {
       itemType: 'news',
       itemId: hex(2),
@@ -192,11 +224,11 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
       model: 'gemini-x',
     });
 
-    const { items } = await getNewsItems(ctx.db, {});
+    const { items } = await listNews();
     const byId = new Map(items.map((i) => [i.id, i]));
 
-    expect(byId.get(hex(2))?.titleEn).toBe('Article Two');
-    expect(byId.get(hex(1))?.titleEn).toBeNull();
+    expect(byId.get(hex(2))?.localizedTitle).toBe('Article Two');
+    expect(byId.get(hex(1))?.localizedTitle).toBeNull();
     // titleJa always rides along for the fallback.
     expect(byId.get(hex(2))?.titleJa).toBe('記事2');
   });
@@ -211,10 +243,10 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
       model: 'm',
     });
 
-    const en = await getNewsItems(ctx.db, { language: 'en' });
-    const fr = await getNewsItems(ctx.db, { language: 'fr' });
-    expect(en.items.find((i) => i.id === hex(1))?.titleEn).toBe('English');
-    expect(fr.items.find((i) => i.id === hex(1))?.titleEn).toBeNull();
+    const en = await listNews({ language: 'en' });
+    const fr = await listNews({ language: 'fr' });
+    expect(en.items.find((i) => i.id === hex(1))?.localizedTitle).toBe('English');
+    expect(fr.items.find((i) => i.id === hex(1))?.localizedTitle).toBeNull();
   });
 
   it('joins only the title field, never content', async () => {
@@ -226,8 +258,8 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
       value: '[]',
       model: 'm',
     });
-    const { items } = await getNewsItems(ctx.db, {});
-    expect(items.find((i) => i.id === hex(1))?.titleEn).toBeNull();
+    const { items } = await listNews();
+    expect(items.find((i) => i.id === hex(1))?.localizedTitle).toBeNull();
   });
 
   it('surfaces a stale value while a re-translation is running', async () => {
@@ -246,8 +278,8 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
       fields: ['title'],
       state: 'running',
     });
-    const { items } = await getNewsItems(ctx.db, {});
-    expect(items.find((i) => i.id === hex(1))?.titleEn).toBe('Stale');
+    const { items } = await listNews();
+    expect(items.find((i) => i.id === hex(1))?.localizedTitle).toBe('Stale');
   });
 
   it('does not multiply rows when several translation fields exist', async () => {
@@ -261,14 +293,14 @@ describe('getNewsItems current-language title join (DQX-11)', () => {
         model: 'm',
       });
     }
-    const { items } = await getNewsItems(ctx.db, {});
+    const { items } = await listNews();
     expect(items.filter((i) => i.id === hex(1))).toHaveLength(1);
-    expect(items.find((i) => i.id === hex(1))?.titleEn).toBe('T');
+    expect(items.find((i) => i.id === hex(1))?.localizedTitle).toBe('T');
   });
 });
 
-describe('getTopics current-language title join (DQX-11)', () => {
-  it('surfaces titleEn when present, null otherwise', async () => {
+describe('topics list title relation (DQX-11)', () => {
+  it('surfaces localizedTitle when present, null otherwise', async () => {
     await upsertTopic(ctx.db, {
       id: hex(1),
       titleJa: 'トピック1',
@@ -288,10 +320,13 @@ describe('getTopics current-language title join (DQX-11)', () => {
       model: 'm',
     });
 
-    const { items } = await getTopics(ctx.db, {});
-    const byId = new Map(items.map((t) => [t.id, t]));
-    expect(byId.get(hex(1))?.titleEn).toBe('Topic One');
-    expect(byId.get(hex(2))?.titleEn).toBeNull();
+    const rows = await ctx.db.query.topics.findMany({
+      with: { title: { where: { language: 'en' }, columns: { value: true } } },
+      orderBy: { publishedAt: 'desc' },
+    });
+    const byId = new Map(rows.map(withLocalizedTitle).map((t) => [t.id, t]));
+    expect(byId.get(hex(1))?.localizedTitle).toBe('Topic One');
+    expect(byId.get(hex(2))?.localizedTitle).toBeNull();
   });
 });
 
@@ -1638,6 +1673,15 @@ describe('article_images reverse index', () => {
   const KEY_A = 'cache.hiroba.dqx.jp/dq_resource/img/a.png';
   const KEY_B = 'cache.hiroba.dqx.jp/dq_resource/img/b.png';
 
+  /** Read the reverse index directly — the shape the purge fan-out consumes. */
+  const articlesFor = (key: string) =>
+    ctx.db.query.articleImages.findMany({
+      columns: { itemType: true, itemId: true },
+      where: { imageKey: key },
+    });
+  const isBanner = async (key: string) =>
+    !!(await ctx.db.query.banners.findFirst({ where: { imageKey: key } }));
+
   it('syncs on upsert, replaces on rewrite, answers reverse lookups', async () => {
     await upsertTopic(ctx.db, {
       id: hex(1),
@@ -1650,14 +1694,14 @@ describe('article_images reverse index', () => {
       ],
     });
 
-    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([
+    expect(await articlesFor(KEY_A)).toEqual([
       { itemType: 'topic', itemId: hex(1) },
     ]);
 
     // A rewrite that drops an image replaces the set, not appends to it.
     await updateTopicBlocks(ctx.db, hex(1), [{ type: 'image', src: SRC_B }]);
-    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
-    expect(await getArticlesByImageKey(ctx.db, KEY_B)).toEqual([
+    expect(await articlesFor(KEY_A)).toEqual([]);
+    expect(await articlesFor(KEY_B)).toEqual([
       { itemType: 'topic', itemId: hex(1) },
     ]);
 
@@ -1667,7 +1711,7 @@ describe('article_images reverse index', () => {
       titleJa: 'トピック1改',
       publishedAt: BASE,
     });
-    expect(await getArticlesByImageKey(ctx.db, KEY_B)).toEqual([
+    expect(await articlesFor(KEY_B)).toEqual([
       { itemType: 'topic', itemId: hex(1) },
     ]);
   });
@@ -1681,12 +1725,12 @@ describe('article_images reverse index', () => {
       publishedAt: BASE,
       blocksJa: [{ type: 'image', src: SRC_A }],
     });
-    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
+    expect(await articlesFor(KEY_A)).toEqual([]);
 
     const result = await backfillArticleImages(ctx.db, 'topic', null, 50);
     expect(result.processed).toBe(1);
     expect(result.nextCursor).toBeNull();
-    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([
+    expect(await articlesFor(KEY_A)).toEqual([
       { itemType: 'topic', itemId: hex(2) },
     ]);
   });
@@ -1702,8 +1746,8 @@ describe('article_images reverse index', () => {
         publishedAt: null,
       },
     ]);
-    expect(await isBannerImage(ctx.db, KEY_A)).toBe(true);
-    expect(await isBannerImage(ctx.db, KEY_B)).toBe(false);
+    expect(await isBanner(KEY_A)).toBe(true);
+    expect(await isBanner(KEY_B)).toBe(false);
   });
 
   it('syncs when a recheck saves a changed body', async () => {
@@ -1718,8 +1762,8 @@ describe('article_images reverse index', () => {
     await saveChangedBody(ctx.db, 'topic', hex(3), {
       blocks: [{ type: 'image', src: SRC_B }],
     });
-    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
-    expect(await getArticlesByImageKey(ctx.db, KEY_B)).toEqual([
+    expect(await articlesFor(KEY_A)).toEqual([]);
+    expect(await articlesFor(KEY_B)).toEqual([
       { itemType: 'topic', itemId: hex(3) },
     ]);
 
@@ -1727,13 +1771,13 @@ describe('article_images reverse index', () => {
     await saveChangedBody(ctx.db, 'topic', hex(4), {
       blocks: [{ type: 'image', src: SRC_A }],
     });
-    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
+    expect(await articlesFor(KEY_A)).toEqual([]);
   });
 
   it('syncs news blocks via updateNewsBlocks', async () => {
     await upsertListItems(ctx.db, [listItem(5, 1)]);
     await updateNewsBlocks(ctx.db, hex(5), [{ type: 'image', src: SRC_A }]);
-    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([
+    expect(await articlesFor(KEY_A)).toEqual([
       { itemType: 'news', itemId: hex(5) },
     ]);
   });
@@ -1743,6 +1787,6 @@ describe('article_images reverse index', () => {
     await updateNewsBlocks(ctx.db, hex(90), blocks);
     await updateTopicBlocks(ctx.db, hex(91), blocks);
     await updatePlayguideBlocks(ctx.db, 'no-such-guide', blocks);
-    expect(await getArticlesByImageKey(ctx.db, KEY_A)).toEqual([]);
+    expect(await articlesFor(KEY_A)).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@ import ArticleList from "../../../components/ArticleList.astro";
 import BackLink from "../../../components/BackLink.astro";
 import PanelSection from "../../../components/PanelSection.astro";
 import * as Sentry from "@sentry/cloudflare";
-import { createDb, getPlayguides, type LocalizedPlayguide } from "@hiroba/db";
+import { createDb, withLocalizedTitle, type LocalizedPlayguide } from "@hiroba/db";
 import { maybeTriggerTitleBackfill } from "../../../lib/workflow";
 import { useTranslations } from "../../../i18n";
 
@@ -19,13 +19,18 @@ const db = createDb(env.DB);
 let items: LocalizedPlayguide[] = [];
 
 try {
-	// The guide set is small and bounded (~100–150 pages), so it isn't paginated.
-	items = await getPlayguides(db, { language: lang });
+	// The guide set is small and bounded (~100–150 pages), so it isn't
+	// paginated; crawl order (sortOrder, id) since guides have no date.
+	const rows = await db.query.playguides.findMany({
+		with: { title: { where: { language: lang }, columns: { value: true } } },
+		orderBy: { sortOrder: "asc", id: "asc" },
+	});
+	items = rows.map(withLocalizedTitle);
 	// If this language is meaningfully behind on titles, backfill the archive.
 	await maybeTriggerTitleBackfill(lang, items);
 } catch (err) {
 	// Show empty list on error — surface the (previously swallowed) cause.
-	console.error("playguide: getPlayguides threw", err);
+	console.error("playguide: guide query threw", err);
 	Sentry.captureException(err, { tags: { site_area: "playguide" } });
 }
 ---

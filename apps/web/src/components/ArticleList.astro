@@ -13,7 +13,7 @@ interface Props {
 	items: Array<{
 		id: string;
 		titleJa: string;
-		titleEn: string | null;
+		localizedTitle: string | null;
 		publishedAt?: { epochMilliseconds: number } | null;
 	}>;
 	/** Detail-page prefix the row links under: "/news", "/topics", "/playguide". */
@@ -32,7 +32,7 @@ const locale = dateLocale(lang);
 			{items.map((item) => (
 				<li>
 					<a href={`${hrefBase}/${item.id}`}>
-						<span class="news-list__title">{item.titleEn ?? item.titleJa}</span>
+						<span class="news-list__title">{item.localizedTitle ?? item.titleJa}</span>
 						{item.publishedAt && (
 							<time datetime={new Date(item.publishedAt.epochMilliseconds).toISOString()}>
 								{formatShortDate(item.publishedAt.epochMilliseconds, locale)}
