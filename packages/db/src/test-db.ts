@@ -3,9 +3,9 @@
  * migrations applied, so query helpers run against production-equivalent SQLite
  * — same custom SQL functions (`instr`, `json_valid`) and CHECK constraints.
  *
- * The migrations live in `apps/workflow/migrations` but are generated from this
- * package's schema (see `drizzle.config.ts`), so replaying them here keeps the
- * test schema in lockstep with what ships.
+ * The migrations live in `apps/workflow/migrations` and are hand-authored
+ * against this package's schema, so replaying them here keeps the test schema
+ * in lockstep with what ships.
  */
 
 import fs from 'node:fs';
