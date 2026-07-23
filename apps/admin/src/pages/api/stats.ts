@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 
-import { getStats } from '../../lib/db-operations';
+import { getStats } from '../../lib/stats-queries';
 
 export const GET: APIRoute = async () => {
   const db = createDb(env.DB);

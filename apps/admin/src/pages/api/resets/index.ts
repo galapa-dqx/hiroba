@@ -14,7 +14,7 @@ import {
   createDb,
   getEnabledLanguages,
   materializeResetEvents,
-  upsertResetMilestone,
+  resetMilestones,
 } from '@hiroba/db';
 
 /** Slug we accept as a reset id (also the events-row id seed). */
@@ -97,7 +97,9 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const now = Temporal.Now.instant();
-  await upsertResetMilestone(db, {
+  // Create-or-overwrite the definition (admin editor semantics: saving an
+  // existing id replaces every editable field, keeping createdAt).
+  const row = {
     id,
     titleJa,
     titles,
@@ -110,7 +112,22 @@ export const POST: APIRoute = async ({ request }) => {
         : null,
     createdAt: now,
     updatedAt: now,
-  });
+  };
+  await db
+    .insert(resetMilestones)
+    .values(row)
+    .onConflictDoUpdate({
+      target: resetMilestones.id,
+      set: {
+        titleJa: row.titleJa,
+        titles: row.titles,
+        rrule: row.rrule,
+        enabled: row.enabled,
+        sortOrder: row.sortOrder,
+        note: row.note,
+        updatedAt: row.updatedAt,
+      },
+    });
 
   // Rebuild the materialized marks so the calendar reflects the change now.
   await materializeResetEvents(db, { now });

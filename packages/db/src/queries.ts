@@ -2,21 +2,7 @@
  * Database queries for news items.
  */
 
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  exists,
-  gt,
-  gte,
-  inArray,
-  isNotNull,
-  isNull,
-  lt,
-  or,
-  sql,
-} from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { Temporal } from 'temporal-polyfill';
 
@@ -32,7 +18,6 @@ import {
   type ResetTitleMap,
 } from './reset-events';
 import { articleImages } from './schema/article-images';
-import { banners } from './schema/banners';
 import { events, type Event, type NewEvent } from './schema/events';
 import { imageFiles } from './schema/image-files';
 import { imageSources, type ImageSource } from './schema/image-sources';
@@ -44,15 +29,10 @@ import {
   type NewPlayguide,
   type Playguide,
 } from './schema/playguides';
-import {
-  resetMilestones,
-  type NewResetMilestone,
-} from './schema/reset-milestones';
 import { topics, type NewTopic, type Topic } from './schema/topics';
 import {
   translations,
   type ItemType,
-  type Translation,
   type TranslationField,
 } from './schema/translations';
 
@@ -63,9 +43,11 @@ export type ArticleType = 'news' | 'topic' | 'playguide';
  * The source table for a body-bearing item type. All three share the columns the
  * pipeline touches (id, titleJa, blocksJa, body* tracking); callers
  * that reach for a type-specific column (news `category`, dated `publishedAt`)
- * branch explicitly instead of going through here.
+ * branch explicitly instead of going through here. Exported for the admin-only
+ * queries that live in apps/admin/src/lib (DQX-54) and iterate one table per
+ * ArticleType the same way.
  */
-function articleTable(itemType: ArticleType) {
+export function articleTable(itemType: ArticleType) {
   return itemType === 'news'
     ? newsItems
     : itemType === 'topic'
@@ -163,8 +145,11 @@ export type RecheckEntry = {
   nextCheckAt: Temporal.Instant | null;
 };
 
-/** Every fetched article of both types, with its recheck schedule computed. */
-async function collectRecheckEntries(
+/** Every fetched article of every type, with its recheck schedule computed.
+ *  Exported for the admin dashboard's getStats (apps/admin, DQX-54), which
+ *  buckets the whole domain per item type — a shape getRecheckQueue's
+ *  due/upcoming/retired split doesn't preserve. */
+export async function collectRecheckEntries(
   db: Database,
   now: Temporal.Instant,
 ): Promise<RecheckEntry[]> {
@@ -363,105 +348,6 @@ export async function saveChangedBody(
   }
 }
 
-/* ------------------------------------------------------------------ *
- * Admin stats
- * ------------------------------------------------------------------ */
-
-export type ArticleTypeStats = {
-  total: number;
-  withBody: number;
-  /** Items with a finished English content translation. */
-  translated: number;
-  recheckDue: number;
-  recheckUpcoming: number;
-  recheckRetired: number;
-};
-
-export type AdminStats = {
-  news: ArticleTypeStats & { byCategory: Record<string, number> };
-  topics: ArticleTypeStats;
-};
-
-async function getTypeCounts(
-  db: Database,
-  itemType: 'news' | 'topic',
-): Promise<Pick<ArticleTypeStats, 'total' | 'withBody' | 'translated'>> {
-  const table = itemType === 'news' ? newsItems : topics;
-  const [totalResult, withBodyResult, translatedResult] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(table)
-      .get(),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(table)
-      .where(isNotNull(table.blocksJa))
-      .get(),
-    db
-      .select({ count: sql<number>`count(DISTINCT item_id)` })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, itemType),
-          eq(translations.language, 'en'),
-          eq(translations.field, 'content'),
-          eq(translations.state, 'done'),
-        ),
-      )
-      .get(),
-  ]);
-  return {
-    total: totalResult?.count ?? 0,
-    withBody: withBodyResult?.count ?? 0,
-    translated: translatedResult?.count ?? 0,
-  };
-}
-
-/**
- * Symmetric per-type stats for the admin dashboard, plus the news category
- * breakdown. Recheck numbers come from one pass over the recheck domain.
- */
-export async function getStats(db: Database): Promise<AdminStats> {
-  const now = Temporal.Now.instant();
-  const [newsCounts, topicCounts, entries, categoryResults] = await Promise.all(
-    [
-      getTypeCounts(db, 'news'),
-      getTypeCounts(db, 'topic'),
-      collectRecheckEntries(db, now),
-      db
-        .select({ category: newsItems.category, count: sql<number>`count(*)` })
-        .from(newsItems)
-        .groupBy(newsItems.category)
-        .all(),
-    ],
-  );
-
-  const recheck = {
-    news: { recheckDue: 0, recheckUpcoming: 0, recheckRetired: 0 },
-    topic: { recheckDue: 0, recheckUpcoming: 0, recheckRetired: 0 },
-  };
-  for (const entry of entries) {
-    // The dashboard tracks news + topics; playguide rechecks flow through the
-    // queue but aren't broken out here (no playguide tile).
-    const bucket = recheck[entry.itemType as 'news' | 'topic'];
-    if (!bucket) continue;
-    if (entry.nextCheckAt === null) bucket.recheckRetired++;
-    else if (Temporal.Instant.compare(entry.nextCheckAt, now) <= 0)
-      bucket.recheckDue++;
-    else bucket.recheckUpcoming++;
-  }
-
-  const byCategory: Record<string, number> = {};
-  for (const row of categoryResults) {
-    byCategory[row.category] = row.count;
-  }
-
-  return {
-    news: { ...newsCounts, ...recheck.news, byCategory },
-    topics: { ...topicCounts, ...recheck.topic },
-  };
-}
-
 /**
  * Invalidate cached body content for a news item.
  */
@@ -611,229 +497,8 @@ export async function updateNewsBlocks(
   }
 }
 
-/**
- * Update the editable source fields (Japanese title and/or block tree) of a
- * news item or topic. Returns false when the item doesn't exist. Fields left
- * undefined are untouched, so a title-only edit can't clobber an unfetched
- * body.
- */
-export async function updateArticleSource(
-  db: Database,
-  itemType: ArticleType,
-  id: string,
-  patch: { titleJa?: string; blocksJa?: Block[] },
-): Promise<boolean> {
-  const table = articleTable(itemType);
-  const set: { titleJa?: string; blocksJa?: Block[] } = {};
-  if (patch.titleJa !== undefined) set.titleJa = patch.titleJa;
-  if (patch.blocksJa !== undefined) set.blocksJa = patch.blocksJa;
-  if (Object.keys(set).length === 0) return false;
-
-  const result = await db
-    .update(table)
-    .set(set)
-    .where(eq(table.id, id))
-    .returning({ id: table.id });
-  if (result.length > 0 && patch.blocksJa) {
-    await syncArticleImages(db, itemType, id, patch.blocksJa);
-  }
-  return result.length > 0;
-}
-
 /** A topic plus its resolved current-language title (null ⇒ show titleJa). */
 export type LocalizedTopic = Topic & { localizedTitle: string | null };
-
-/**
- * Lightweight paginated news list for the admin UI (mirrors listTopicsAdmin):
- * no block trees on the wire — a `hasBody` flag plus per-item translation
- * status.
- */
-export async function listNewsAdmin(
-  db: Database,
-  options: {
-    category?: string;
-    limit?: number;
-    cursor?: string;
-    language?: string;
-  } = {},
-): Promise<{
-  items: Array<{
-    id: string;
-    titleJa: string;
-    /** Title in `language`, or null when not yet translated (⇒ show titleJa). */
-    titleLocalized: string | null;
-    category: string;
-    publishedAt: Temporal.Instant;
-    hasBody: boolean;
-    translated: boolean;
-  }>;
-  hasMore: boolean;
-  nextCursor?: string;
-}> {
-  const limit = Math.min(options.limit ?? 50, 100);
-  const language = options.language ?? 'en';
-
-  const conditions = [];
-  if (options.category) {
-    conditions.push(eq(newsItems.category, options.category));
-  }
-  if (options.cursor) {
-    conditions.push(
-      lt(newsItems.publishedAt, Temporal.Instant.from(options.cursor)),
-    );
-  }
-
-  const rows = await db
-    .select({
-      id: newsItems.id,
-      titleJa: newsItems.titleJa,
-      titleLocalized: translations.value,
-      category: newsItems.category,
-      publishedAt: newsItems.publishedAt,
-      hasBody: sql<number>`(${newsItems.blocksJa} IS NOT NULL)`,
-    })
-    .from(newsItems)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'news'),
-        eq(translations.itemId, newsItems.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(newsItems.publishedAt))
-    .limit(limit + 1)
-    .all();
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, -1) : rows;
-
-  const ids = page.map((r) => r.id);
-  const translatedRows = await chunked(ids, (slice) =>
-    db
-      .select({ itemId: translations.itemId })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'news'),
-          eq(translations.language, 'en'),
-          eq(translations.field, 'content'),
-          eq(translations.state, 'done'),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
-  );
-  const translated = new Set(translatedRows.map((r) => r.itemId));
-
-  return {
-    items: page.map((r) => ({
-      id: r.id,
-      titleJa: r.titleJa,
-      titleLocalized: r.titleLocalized,
-      category: r.category,
-      publishedAt: r.publishedAt,
-      hasBody: !!r.hasBody,
-      translated: translated.has(r.id),
-    })),
-    hasMore,
-    nextCursor: hasMore
-      ? page[page.length - 1].publishedAt.toString()
-      : undefined,
-  };
-}
-
-/**
- * Lightweight paginated topic list for the admin UI. Avoids pulling the full
- * block tree — derives a `hasBody` flag and joins per-item translation status.
- */
-export async function listTopicsAdmin(
-  db: Database,
-  options: { limit?: number; cursor?: string; language?: string } = {},
-): Promise<{
-  items: Array<{
-    id: string;
-    titleJa: string;
-    /** Title in `language`, or null when not yet translated (⇒ show titleJa). */
-    titleLocalized: string | null;
-    publishedAt: Temporal.Instant;
-    hasBody: boolean;
-    translated: boolean;
-  }>;
-  hasMore: boolean;
-  nextCursor?: string;
-}> {
-  const limit = Math.min(options.limit ?? 50, 100);
-  const language = options.language ?? 'en';
-
-  const conditions = [];
-  if (options.cursor) {
-    conditions.push(
-      lt(topics.publishedAt, Temporal.Instant.from(options.cursor)),
-    );
-  }
-
-  const rows = await db
-    .select({
-      id: topics.id,
-      titleJa: topics.titleJa,
-      titleLocalized: translations.value,
-      publishedAt: topics.publishedAt,
-      hasBody: sql<number>`(${topics.blocksJa} IS NOT NULL)`,
-    })
-    .from(topics)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'topic'),
-        eq(translations.itemId, topics.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(topics.publishedAt))
-    .limit(limit + 1)
-    .all();
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, -1) : rows;
-
-  const ids = page.map((r) => r.id);
-  const translatedRows = await chunked(ids, (slice) =>
-    db
-      .select({ itemId: translations.itemId })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'topic'),
-          eq(translations.language, 'en'),
-          eq(translations.field, 'content'),
-          eq(translations.state, 'done'),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
-  );
-  const translated = new Set(translatedRows.map((r) => r.itemId));
-
-  return {
-    items: page.map((r) => ({
-      id: r.id,
-      titleJa: r.titleJa,
-      titleLocalized: r.titleLocalized,
-      publishedAt: r.publishedAt,
-      hasBody: !!r.hasBody,
-      translated: translated.has(r.id),
-    })),
-    hasMore,
-    nextCursor: hasMore
-      ? page[page.length - 1].publishedAt.toString()
-      : undefined,
-  };
-}
 
 /* ------------------------------------------------------------------ *
  * Playguides — static reference pages under /sc/public/playguide/. Mirrors the
@@ -920,75 +585,6 @@ export async function updatePlayguideBlocks(
 
 /** A playguide plus its resolved current-language title (null ⇒ show titleJa). */
 export type LocalizedPlayguide = Playguide & { localizedTitle: string | null };
-
-/**
- * Lightweight playguide list for the admin UI (mirrors listTopicsAdmin): a
- * `hasBody` flag plus per-item translation status, no block trees on the wire.
- */
-export async function listPlayguidesAdmin(
-  db: Database,
-  options: { language?: string } = {},
-): Promise<
-  Array<{
-    id: string;
-    titleJa: string;
-    /** Title in `language`, or null when not yet translated (⇒ show titleJa). */
-    titleLocalized: string | null;
-    sortOrder: number;
-    hasBody: boolean;
-    translated: boolean;
-  }>
-> {
-  const language = options.language ?? 'en';
-
-  const rows = await db
-    .select({
-      id: playguides.id,
-      titleJa: playguides.titleJa,
-      titleLocalized: translations.value,
-      sortOrder: playguides.sortOrder,
-      hasBody: sql<number>`(${playguides.blocksJa} IS NOT NULL)`,
-    })
-    .from(playguides)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'playguide'),
-        eq(translations.itemId, playguides.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .orderBy(asc(playguides.sortOrder), asc(playguides.id))
-    .all();
-
-  const ids = rows.map((r) => r.id);
-  const translatedRows = await chunked(ids, (slice) =>
-    db
-      .select({ itemId: translations.itemId })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'playguide'),
-          eq(translations.language, 'en'),
-          eq(translations.field, 'content'),
-          eq(translations.state, 'done'),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
-  );
-  const translated = new Set(translatedRows.map((r) => r.itemId));
-
-  return rows.map((r) => ({
-    id: r.id,
-    titleJa: r.titleJa,
-    titleLocalized: r.titleLocalized,
-    sortOrder: r.sortOrder,
-    hasBody: !!r.hasBody,
-    translated: translated.has(r.id),
-  }));
-}
 
 /**
  * Get the localized title + block tree for an article (news item or topic), if
@@ -1108,37 +704,6 @@ export async function getEventsForDay(
 // `refreshResetEvents` (workflow cron) materializes the next horizon of their
 // occurrences into `events` as `mark` rows via `buildResetEvents`, then swaps
 // them in with `replaceResetEvents`. See reset-events.ts.
-
-/** Create or update a reset definition (admin editor). */
-export async function upsertResetMilestone(
-  db: Database,
-  row: NewResetMilestone,
-): Promise<void> {
-  await db
-    .insert(resetMilestones)
-    .values(row)
-    .onConflictDoUpdate({
-      target: resetMilestones.id,
-      set: {
-        titleJa: row.titleJa,
-        titles: row.titles,
-        rrule: row.rrule,
-        enabled: row.enabled,
-        sortOrder: row.sortOrder,
-        note: row.note,
-        updatedAt: row.updatedAt,
-      },
-    });
-}
-
-/** Delete a reset definition. Its materialized events clear on the next refresh
- *  (or immediately, when the admin API re-materializes after the change). */
-export async function deleteResetMilestone(
-  db: Database,
-  id: string,
-): Promise<void> {
-  await db.delete(resetMilestones).where(eq(resetMilestones.id, id));
-}
 
 /**
  * Swap in a freshly materialized set of reset `mark` events (sourceType='reset')
@@ -1600,8 +1165,10 @@ export async function upsertImageTranscription(
  * latest-wins serving, complete-at-birth.
  * ------------------------------------------------------------------ */
 
-/** Newest-wins comparison for renders: created_at, then id as tiebreak. */
-function renderIsNewer(
+/** Newest-wins comparison for renders: created_at, then id as tiebreak.
+ *  Exported for the admin-only render queries in apps/admin/src/lib (DQX-54),
+ *  which pick "the newest localized render" the same way. */
+export function renderIsNewer(
   a: { createdAt: Temporal.Instant; id: string },
   b: { createdAt: Temporal.Instant; id: string },
 ): boolean {
@@ -1795,99 +1362,6 @@ export async function getLatestRenderModels(
   return result;
 }
 
-/** The newest localized render for a source in one language — its primary file
- *  key, producing model, and timestamp (the admin panels' localized-image
- *  state, now that there's no `url` translation row). */
-export type LatestRender = {
-  key: string;
-  model: string | null;
-  createdAt: Temporal.Instant;
-};
-
-/**
- * Newest localized render per source for one language (primary file key + model
- * + created_at) — the admin Images list's localized-image column.
- */
-async function getLatestLocalizedRenders(
-  db: Database,
-  sourceIds: number[],
-  language: string,
-): Promise<Map<number, LatestRender>> {
-  const result = new Map<number, LatestRender>();
-  if (sourceIds.length === 0) return result;
-
-  const rows = await chunked(sourceIds, (slice) =>
-    db
-      .select({
-        sourceId: images.sourceId,
-        model: images.model,
-        createdAt: images.createdAt,
-        id: images.id,
-        key: imageFiles.key,
-      })
-      .from(images)
-      .innerJoin(
-        imageFiles,
-        and(eq(imageFiles.imageId, images.id), eq(imageFiles.isPrimary, true)),
-      )
-      .where(
-        and(inArray(images.sourceId, slice), eq(images.language, language)),
-      )
-      .all(),
-  );
-
-  const best = new Map<number, { createdAt: Temporal.Instant; id: string }>();
-  for (const r of rows) {
-    const prev = best.get(r.sourceId);
-    if (!prev || renderIsNewer(r, prev)) {
-      best.set(r.sourceId, r);
-      result.set(r.sourceId, {
-        key: r.key,
-        model: r.model,
-        createdAt: r.createdAt,
-      });
-    }
-  }
-  return result;
-}
-
-/**
- * Newest localized render per language for ONE source (primary file key + model
- * + created_at) — the admin image-edit screen's per-language state.
- */
-export async function getLatestRendersBySource(
-  db: Database,
-  sourceId: number,
-): Promise<Map<string, LatestRender>> {
-  const rows = await db
-    .select({
-      language: images.language,
-      model: images.model,
-      createdAt: images.createdAt,
-      id: images.id,
-      key: imageFiles.key,
-    })
-    .from(images)
-    .innerJoin(
-      imageFiles,
-      and(eq(imageFiles.imageId, images.id), eq(imageFiles.isPrimary, true)),
-    )
-    .where(and(eq(images.sourceId, sourceId), isNotNull(images.language)))
-    .all();
-
-  const result = new Map<string, LatestRender>();
-  const best = new Map<string, { createdAt: Temporal.Instant; id: string }>();
-  for (const r of rows) {
-    const lang = r.language!;
-    const prev = best.get(lang);
-    if (!prev || renderIsNewer(r, prev)) {
-      best.set(lang, r);
-      result.set(lang, { key: r.key, model: r.model, createdAt: r.createdAt });
-    }
-  }
-  return result;
-}
-
 /** One row of an image's restructured Japanese spans. `from` is the index the
  *  row occupied in the CURRENT texts_ja, or null for a newly added row. */
 export type ImageSpanEdit = { text: string; from: number | null };
@@ -2011,37 +1485,6 @@ export async function syncArticleImages(
   await db.batch([del, ...inserts]);
 }
 
-/**
- * Backfill one page of the article_images index for one item type — for
- * articles written before the index existed (new writes keep it current via
- * syncArticleImages). Cursor-paginated by id; idempotent, so re-running over
- * already-indexed articles is harmless.
- */
-export async function backfillArticleImages(
-  db: Database,
-  itemType: ArticleType,
-  cursor: string | null,
-  limit = 100,
-): Promise<{ processed: number; nextCursor: string | null }> {
-  const table = articleTable(itemType);
-  const rows = await db
-    .select({ id: table.id, blocksJa: table.blocksJa })
-    .from(table)
-    .where(cursor ? gt(table.id, cursor) : undefined)
-    .orderBy(asc(table.id))
-    .limit(limit)
-    .all();
-  for (const row of rows) {
-    if (row.blocksJa) {
-      await syncArticleImages(db, itemType, row.id, row.blocksJa);
-    }
-  }
-  return {
-    processed: rows.length,
-    nextCursor: rows.length === limit ? rows[rows.length - 1].id : null,
-  };
-}
-
 /** Look up image-source rows by their natural keys (imageKey). */
 export async function getImageSourcesByKeys(
   db: Database,
@@ -2106,143 +1549,6 @@ export async function getImageTranslations(
       .all(),
   );
   return new Map(rows.map((r) => [Number(r.itemId), r.value!]));
-}
-
-/**
- * One image source plus its per-language state — the shape behind the admin
- * Images screen. `text` is the translated-spans row (null until that step runs);
- * `localized` is the newest localized render for the language (null until one
- * exists — its presence IS the "localized" signal, there's no `url` row now).
- */
-export type AdminImageRow = {
-  image: ImageSource;
-  text: Translation | null;
-  localized: LatestRender | null;
-  /** True when this image backs a rotation banner (banners.imageKey = key). */
-  isBanner: boolean;
-};
-
-/** Image source categories the admin screen can filter to (banner is the only
- * one with a first-class join today; topic/playguide live in block trees). */
-export type ImageSourceFilter = 'banner';
-
-/**
- * A GLOB that matches any hiragana/katakana/kanji character — the SQL twin of
- * `hasJapanese` (see @hiroba/shared). Because a `texts_ja` value is a JSON array
- * whose structural characters (`[] "",`) are all ASCII, matching Japanese
- * anywhere in the raw text is exactly "some span contains Japanese".
- */
-const JAPANESE_GLOB = '*[぀-ヿ㐀-䶿一-鿿ｦ-ﾟ]*';
-
-/**
- * List image sources newest-first (by surrogate id), each paired with its
- * translated-spans row and newest localized render for one language.
- * Cursor-paginated on the id so the admin can lazily page the whole corpus.
- *
- * `onlyText` and `source` filter server-side (in the WHERE clause), so paging
- * and the has-more/next-cursor accounting are computed over the filtered set —
- * "Load more" walks the matches, not every image.
- */
-export async function listImagesForAdmin(
-  db: Database,
-  opts: {
-    language: string;
-    limit?: number;
-    cursor?: number;
-    /** Keep only images bearing Japanese text (localization candidates). */
-    onlyText?: boolean;
-    /** Keep only images from this source (currently: rotation banners). */
-    source?: ImageSourceFilter;
-  },
-): Promise<{ rows: AdminImageRow[]; hasMore: boolean; nextCursor?: number }> {
-  const limit = Math.min(opts.limit ?? 30, 100);
-  // Every page is the same `id < cursor` shape; the first page uses a sentinel
-  // above every id (ids are autoincrement, so MAX_SAFE_INTEGER matches all).
-  const cursor = opts.cursor ?? Number.MAX_SAFE_INTEGER;
-
-  const conditions = [lt(imageSources.id, cursor)];
-  if (opts.onlyText) {
-    // Transcribed (non-null) and carrying at least one Japanese character.
-    conditions.push(isNotNull(imageSources.textsJa));
-    conditions.push(sql`${imageSources.textsJa} GLOB ${JAPANESE_GLOB}`);
-  }
-  if (opts.source === 'banner') {
-    conditions.push(
-      exists(
-        db
-          .select({ one: sql`1` })
-          .from(banners)
-          .where(eq(banners.imageKey, imageSources.key)),
-      ),
-    );
-  }
-
-  const imgRows = await db
-    .select()
-    .from(imageSources)
-    .where(and(...conditions))
-    .orderBy(desc(imageSources.id))
-    .limit(limit + 1)
-    .all();
-
-  const hasMore = imgRows.length > limit;
-  const page = hasMore ? imgRows.slice(0, limit) : imgRows;
-
-  // This language's translated-spans rows + newest localized render per source.
-  const ids = page.map((r) => r.id);
-  const trRows = ids.length
-    ? await chunked(ids.map(String), (slice) =>
-        db
-          .select()
-          .from(translations)
-          .where(
-            and(
-              eq(translations.itemType, 'image'),
-              eq(translations.language, opts.language),
-              eq(translations.field, 'text'),
-              inArray(translations.itemId, slice),
-            ),
-          )
-          .all(),
-      )
-    : [];
-  const textById = new Map<number, Translation>();
-  for (const tr of trRows) textById.set(Number(tr.itemId), tr);
-
-  const localizedById = await getLatestLocalizedRenders(db, ids, opts.language);
-
-  // Which of this page's images back a rotation banner (banners.imageKey = key).
-  // Banners are the one image source with a first-class join, so we can tag them
-  // cheaply here; topic/playguide membership lives only inside block trees. When
-  // the page is already filtered to banners, every row is one — skip the query.
-  const keys = page.map((r) => r.key);
-  const bannerKeys =
-    opts.source === 'banner' || keys.length === 0
-      ? new Set(keys)
-      : new Set(
-          (
-            await chunked(keys, (slice) =>
-              db
-                .select({ imageKey: banners.imageKey })
-                .from(banners)
-                .where(inArray(banners.imageKey, slice))
-                .all(),
-            )
-          ).map((r) => r.imageKey),
-        );
-
-  const rows = page.map((image) => ({
-    image,
-    text: textById.get(image.id) ?? null,
-    localized: localizedById.get(image.id) ?? null,
-    isBanner: bannerKeys.has(image.key),
-  }));
-
-  return {
-    rows,
-    hasMore,
-    nextCursor: hasMore ? page[page.length - 1].id : undefined,
-  };
 }
 
 /**

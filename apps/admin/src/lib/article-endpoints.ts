@@ -7,16 +7,19 @@
 
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
+import { eq } from 'drizzle-orm';
 
 import {
+  articleTable,
   createDb,
   getArticleTranslations,
   getEnabledLanguages,
   getImageSourcesByKeys,
   getServedImages,
-  updateArticleSource,
+  syncArticleImages,
   upsertItemTranslation,
   type ArticleType,
+  type Database,
 } from '@hiroba/db';
 import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 
@@ -34,6 +37,36 @@ function json(data: unknown, status = 200): Response {
 
 function getDb() {
   return createDb(env.DB);
+}
+
+/**
+ * Update the editable source fields (Japanese title and/or block tree) of an
+ * article. Returns false when the item doesn't exist. Fields left undefined
+ * are untouched, so a title-only edit can't clobber an unfetched body.
+ * Admin-only (the edit screen's PUT below), so it lives here rather than in
+ * the shared db package (DQX-54).
+ */
+async function updateArticleSource(
+  db: Database,
+  itemType: ArticleType,
+  id: string,
+  patch: { titleJa?: string; blocksJa?: Block[] },
+): Promise<boolean> {
+  const table = articleTable(itemType);
+  const set: { titleJa?: string; blocksJa?: Block[] } = {};
+  if (patch.titleJa !== undefined) set.titleJa = patch.titleJa;
+  if (patch.blocksJa !== undefined) set.blocksJa = patch.blocksJa;
+  if (Object.keys(set).length === 0) return false;
+
+  const result = await db
+    .update(table)
+    .set(set)
+    .where(eq(table.id, id))
+    .returning({ id: table.id });
+  if (result.length > 0 && patch.blocksJa) {
+    await syncArticleImages(db, itemType, id, patch.blocksJa);
+  }
+  return result.length > 0;
 }
 
 /**

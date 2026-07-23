@@ -9,13 +9,10 @@ import {
   deleteGlossaryOverride,
   deleteTranslation,
   getRecheckQueue,
-  getStats,
   glossary,
   invalidateBody,
   invalidateTopicBody,
   listEffectiveGlossary,
-  listNewsAdmin,
-  listTopicsAdmin,
   upsertGlossaryOverride,
   upsertListItems,
   upsertTopicListItems,
@@ -31,12 +28,9 @@ import { CATEGORIES, type Category } from '@hiroba/shared';
 
 // Re-export db functions
 export {
-  getStats,
   getRecheckQueue,
   invalidateBody,
   invalidateTopicBody,
-  listNewsAdmin,
-  listTopicsAdmin,
   deleteTranslation,
   upsertGlossaryOverride,
   deleteGlossaryOverride,

@@ -13,12 +13,10 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 
-import {
-  createDb,
-  getEnabledLanguages,
-  getLatestRendersBySource,
-} from '@hiroba/db';
+import { createDb, getEnabledLanguages } from '@hiroba/db';
 import { hasJapanese } from '@hiroba/shared';
+
+import { getLatestRendersBySource } from '../../../../lib/image-queries';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {

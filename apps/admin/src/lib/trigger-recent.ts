@@ -1,6 +1,7 @@
-import { listNewsAdmin, listTopicsAdmin, type Database } from '@hiroba/db';
+import { type Database } from '@hiroba/db';
 import { ArticleFlow } from '@hiroba/flows';
 
+import { listNewsAdmin, listTopicsAdmin } from './article-list-queries';
 import { startFlowViaHub } from './start-flow';
 import { MAX_RECENT_TRIGGER } from './trigger-limits';
 

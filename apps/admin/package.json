@@ -8,6 +8,8 @@
     "preview": "astro preview",
     "deploy": "wrangler deploy",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "types": "wrangler types"
   },
   "dependencies": {
@@ -40,6 +42,7 @@
     "@astrojs/check": "^0.9.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
   }
 }
