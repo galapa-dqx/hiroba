@@ -38,11 +38,12 @@
  * runFlowInline in plain-node vitest.
  */
 
-import { createDb, getUntranslatedTitles } from '@hiroba/db';
+import { createDb } from '@hiroba/db';
 import type { Flow, FlowLogger } from '@hiroba/flow';
 import { type TitleBackfillFlow } from '@hiroba/flows';
 
 import { translateTitleChunk } from './steps/translate-titles';
+import { getUntranslatedTitles } from './title-backfill-queries';
 import type {
   Env,
   ItemType,

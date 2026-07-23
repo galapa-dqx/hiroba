@@ -14,11 +14,8 @@ import {
   getServedImages,
   getStats,
   getTitleTranslations,
-  getUntranslatedTitles,
   insertImageRender,
   listImagesForAdmin,
-  pruneScheduleEvents,
-  replaceScheduleEvents,
   resetRunningTitles,
   resetRunningTitlesForLanguage,
   restructureImageTexts,
@@ -26,7 +23,6 @@ import {
   setBodyChecked,
   setImageTranscribeState,
   setTranslationStates,
-  syncBanners,
   updateNewsBlocks,
   updatePlayguideBlocks,
   updateTopicBlocks,
@@ -37,6 +33,7 @@ import {
   upsertTopic,
 } from './queries';
 import { withLocalizedTitle } from './relations';
+import { banners } from './schema/banners';
 import { events, type NewEvent } from './schema/events';
 import { imageSources } from './schema/image-sources';
 import { newsItems, type ListItem } from './schema/news-items';
@@ -453,94 +450,6 @@ describe('resetRunningTitles', () => {
     await resetRunningTitles(ctx.db, 'news', [hex(1)]);
     const states = await readStates(ctx.db, 'news', hex(1), 'en', ['content']);
     expect(states.get('content')).toBe('running');
-  });
-});
-
-describe('getUntranslatedTitles (DQX-13 backfill scan)', () => {
-  it('returns items lacking a title value, excluding done, newest-first', async () => {
-    // publishedAt: item3 newest (BASE+3h) → item1 oldest (BASE+1h).
-    await upsertListItems(ctx.db, [
-      listItem(1, 1),
-      listItem(2, 2),
-      listItem(3, 3),
-    ]);
-    // Item 2 is fully translated (has a value) → excluded.
-    await upsertItemTranslation(ctx.db, {
-      itemType: 'news',
-      itemId: hex(2),
-      language: 'en',
-      field: 'title',
-      value: 'Done',
-      model: 'm',
-    });
-    // Item 3 has an in-flight row with no value yet → still needs backfill.
-    await setTranslationStates(ctx.db, {
-      itemType: 'news',
-      itemId: hex(3),
-      language: 'en',
-      fields: ['title'],
-      state: 'running',
-    });
-
-    const rows = await getUntranslatedTitles(ctx.db, 'news', 'en');
-    expect(rows).toEqual([
-      { id: hex(3), titleJa: '記事3' }, // newest untranslated
-      { id: hex(1), titleJa: '記事1' },
-    ]);
-  });
-
-  it('scopes to the requested language', async () => {
-    await upsertListItems(ctx.db, [listItem(1, 1)]);
-    // Translated in English, but French is what we scan for.
-    await upsertItemTranslation(ctx.db, {
-      itemType: 'news',
-      itemId: hex(1),
-      language: 'en',
-      field: 'title',
-      value: 'Done',
-      model: 'm',
-    });
-
-    expect(await getUntranslatedTitles(ctx.db, 'news', 'en')).toEqual([]);
-    expect(await getUntranslatedTitles(ctx.db, 'news', 'fr')).toEqual([
-      { id: hex(1), titleJa: '記事1' },
-    ]);
-  });
-
-  it('honors the limit and advances as titles are translated (no cursor)', async () => {
-    await upsertListItems(ctx.db, [
-      listItem(1, 1),
-      listItem(2, 2),
-      listItem(3, 3),
-    ]);
-
-    // Newest two first.
-    const page1 = await getUntranslatedTitles(ctx.db, 'news', 'en', 2);
-    expect(page1.map((r) => r.id)).toEqual([hex(3), hex(2)]);
-
-    // Translating the newest drops it from the set; the next scan returns the
-    // next-newest page — no cursor threading needed.
-    await upsertItemTranslation(ctx.db, {
-      itemType: 'news',
-      itemId: hex(3),
-      language: 'en',
-      field: 'title',
-      value: 'Done',
-      model: 'm',
-    });
-    const page2 = await getUntranslatedTitles(ctx.db, 'news', 'en', 2);
-    expect(page2.map((r) => r.id)).toEqual([hex(2), hex(1)]);
-  });
-
-  it('reads from the topics table for itemType=topic', async () => {
-    await upsertTopic(ctx.db, {
-      id: hex(1),
-      titleJa: 'トピック1',
-      publishedAt: BASE,
-    });
-    expect(await getUntranslatedTitles(ctx.db, 'topic', 'en')).toEqual([
-      { id: hex(1), titleJa: 'トピック1' },
-    ]);
   });
 });
 
@@ -1288,16 +1197,13 @@ describe('listImagesForAdmin', () => {
       textsJa: [],
       model: 'gpt-vision',
     });
-    await syncBanners(ctx.db, [
-      {
-        imageKey: 'cache.hiroba.dqx.jp/banner_rotation_20260101_a.png',
-        linkUrl: null,
-        linkTopicId: null,
-        altJa: 'バナー',
-        sortOrder: 0,
-        publishedAt: null,
-      },
-    ]);
+    // Direct insert — syncBanners lives with its flow in apps/workflow now.
+    await ctx.db.insert(banners).values({
+      imageKey: 'cache.hiroba.dqx.jp/banner_rotation_20260101_a.png',
+      altJa: 'バナー',
+      sortOrder: 0,
+      updatedAt: BASE,
+    });
 
     const { rows } = await listImagesForAdmin(ctx.db, { language: 'en' });
     expect(rows.find((r) => r.image.id === bannerId)?.isBanner).toBe(true);
@@ -1341,16 +1247,13 @@ describe('listImagesForAdmin', () => {
       textsJa: ['トピック文'],
       model: 'gpt-vision',
     });
-    await syncBanners(ctx.db, [
-      {
-        imageKey: 'cache.hiroba.dqx.jp/rotationbanner/b.png',
-        linkUrl: null,
-        linkTopicId: null,
-        altJa: 'バナー',
-        sortOrder: 0,
-        publishedAt: null,
-      },
-    ]);
+    // Direct insert — syncBanners lives with its flow in apps/workflow now.
+    await ctx.db.insert(banners).values({
+      imageKey: 'cache.hiroba.dqx.jp/rotationbanner/b.png',
+      altJa: 'バナー',
+      sortOrder: 0,
+      updatedAt: BASE,
+    });
 
     const { rows } = await listImagesForAdmin(ctx.db, {
       language: 'en',
@@ -1443,199 +1346,6 @@ describe('getTitleTranslations', () => {
     );
     expect(titles.get(hex(1))).toBe('Translated');
     expect(titles.size).toBe(1);
-  });
-});
-
-describe('replaceScheduleEvents', () => {
-  const zdt = (s: string) => Temporal.ZonedDateTime.from(`${s}:00[Asia/Tokyo]`);
-
-  /** A schedule event row; icon sections encode the icon URL in sourceId. */
-  function schedEvent(
-    id: string,
-    content: string,
-    start: string,
-    end: string,
-    icon?: string,
-  ): NewEvent {
-    return {
-      id,
-      type: 'span',
-      titleJa: `event-${id}`,
-      startTime: zdt(start),
-      endTime: zdt(end),
-      sourceType: 'schedule',
-      sourceId: icon ? `${content}#${icon}` : content,
-      createdAt: BASE,
-    };
-  }
-
-  it('replaces only the window each content re-covers, keeping older history', async () => {
-    await ctx.db.insert(events).values([
-      // Scrolled off the page — history that must survive.
-      schedEvent(
-        'old-def',
-        'defense',
-        '2026-07-10T06:00',
-        '2026-07-10T07:00',
-        'https://x/1.png',
-      ),
-      schedEvent(
-        'old-boot',
-        'bootcamp',
-        '2026-06-28T06:00',
-        '2026-07-05T06:00',
-      ),
-      // Inside the new windows — stale, replaced by the fresh scrape.
-      schedEvent(
-        'stale-def',
-        'defense',
-        '2026-07-11T06:00',
-        '2026-07-11T07:00',
-        'https://x/2.png',
-      ),
-      schedEvent(
-        'stale-boot',
-        'bootcamp',
-        '2026-07-05T06:00',
-        '2026-07-12T06:00',
-      ),
-      // Content absent from the new scrape — untouched even inside the window.
-      schedEvent(
-        'old-metal',
-        'metal',
-        '2026-07-11T06:00',
-        '2026-07-11T06:30',
-        'https://x/m.png',
-      ),
-      // Article events are never schedule-managed.
-      {
-        id: 'news-ev',
-        type: 'span',
-        titleJa: 'ニュース',
-        startTime: zdt('2026-07-11T06:00'),
-        endTime: zdt('2026-07-11T07:00'),
-        sourceType: 'news',
-        sourceId: 'abc',
-        createdAt: BASE,
-      },
-    ]);
-
-    await replaceScheduleEvents(ctx.db, [
-      schedEvent(
-        'new-def-1',
-        'defense',
-        '2026-07-11T06:00',
-        '2026-07-11T07:00',
-        'https://x/3.png',
-      ),
-      schedEvent(
-        'new-def-2',
-        'defense',
-        '2026-07-11T07:00',
-        '2026-07-11T08:00',
-        'https://x/4.png',
-      ),
-      schedEvent(
-        'new-boot',
-        'bootcamp',
-        '2026-07-05T06:00',
-        '2026-07-12T06:00',
-      ),
-    ]);
-
-    const ids = (await ctx.db.select().from(events).all())
-      .map((r) => r.id)
-      .sort();
-    expect(ids).toEqual(
-      [
-        'news-ev',
-        'old-def',
-        'old-boot',
-        'old-metal',
-        'new-def-1',
-        'new-def-2',
-        'new-boot',
-      ].sort(),
-    );
-  });
-});
-
-describe('pruneScheduleEvents', () => {
-  const zdt = (s: string) => Temporal.ZonedDateTime.from(`${s}:00[Asia/Tokyo]`);
-
-  it('deletes schedule events ended before the cutoff, with their translations', async () => {
-    await ctx.db.insert(events).values([
-      // Ended long before the cutoff — pruned.
-      {
-        id: 'sched-old',
-        type: 'span',
-        titleJa: '防衛軍',
-        startTime: zdt('2026-01-10T06:00'),
-        endTime: zdt('2026-01-10T07:00'),
-        sourceType: 'schedule',
-        sourceId: 'defense#https://x/1.png',
-        createdAt: BASE,
-      },
-      // End-less allDay row falls back to startTime — pruned.
-      {
-        id: 'sched-old-allday',
-        type: 'allDay',
-        titleJa: '深淵の咎人たち',
-        startTime: zdt('2026-01-10T00:00'),
-        endTime: null,
-        sourceType: 'schedule',
-        sourceId: 'abyss#https://x/2.png',
-        createdAt: BASE,
-      },
-      // Ended after the cutoff — kept.
-      {
-        id: 'sched-recent',
-        type: 'span',
-        titleJa: 'メタルーキー',
-        startTime: zdt('2026-06-01T06:00'),
-        endTime: zdt('2026-06-01T06:30'),
-        sourceType: 'schedule',
-        sourceId: 'metal#https://x/3.png',
-        createdAt: BASE,
-      },
-      // Old but not schedule-sourced — kept.
-      {
-        id: 'news-old',
-        type: 'span',
-        titleJa: 'ニュース',
-        startTime: zdt('2026-01-10T06:00'),
-        endTime: zdt('2026-01-10T07:00'),
-        sourceType: 'news',
-        sourceId: 'abc',
-        createdAt: BASE,
-      },
-    ]);
-    await upsertItemTranslation(ctx.db, {
-      itemType: 'event',
-      itemId: 'sched-old',
-      language: 'en',
-      field: 'title',
-      value: 'Defense Force',
-      model: 'test',
-    });
-    await upsertItemTranslation(ctx.db, {
-      itemType: 'event',
-      itemId: 'sched-recent',
-      language: 'en',
-      field: 'title',
-      value: 'Metal Rookie',
-      model: 'test',
-    });
-
-    const pruned = await pruneScheduleEvents(ctx.db, zdt('2026-04-11T00:00'));
-
-    expect(pruned).toBe(2);
-    const ids = (await ctx.db.select().from(events).all())
-      .map((r) => r.id)
-      .sort();
-    expect(ids).toEqual(['news-old', 'sched-recent']);
-    const trans = await ctx.db.select().from(translations).all();
-    expect(trans.map((t) => t.itemId)).toEqual(['sched-recent']);
   });
 });
 
@@ -1758,16 +1468,13 @@ describe('article_images reverse index', () => {
   });
 
   it('flags banner images for the home-page purge', async () => {
-    await syncBanners(ctx.db, [
-      {
-        imageKey: KEY_A,
-        linkUrl: null,
-        linkTopicId: null,
-        altJa: 'バナー',
-        sortOrder: 0,
-        publishedAt: null,
-      },
-    ]);
+    // Direct insert — syncBanners lives with its flow in apps/workflow now.
+    await ctx.db.insert(banners).values({
+      imageKey: KEY_A,
+      altJa: 'バナー',
+      sortOrder: 0,
+      updatedAt: BASE,
+    });
     expect(await isBanner(KEY_A)).toBe(true);
     expect(await isBanner(KEY_B)).toBe(false);
   });

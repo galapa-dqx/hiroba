@@ -12,16 +12,19 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { syncBanners } from '@hiroba/db';
 import { runFlowInline } from '@hiroba/flow';
 import { BannerFlow } from '@hiroba/flows';
 import { fetchRotationBanners } from '@hiroba/scraper';
 
 import { runBannerFlow, type BannerFlowEnv } from './banner-flow';
+import { syncBanners } from './banner-queries';
 
 vi.mock('@hiroba/db', () => ({
   createDb: vi.fn(() => ({})),
   getEnabledLanguages: vi.fn(),
+}));
+
+vi.mock('./banner-queries', () => ({
   syncBanners: vi.fn(),
 }));
 

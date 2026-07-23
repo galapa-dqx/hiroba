@@ -22,9 +22,7 @@ import {
   glossary,
   materializeResetEvents,
   pruneResetEvents,
-  pruneScheduleEvents,
   reconcileEvents,
-  replaceScheduleEvents,
   upsertListItems,
   upsertPlayguideListItems,
   upsertTopicListItems,
@@ -52,6 +50,10 @@ import { regenerateImage } from './regenerate-image';
 import { createEventAdjudicator } from './steps/adjudicate-events';
 import { buildScheduleEvents } from './steps/build-schedule-events';
 import { mirrorImages } from './steps/mirror-images';
+import {
+  pruneScheduleEvents,
+  replaceScheduleEvents,
+} from './steps/schedule-event-queries';
 import { transcribeImages } from './steps/transcribe-images';
 import { translateImageTexts } from './steps/translate-image-texts';
 import { translateTitleChunk } from './steps/translate-titles';

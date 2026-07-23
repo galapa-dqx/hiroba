@@ -13,9 +13,7 @@ import {
   inArray,
   isNotNull,
   isNull,
-  like,
   lt,
-  notInArray,
   or,
   sql,
 } from 'drizzle-orm';
@@ -26,6 +24,7 @@ import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 import { getNextCheckTime, type PhaseState } from '@hiroba/shared';
 
 import type { Database } from './client';
+import { chunked, IN_CHUNK } from './d1-limits';
 import { withLocalizedTitle } from './relations';
 import {
   buildResetEvents,
@@ -56,25 +55,6 @@ import {
   type Translation,
   type TranslationField,
 } from './schema/translations';
-
-/**
- * D1 caps bound parameters at ~100 per statement, so any query that fans a
- * caller-supplied list into `IN (?, ?, …)` must run in slices. 50 leaves
- * headroom for the query's other parameters.
- */
-const IN_CHUNK = 50;
-
-/** Run `fn` over `items` in IN_CHUNK-sized slices and concatenate the results. */
-async function chunked<T, R>(
-  items: T[],
-  fn: (slice: T[]) => Promise<R[]>,
-): Promise<R[]> {
-  const out: R[] = [];
-  for (let i = 0; i < items.length; i += IN_CHUNK) {
-    out.push(...(await fn(items.slice(i, i + IN_CHUNK))));
-  }
-  return out;
-}
 
 /** The three body-bearing article types, sharing the pipeline (news/topic/playguide). */
 export type ArticleType = 'news' | 'topic' | 'playguide';
@@ -162,52 +142,6 @@ export async function getItemTitles(
       .where(inArray(table.id, slice))
       .all(),
   );
-}
-
-/**
- * The newest `limit` items whose title is not yet translated into `language` —
- * the page the DQX-13 backfill workflow chews through. "Not translated" is a
- * left join with no value on the (item, language, title) row, so it catches
- * both items with no translation row at all and rows still in flight
- * (`running`/`pending` never carry a value); a `done` row always has a value,
- * so it drops out — that's what makes the backfill idempotent and re-runnable.
- *
- * Ordered newest-first (published desc, id desc as a stable tie-break) so the
- * archive fills in the order readers are most likely to want it. There is no
- * cursor: each translated title gains a value and leaves this set, so calling
- * again returns the next-newest untranslated page. The workflow relies on that
- * drop-out to advance and stops when a page makes no progress.
- */
-export async function getUntranslatedTitles(
-  db: Database,
-  itemType: ArticleType,
-  language: string,
-  limit = 100,
-): Promise<Array<{ id: string; titleJa: string }>> {
-  const table = articleTable(itemType);
-  // Playguides have no publish date; order by their crawl order instead so the
-  // backfill still walks them in a stable sequence.
-  const order =
-    itemType === 'playguide'
-      ? [asc(playguides.sortOrder), asc(playguides.id)]
-      : [desc(table.publishedAt), desc(table.id)];
-
-  return db
-    .select({ id: table.id, titleJa: table.titleJa })
-    .from(table)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, itemType),
-        eq(translations.itemId, table.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
-    .where(isNull(translations.value))
-    .orderBy(...order)
-    .limit(Math.min(limit, 500))
-    .all();
 }
 
 /* ------------------------------------------------------------------ *
@@ -1057,124 +991,6 @@ export async function listPlayguidesAdmin(
 }
 
 /**
- * One page of article ids of a single `itemType` whose Japanese `title_ja` OR
- * `blocks_ja` contains `sourceText`, ordered by id so `afterId` (the last id of
- * the previous page) gives stable keyset pagination through the *entire*
- * affected set. Backs the glossary regenerate workflow, which pages every match
- * one durable step at a time — no global cap, so no affected article is ever
- * silently skipped.
- *
- * Both fields are searched because the ArticleWorkflow's translate step resolves
- * the glossary from `title_ja` + the serialized body and re-writes *both* the
- * title and content translations (see steps/translate.ts). A term that appears
- * only in an article's title still changes its translation, so title-only
- * matches must be re-triggered too — including not-yet-fetched articles
- * (`blocks_ja IS NULL`), whose stale title translation the re-run also fixes.
- *
- * Matches with `instr` (like {@link findMatchingGlossaryEntries}, so no LIKE
- * escaping). Triggering a match doesn't remove it from the result set, so
- * pagination must key on `id` (not "rows drop out") to terminate.
- */
-export async function findArticlesContainingSourcePage(
-  db: Database,
-  sourceText: string,
-  itemType: ArticleType,
-  afterId: string | null,
-  limit: number,
-): Promise<string[]> {
-  // Branch per type rather than a union column so the drizzle types stay precise.
-  if (itemType === 'news') {
-    const rows = await db
-      .select({ id: newsItems.id })
-      .from(newsItems)
-      .where(
-        and(
-          or(
-            sql`instr(${newsItems.titleJa}, ${sourceText}) > 0`,
-            sql`instr(${newsItems.blocksJa}, ${sourceText}) > 0`,
-          ),
-          afterId != null ? gt(newsItems.id, afterId) : undefined,
-        ),
-      )
-      .orderBy(asc(newsItems.id))
-      .limit(limit)
-      .all();
-    return rows.map((r) => r.id);
-  }
-
-  if (itemType === 'topic') {
-    const rows = await db
-      .select({ id: topics.id })
-      .from(topics)
-      .where(
-        and(
-          or(
-            sql`instr(${topics.titleJa}, ${sourceText}) > 0`,
-            sql`instr(${topics.blocksJa}, ${sourceText}) > 0`,
-          ),
-          afterId != null ? gt(topics.id, afterId) : undefined,
-        ),
-      )
-      .orderBy(asc(topics.id))
-      .limit(limit)
-      .all();
-    return rows.map((r) => r.id);
-  }
-
-  const rows = await db
-    .select({ id: playguides.id })
-    .from(playguides)
-    .where(
-      and(
-        or(
-          sql`instr(${playguides.titleJa}, ${sourceText}) > 0`,
-          sql`instr(${playguides.blocksJa}, ${sourceText}) > 0`,
-        ),
-        afterId != null ? gt(playguides.id, afterId) : undefined,
-      ),
-    )
-    .orderBy(asc(playguides.id))
-    .limit(limit)
-    .all();
-  return rows.map((r) => r.id);
-}
-
-/**
- * One page of stored images whose transcribed Japanese (`texts_ja`) contains
- * `sourceText`, keyset-paginated by `id` so `afterId` (the last id of the
- * previous page) walks the *entire* affected set. Backs the image half of the
- * glossary regenerate workflow, which refreshes each match's stored `text`
- * translation so it picks up an edited override.
- *
- * `texts_ja` is a serialized JSON string array, so `instr` matches the term
- * inside it — the same untyped substring match {@link findArticlesContainingSourcePage}
- * uses on `blocks_ja` (no LIKE escaping). NULL (not-yet-transcribed) and `[]`
- * (transcribed, no text) rows can't contain the term and so drop out naturally.
- * Only `id` + `textsJa` are returned — everything the re-translation needs, and
- * nothing (like the Temporal `updatedAt`) that would complicate crossing a
- * durable step boundary.
- */
-export async function findImagesContainingSourcePage(
-  db: Database,
-  sourceText: string,
-  afterId: number | null,
-  limit: number,
-): Promise<Array<{ id: number; textsJa: string[] | null }>> {
-  return db
-    .select({ id: imageSources.id, textsJa: imageSources.textsJa })
-    .from(imageSources)
-    .where(
-      and(
-        sql`instr(${imageSources.textsJa}, ${sourceText}) > 0`,
-        afterId != null ? gt(imageSources.id, afterId) : undefined,
-      ),
-    )
-    .orderBy(asc(imageSources.id))
-    .limit(limit)
-    .all();
-}
-
-/**
  * Get the localized title + block tree for an article (news item or topic), if
  * translated. The `content` translation stores the block tree as a JSON blob.
  * `translatedAt` is the content row's timestamp (falling back to the title's).
@@ -1285,95 +1101,6 @@ export async function getEventsForDay(
     orderBy: { startTime: 'asc' },
   });
   return rows.map(withLocalizedTitle);
-}
-
-/**
- * Replace the scraped schedule events (sourceType='schedule') that the fresh
- * つよさ予報 scrape re-covers. The page only ever shows the near-future window,
- * so deletion is scoped per content key to that content's earliest new row
- * onward — rows that have scrolled off the page are kept as history.
- * Delete-then-insert (batched to stay under D1's bound-parameter cap); ids are
- * deterministic so a partial failure self-heals on the next run.
- */
-export async function replaceScheduleEvents(
-  db: Database,
-  rows: NewEvent[],
-): Promise<void> {
-  // Each content's coverage window starts at its earliest scraped row. Content
-  // key is the sourceId up to the '#' ("defense#https://…/12.png" → "defense").
-  const windowStarts = new Map<string, Temporal.ZonedDateTime>();
-  for (const row of rows) {
-    if (!row.sourceId) continue;
-    const content = row.sourceId.split('#')[0];
-    const prev = windowStarts.get(content);
-    if (!prev || Temporal.ZonedDateTime.compare(row.startTime, prev) < 0) {
-      windowStarts.set(content, row.startTime);
-    }
-  }
-  for (const [content, start] of windowStarts) {
-    await db
-      .delete(events)
-      .where(
-        and(
-          eq(events.sourceType, 'schedule'),
-          or(
-            eq(events.sourceId, content),
-            like(events.sourceId, `${content}#%`),
-          ),
-          gte(events.startTime, start),
-        ),
-      );
-  }
-  // 8 bound params per row; D1 caps a statement at 100, so 12 rows max.
-  const ROWS_PER_INSERT = 12;
-  for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
-    const batch = rows.slice(i, i + ROWS_PER_INSERT);
-    if (batch.length === 0) continue;
-    await db.insert(events).values(batch).onConflictDoNothing();
-  }
-}
-
-/**
- * Prune scraped schedule events (sourceType='schedule') whose occurrence ended
- * before `cutoff`, along with their title translations. Schedule rows accrete
- * daily forever (each occurrence is its own row), so a retention horizon keeps
- * the table bounded; article events are never pruned. Returns the number of
- * events deleted.
- */
-export async function pruneScheduleEvents(
-  db: Database,
-  cutoff: Temporal.ZonedDateTime,
-): Promise<number> {
-  const stale = await db
-    .select({ id: events.id })
-    .from(events)
-    .where(
-      and(
-        eq(events.sourceType, 'schedule'),
-        lt(
-          sql`COALESCE(${events.endTime}, ${events.startTime})`,
-          // Serialize with the column's own driver mapping (offset: 'never').
-          cutoff.toString({ offset: 'never' }),
-        ),
-      ),
-    )
-    .all();
-  if (stale.length === 0) return 0;
-
-  const ids = stale.map((r) => r.id);
-  await chunked(ids, async (slice) => {
-    await db.delete(events).where(inArray(events.id, slice));
-    await db
-      .delete(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'event'),
-          inArray(translations.itemId, slice),
-        ),
-      );
-    return [];
-  });
-  return ids.length;
 }
 
 // ── Reset milestones ────────────────────────────────────────────────────────
@@ -2600,57 +2327,4 @@ export async function upsertImageTranslation(
         updatedAt: now,
       },
     });
-}
-
-/* ------------------------------------------------------------------ *
- * Rotation banners — the home-page carousel (see schema/banners.ts).
- * ------------------------------------------------------------------ */
-
-/** A banner as scraped from the source rotation page. */
-export type BannerListItem = {
-  imageKey: string;
-  linkUrl: string | null;
-  linkTopicId: string | null;
-  altJa: string;
-  sortOrder: number;
-  publishedAt: Temporal.Instant | null;
-};
-
-/**
- * Upsert the current rotation banners (keyed by imageKey), marking each active,
- * then deactivate any banner no longer in the set — so the carousel reflects the
- * live rotation while keeping stale rows (and their localized images) around.
- */
-export async function syncBanners(
-  db: Database,
-  items: BannerListItem[],
-): Promise<void> {
-  const now = Temporal.Now.instant();
-  for (const item of items) {
-    await db
-      .insert(banners)
-      .values({ ...item, active: true, updatedAt: now })
-      .onConflictDoUpdate({
-        target: banners.imageKey,
-        set: {
-          linkUrl: item.linkUrl,
-          linkTopicId: item.linkTopicId,
-          altJa: item.altJa,
-          sortOrder: item.sortOrder,
-          publishedAt: item.publishedAt,
-          active: true,
-          updatedAt: now,
-        },
-      });
-  }
-
-  const keep = items.map((i) => i.imageKey);
-  await db
-    .update(banners)
-    .set({ active: false, updatedAt: now })
-    .where(
-      keep.length > 0
-        ? and(eq(banners.active, true), notInArray(banners.imageKey, keep))
-        : eq(banners.active, true),
-    );
 }

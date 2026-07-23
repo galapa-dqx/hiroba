@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    "./schema": "./src/schema/index.ts",
+    "./test-db": "./src/test-db.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

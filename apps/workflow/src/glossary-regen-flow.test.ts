@@ -15,10 +15,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  findArticlesContainingSourcePage,
-  findImagesContainingSourcePage,
-} from '@hiroba/db';
-import {
   inlineJoinPort,
   runFlowInline,
   type AnyFlowDef,
@@ -32,15 +28,22 @@ import {
   runGlossaryRegenFlow,
   type GlossaryRegenFlowEnv,
 } from './glossary-regen-flow';
+import {
+  findArticlesContainingSourcePage,
+  findImagesContainingSourcePage,
+} from './glossary-regen-queries';
 import { retranslateImageTexts } from './steps/translate-image-texts';
 
 vi.mock('@hiroba/db', () => ({
   createDb: vi.fn(() => ({})),
-  findArticlesContainingSourcePage: vi.fn(),
-  findImagesContainingSourcePage: vi.fn(),
   getEnabledLanguages: vi.fn(async () => [
     { code: 'en', label: 'English', nativeLabel: 'English' },
   ]),
+}));
+
+vi.mock('./glossary-regen-queries', () => ({
+  findArticlesContainingSourcePage: vi.fn(),
+  findImagesContainingSourcePage: vi.fn(),
 }));
 
 vi.mock('./steps/translate-image-texts', () => ({

@@ -6,6 +6,7 @@
  */
 
 export { createDb, type Database } from './client';
+export { chunked, IN_CHUNK } from './d1-limits';
 export { relations, withLocalizedTitle } from './relations';
 export * from './schema';
 export * from './queries';
