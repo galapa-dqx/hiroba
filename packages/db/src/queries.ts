@@ -1603,10 +1603,9 @@ export async function getTranslatedItemIds(
 }
 
 /**
- * Upsert a finished article/event translation row (item_type='news'|'topic'|
- * 'event'), landing state='done' with the value and model attribution. Used by
- * the eager title step (DQX-11) so it can write news and topic titles through
- * one helper.
+ * Upsert a finished translation row for any non-image item type, landing
+ * state='done' with the value and model attribution. Used by the eager title
+ * step (DQX-11) so it can write news and topic titles through one helper.
  */
 export async function upsertItemTranslation(
   db: Database,
