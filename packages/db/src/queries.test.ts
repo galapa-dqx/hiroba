@@ -41,7 +41,12 @@ import { events, type NewEvent } from './schema/events';
 import { imageSources } from './schema/image-sources';
 import { newsItems, type ListItem } from './schema/news-items';
 import { topics } from './schema/topics';
-import { translations } from './schema/translations';
+import {
+  translations,
+  type ItemType,
+  type Translation,
+  type TranslationField,
+} from './schema/translations';
 import { createTestDb, type TestDb } from './test-db';
 
 let ctx: TestDb;
@@ -67,11 +72,11 @@ const hex = (n: number) => n.toString(16).padStart(32, '0');
  */
 async function readStates(
   db: Database,
-  itemType: string,
+  itemType: ItemType,
   itemId: string,
   language: string,
-  fields: string[],
-): Promise<Map<string, string>> {
+  fields: TranslationField[],
+): Promise<Map<TranslationField, Translation['state']>> {
   const rows = await db
     .select({ field: translations.field, state: translations.state })
     .from(translations)
