@@ -43,12 +43,7 @@
  * runFlowInline in plain-node vitest.
  */
 
-import {
-  createDb,
-  findArticlesContainingSourcePage,
-  findImagesContainingSourcePage,
-  getEnabledLanguages,
-} from '@hiroba/db';
+import { createDb, getEnabledLanguages } from '@hiroba/db';
 import { joinRequest, type Flow, type JoinRequest } from '@hiroba/flow';
 import {
   ArticleFlow,
@@ -56,6 +51,10 @@ import {
   type GlossaryRegenFlow,
 } from '@hiroba/flows';
 
+import {
+  findArticlesContainingSourcePage,
+  findImagesContainingSourcePage,
+} from './glossary-regen-queries';
 import { retranslateImageTexts } from './steps/translate-image-texts';
 import type {
   Env,

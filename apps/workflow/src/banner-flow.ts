@@ -28,17 +28,13 @@
  * plain-node vitest.
  */
 
-import {
-  createDb,
-  getEnabledLanguages,
-  syncBanners,
-  type BannerListItem,
-} from '@hiroba/db';
+import { createDb, getEnabledLanguages } from '@hiroba/db';
 import type { Flow } from '@hiroba/flow';
 import { type BannerFlow } from '@hiroba/flows';
 import { imageKey, imageUpstreamUrl, type Block } from '@hiroba/richtext';
 import { fetchRotationBanners } from '@hiroba/scraper';
 
+import { syncBanners, type BannerListItem } from './banner-queries';
 import { localizeImages } from './steps/localize-images';
 import { mirrorImages } from './steps/mirror-images';
 import { transcribeImages } from './steps/transcribe-images';

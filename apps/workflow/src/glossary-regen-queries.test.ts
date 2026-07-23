@@ -1,15 +1,13 @@
 import { Temporal } from 'temporal-polyfill';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { imageSources, newsItems, playguides, topics } from '@hiroba/db';
+import { createTestDb, type TestDb } from '@hiroba/db/test-db';
+
 import {
   findArticlesContainingSourcePage,
   findImagesContainingSourcePage,
-} from './queries';
-import { imageSources } from './schema/image-sources';
-import { newsItems } from './schema/news-items';
-import { playguides } from './schema/playguides';
-import { topics } from './schema/topics';
-import { createTestDb, type TestDb } from './test-db';
+} from './glossary-regen-queries';
 
 let ctx: TestDb;
 

@@ -11,7 +11,6 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { getUntranslatedTitles } from '@hiroba/db';
 import { runFlowInline, type FlowLogger } from '@hiroba/flow';
 import { TitleBackfillFlow } from '@hiroba/flows';
 
@@ -21,9 +20,13 @@ import {
   TITLE_BACKFILL_BATCH_SIZE,
   type TitleBackfillFlowEnv,
 } from './title-backfill-flow';
+import { getUntranslatedTitles } from './title-backfill-queries';
 
 vi.mock('@hiroba/db', () => ({
   createDb: vi.fn(() => ({})),
+}));
+
+vi.mock('./title-backfill-queries', () => ({
   getUntranslatedTitles: vi.fn(),
 }));
 

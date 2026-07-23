@@ -15,8 +15,11 @@ import { Miniflare } from 'miniflare';
 
 import { createDb, type Database } from './client';
 
-const MIGRATIONS_DIR = fileURLToPath(
-  new URL('../../../apps/workflow/migrations', import.meta.url),
+// Resolved via path math (not `new URL`) so this file also typechecks under
+// consumers whose tsconfig uses the workers-types URL global (apps/workflow).
+const MIGRATIONS_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../apps/workflow/migrations',
 );
 
 /** Tables to wipe on `reset()`. Render tables first (image_files → images →
