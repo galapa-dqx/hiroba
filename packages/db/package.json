@@ -10,8 +10,6 @@
   "scripts": {
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "generate": "echo 'BLOCKED: drizzle-kit 1.0.0-beta.22 generates a folder-per-migration store and cannot extend the flat NNNN_name.sql migrations that wrangler d1 applies (it regenerates the whole schema from scratch). Write the migration by hand, or convert the migration store first.' && exit 1",
-    "generate:unchecked": "drizzle-kit generate",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint ."
@@ -25,7 +23,6 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250507.0",
-    "drizzle-kit": "1.0.0-beta.22",
     "miniflare": "^4.20260107.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
