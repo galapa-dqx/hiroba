@@ -77,6 +77,7 @@ async function readStates(
   language: string,
   fields: TranslationField[],
 ): Promise<Map<TranslationField, Translation['state']>> {
+  if (fields.length === 0) return new Map();
   const rows = await db
     .select({ field: translations.field, state: translations.state })
     .from(translations)
