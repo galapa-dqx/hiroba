@@ -1,7 +1,8 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { type Database } from './client';
 import {
   backfillArticleImages,
   ensureImageSourceRows,
@@ -13,7 +14,6 @@ import {
   getServedImages,
   getStats,
   getTitleTranslations,
-  getTranslationStates,
   getUntranslatedTitles,
   insertImageRender,
   listImagesForAdmin,
@@ -35,14 +35,18 @@ import {
   upsertItemTranslation,
   upsertListItems,
   upsertTopic,
-  upsertTopicTranslation,
 } from './queries';
 import { withLocalizedTitle } from './relations';
 import { events, type NewEvent } from './schema/events';
 import { imageSources } from './schema/image-sources';
 import { newsItems, type ListItem } from './schema/news-items';
 import { topics } from './schema/topics';
-import { translations } from './schema/translations';
+import {
+  translations,
+  type ItemType,
+  type Translation,
+  type TranslationField,
+} from './schema/translations';
 import { createTestDb, type TestDb } from './test-db';
 
 let ctx: TestDb;
@@ -59,6 +63,36 @@ beforeEach(async () => {
 
 const BASE = Temporal.Instant.from('2026-01-01T00:00:00Z');
 const hex = (n: number) => n.toString(16).padStart(32, '0');
+
+/**
+ * Read back translation states for an item, reporting missing rows as
+ * `pending`. Production code no longer needs this shape (DQX-50 deleted the
+ * `getTranslationStates` query), but the pipeline-state tests still assert on
+ * it, so it lives here as a local helper.
+ */
+async function readStates(
+  db: Database,
+  itemType: ItemType,
+  itemId: string,
+  language: string,
+  fields: TranslationField[],
+): Promise<Map<TranslationField, Translation['state']>> {
+  if (fields.length === 0) return new Map();
+  const rows = await db
+    .select({ field: translations.field, state: translations.state })
+    .from(translations)
+    .where(
+      and(
+        eq(translations.itemType, itemType),
+        eq(translations.itemId, itemId),
+        eq(translations.language, language),
+        inArray(translations.field, fields),
+      ),
+    )
+    .all();
+  const byField = new Map(rows.map((r) => [r.field, r.state]));
+  return new Map(fields.map((f) => [f, byField.get(f) ?? 'pending']));
+}
 
 /** Build a ListItem with publishedAt = BASE + `hoursOld`, newest = highest. */
 function listItem(index: number, hoursOld: number): ListItem {
@@ -245,7 +279,9 @@ describe('news list title relation (DQX-11)', () => {
 
     const en = await listNews({ language: 'en' });
     const fr = await listNews({ language: 'fr' });
-    expect(en.items.find((i) => i.id === hex(1))?.localizedTitle).toBe('English');
+    expect(en.items.find((i) => i.id === hex(1))?.localizedTitle).toBe(
+      'English',
+    );
     expect(fr.items.find((i) => i.id === hex(1))?.localizedTitle).toBeNull();
   });
 
@@ -377,13 +413,9 @@ describe('resetRunningTitles', () => {
 
     await resetRunningTitles(ctx.db, 'news', [hex(1), hex(2)]);
 
-    const running = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
-      'title',
-    ]);
+    const running = await readStates(ctx.db, 'news', hex(1), 'en', ['title']);
     expect(running.get('title')).toBe('pending');
-    const done = await getTranslationStates(ctx.db, 'news', hex(2), 'en', [
-      'title',
-    ]);
+    const done = await readStates(ctx.db, 'news', hex(2), 'en', ['title']);
     expect(done.get('title')).toBe('done'); // not clobbered
   });
 
@@ -403,13 +435,9 @@ describe('resetRunningTitles', () => {
     await resetRunningTitles(ctx.db, 'news', [hex(1)]);
 
     for (const language of ['en', 'ko']) {
-      const states = await getTranslationStates(
-        ctx.db,
-        'news',
-        hex(1),
-        language,
-        ['title'],
-      );
+      const states = await readStates(ctx.db, 'news', hex(1), language, [
+        'title',
+      ]);
       expect(states.get('title')).toBe('pending');
     }
   });
@@ -423,9 +451,7 @@ describe('resetRunningTitles', () => {
       state: 'running',
     });
     await resetRunningTitles(ctx.db, 'news', [hex(1)]);
-    const states = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
-      'content',
-    ]);
+    const states = await readStates(ctx.db, 'news', hex(1), 'en', ['content']);
     expect(states.get('content')).toBe('running');
   });
 });
@@ -564,23 +590,17 @@ describe('resetRunningTitlesForLanguage (DQX-13 backfill cleanup)', () => {
 
     await resetRunningTitlesForLanguage(ctx.db, 'en');
 
-    const news = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
+    const news = await readStates(ctx.db, 'news', hex(1), 'en', [
       'title',
       'content',
     ]);
     expect(news.get('title')).toBe('pending');
     expect(news.get('content')).toBe('running'); // not a title
-    const topic = await getTranslationStates(ctx.db, 'topic', hex(2), 'en', [
-      'title',
-    ]);
+    const topic = await readStates(ctx.db, 'topic', hex(2), 'en', ['title']);
     expect(topic.get('title')).toBe('pending');
-    const fr = await getTranslationStates(ctx.db, 'news', hex(3), 'fr', [
-      'title',
-    ]);
+    const fr = await readStates(ctx.db, 'news', hex(3), 'fr', ['title']);
     expect(fr.get('title')).toBe('running'); // other language untouched
-    const done = await getTranslationStates(ctx.db, 'news', hex(4), 'en', [
-      'title',
-    ]);
+    const done = await readStates(ctx.db, 'news', hex(4), 'en', ['title']);
     expect(done.get('title')).toBe('done'); // not clobbered
   });
 });
@@ -847,7 +867,7 @@ describe('recheck scheduling', () => {
 
 describe('pipeline state transitions', () => {
   it('creates translation rows on first touch and reports missing rows as pending', async () => {
-    const states = await getTranslationStates(ctx.db, 'topic', hex(1), 'en', [
+    const states = await readStates(ctx.db, 'topic', hex(1), 'en', [
       'title',
       'content',
     ]);
@@ -861,7 +881,7 @@ describe('pipeline state transitions', () => {
       fields: ['title', 'content'],
       state: 'running',
     });
-    const running = await getTranslationStates(ctx.db, 'topic', hex(1), 'en', [
+    const running = await readStates(ctx.db, 'topic', hex(1), 'en', [
       'title',
       'content',
     ]);
@@ -870,7 +890,8 @@ describe('pipeline state transitions', () => {
   });
 
   it('keeps the previous value when a re-translation flips state to running', async () => {
-    await upsertTopicTranslation(ctx.db, {
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'topic',
       itemId: hex(1),
       language: 'en',
       field: 'title',
@@ -905,7 +926,8 @@ describe('pipeline state transitions', () => {
     expect(row?.error).toBe('model exploded');
     expect(row?.value).toBeNull();
 
-    await upsertTopicTranslation(ctx.db, {
+    await upsertItemTranslation(ctx.db, {
+      itemType: 'topic',
       itemId: hex(1),
       language: 'en',
       field: 'title',
@@ -961,7 +983,7 @@ describe('pipeline state transitions', () => {
       'step exhausted retries',
     );
 
-    const states = await getTranslationStates(ctx.db, 'news', hex(1), 'en', [
+    const states = await readStates(ctx.db, 'news', hex(1), 'en', [
       'title',
       'content',
     ]);

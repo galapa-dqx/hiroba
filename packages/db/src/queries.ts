@@ -1174,19 +1174,6 @@ export async function findImagesContainingSourcePage(
     .all();
 }
 
-/** Invalidate a playguide's cached block tree (re-fetched on next view / re-run). */
-export async function invalidatePlayguideBody(
-  db: Database,
-  id: string,
-): Promise<boolean> {
-  const result = await db
-    .update(playguides)
-    .set({ blocksJa: null, bodyFetchedAt: null })
-    .where(eq(playguides.id, id))
-    .returning({ id: playguides.id });
-  return result.length > 0;
-}
-
 /**
  * Get the localized title + block tree for an article (news item or topic), if
  * translated. The `content` translation stores the block tree as a JSON blob.
@@ -1434,7 +1421,7 @@ export async function deleteResetMilestone(
  * Batched to stay under D1's ~100 bound-parameter cap; deterministic ids let a
  * partial failure self-heal on the next run.
  */
-export async function replaceResetEvents(
+async function replaceResetEvents(
   db: Database,
   rows: NewEvent[],
   titles: ResetTitleMap,
@@ -1545,7 +1532,7 @@ export async function pruneResetEvents(
 }
 
 /** Default forward window materialized by {@link materializeResetEvents}. */
-export const RESET_HORIZON_DAYS = 120;
+const RESET_HORIZON_DAYS = 120;
 
 /**
  * Materialize the enabled reset definitions into `events` for a forward window
@@ -1616,10 +1603,9 @@ export async function getTranslatedItemIds(
 }
 
 /**
- * Upsert a finished article/event translation row (item_type='news'|'topic'|
- * 'event'), landing state='done' with the value and model attribution. The
- * generic counterpart to upsertTopicTranslation — used by the eager title step
- * (DQX-11) so it can write news and topic titles through one helper.
+ * Upsert a finished translation row for any non-image item type, landing
+ * state='done' with the value and model attribution. Used by the eager title
+ * step (DQX-11) so it can write news and topic titles through one helper.
  */
 export async function upsertItemTranslation(
   db: Database,
@@ -1637,52 +1623,6 @@ export async function upsertItemTranslation(
     .insert(translations)
     .values({
       itemType: params.itemType,
-      itemId: params.itemId,
-      language: params.language,
-      field: params.field,
-      state: 'done',
-      value: params.value,
-      translatedAt: now,
-      model: params.model,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [
-        translations.itemType,
-        translations.itemId,
-        translations.language,
-        translations.field,
-      ],
-      set: {
-        state: 'done',
-        error: null,
-        value: params.value,
-        translatedAt: now,
-        model: params.model,
-        updatedAt: now,
-      },
-    });
-}
-
-/**
- * Upsert a single topic translation row (itemType='topic').
- * For field='content', pass the block tree pre-serialized to JSON.
- */
-export async function upsertTopicTranslation(
-  db: Database,
-  params: {
-    itemId: string;
-    language: string;
-    field: TranslationField;
-    value: string;
-    model: string;
-  },
-): Promise<void> {
-  const now = Temporal.Now.instant();
-  await db
-    .insert(translations)
-    .values({
-      itemType: 'topic',
       itemId: params.itemId,
       language: params.language,
       field: params.field,
@@ -1755,35 +1695,6 @@ export async function setTranslationStates(
         set: { state: params.state, error, updatedAt: now },
       });
   }
-}
-
-/**
- * Read the state of translation rows for an item. Missing rows are `pending`
- * — the pipeline hasn't picked them up yet.
- */
-export async function getTranslationStates(
-  db: Database,
-  itemType: ItemType,
-  itemId: string,
-  language: string,
-  fields: TranslationField[],
-): Promise<Map<TranslationField, PhaseState>> {
-  const rows = await db
-    .select({ field: translations.field, state: translations.state })
-    .from(translations)
-    .where(
-      and(
-        eq(translations.itemType, itemType),
-        eq(translations.itemId, itemId),
-        eq(translations.language, language),
-        inArray(translations.field, fields),
-      ),
-    )
-    .all();
-  const byField = new Map(rows.map((r) => [r.field, r.state]));
-  return new Map(
-    fields.map((f) => [f, (byField.get(f) ?? 'pending') as PhaseState]),
-  );
 }
 
 /**
@@ -2170,7 +2081,7 @@ export type LatestRender = {
  * Newest localized render per source for one language (primary file key + model
  * + created_at) — the admin Images list's localized-image column.
  */
-export async function getLatestLocalizedRenders(
+async function getLatestLocalizedRenders(
   db: Database,
   sourceIds: number[],
   language: string,
