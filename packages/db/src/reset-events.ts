@@ -1,7 +1,12 @@
 /**
  * Materialize recurring reset definitions (`reset_milestones`) into `events`
- * rows for a forward window. Pure (defs + window in, rows out) so it unit-tests
- * without a DB — the same shape as `build-schedule-events.ts` in the workflow.
+ * rows for a forward window.
+ *
+ * The builder half (`buildResetEvents`) is pure (defs + window in, rows out) so
+ * it unit-tests without a DB — the same shape as `build-schedule-events.ts` in
+ * the workflow. The DB half (`materializeResetEvents` and friends, moved here
+ * from queries.ts in DQX-51) swaps the built window into `events` and prunes
+ * the passed marks.
  *
  * Each occurrence becomes a point-in-time `mark`. Occurrences that fall on the
  * exact same instant (the common case — every reset fires at 06:00 JST, so on a
@@ -11,11 +16,16 @@
  * them back through the ordinary event-title path.
  */
 
+import { and, eq, gte, inArray, lt } from 'drizzle-orm';
 import { RRuleTemporal } from 'rrule-temporal';
 import { Temporal } from 'temporal-polyfill';
 
-import type { NewEvent } from './schema/events';
+import type { Database } from './client';
+import { chunked } from './d1-limits';
+import { events, type NewEvent } from './schema/events';
+import { getEnabledLanguages } from './schema/languages';
 import type { ResetMilestone } from './schema/reset-milestones';
+import { translations } from './schema/translations';
 
 /** JA merged-title separator vs. Latin-script languages. */
 const SEP_JA = '・';
@@ -132,4 +142,163 @@ function resetEventId(
     hash = hash & hash; // 32-bit
   }
   return `reset-${Math.abs(hash).toString(16).padStart(8, '0')}`;
+}
+
+/**
+ * Swap in a freshly materialized set of reset `mark` events (sourceType='reset')
+ * for the forward window starting at `from`: delete the existing reset rows from
+ * `from` onward (clearing anything a disabled/edited def no longer covers) with
+ * their title translations, then insert the new rows and per-language titles.
+ * Batched to stay under D1's ~100 bound-parameter cap; deterministic ids let a
+ * partial failure self-heal on the next run.
+ */
+async function replaceResetEvents(
+  db: Database,
+  rows: NewEvent[],
+  titles: ResetTitleMap,
+  from: Temporal.ZonedDateTime,
+  now: Temporal.Instant,
+): Promise<void> {
+  // Clear the window we're about to rewrite (drizzle serializes the bound
+  // ZonedDateTime with the column's own offset:'never' mapping).
+  const stale = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(
+      and(
+        eq(events.sourceType, RESET_SOURCE_TYPE),
+        gte(events.startTime, from),
+      ),
+    )
+    .all();
+  const staleIds = stale.map((r) => r.id);
+  await chunked(staleIds, async (slice) => {
+    await db.delete(events).where(inArray(events.id, slice));
+    await db
+      .delete(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'event'),
+          inArray(translations.itemId, slice),
+        ),
+      );
+    return [];
+  });
+
+  // 8 bound params per event; D1 caps a statement at 100, so 12 rows max.
+  const EVENTS_PER_INSERT = 12;
+  for (let i = 0; i < rows.length; i += EVENTS_PER_INSERT) {
+    const batch = rows.slice(i, i + EVENTS_PER_INSERT);
+    if (batch.length > 0) {
+      await db.insert(events).values(batch).onConflictDoNothing();
+    }
+  }
+
+  // Flatten the per-language titles into translation rows (state='done', so the
+  // CHECK requires value + translatedAt + model — these are admin-authored, not
+  // AI output, so the model marker is the source tag).
+  const titleRows: (typeof translations.$inferInsert)[] = [];
+  for (const row of rows) {
+    const perLang = titles.get(row.id);
+    if (!perLang) continue;
+    for (const [language, value] of Object.entries(perLang)) {
+      titleRows.push({
+        itemType: 'event',
+        itemId: row.id,
+        language,
+        field: 'title',
+        state: 'done',
+        value,
+        translatedAt: now,
+        model: RESET_SOURCE_TYPE,
+        updatedAt: now,
+      });
+    }
+  }
+  // 9 bound params per translation row → 10 rows max under the cap.
+  const TITLES_PER_INSERT = 10;
+  for (let i = 0; i < titleRows.length; i += TITLES_PER_INSERT) {
+    const batch = titleRows.slice(i, i + TITLES_PER_INSERT);
+    if (batch.length > 0) {
+      await db.insert(translations).values(batch).onConflictDoNothing();
+    }
+  }
+}
+
+/**
+ * Prune materialized reset events (sourceType='reset') that have already passed,
+ * with their title translations. Reset rows accrete forever (one mark per day),
+ * so a retention horizon keeps the table bounded. Returns the number deleted.
+ */
+export async function pruneResetEvents(
+  db: Database,
+  cutoff: Temporal.ZonedDateTime,
+): Promise<number> {
+  const stale = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(
+      and(
+        eq(events.sourceType, RESET_SOURCE_TYPE),
+        lt(events.startTime, cutoff),
+      ),
+    )
+    .all();
+  if (stale.length === 0) return 0;
+
+  const ids = stale.map((r) => r.id);
+  await chunked(ids, async (slice) => {
+    await db.delete(events).where(inArray(events.id, slice));
+    await db
+      .delete(translations)
+      .where(
+        and(
+          eq(translations.itemType, 'event'),
+          inArray(translations.itemId, slice),
+        ),
+      );
+    return [];
+  });
+  return ids.length;
+}
+
+/** Default forward window materialized by {@link materializeResetEvents}. */
+const RESET_HORIZON_DAYS = 120;
+
+/**
+ * Materialize the enabled reset definitions into `events` for a forward window
+ * and swap them in. The window starts at midnight JST *today* (so a reset that
+ * already fired earlier today still shows on today's calendar) and runs
+ * `horizonDays` ahead. Shared by the nightly cron and the admin editor (which
+ * re-materializes on save so edits appear without waiting for the cron).
+ * Returns how many merged marks were written.
+ */
+export async function materializeResetEvents(
+  db: Database,
+  opts: { now?: Temporal.Instant; horizonDays?: number } = {},
+): Promise<{ marks: number }> {
+  const now = opts.now ?? Temporal.Now.instant();
+  const horizonDays = opts.horizonDays ?? RESET_HORIZON_DAYS;
+
+  const from = now
+    .toZonedDateTimeISO('Asia/Tokyo')
+    .toPlainDate()
+    .toZonedDateTime('Asia/Tokyo');
+  const to = from.add({ days: horizonDays });
+
+  const [defs, languages] = await Promise.all([
+    db.query.resetMilestones.findMany({
+      orderBy: { sortOrder: 'asc', id: 'asc' },
+    }),
+    getEnabledLanguages(db),
+  ]);
+  const { events: rows, titles } = buildResetEvents(
+    defs,
+    from,
+    to,
+    languages.map((l) => l.code),
+    now,
+  );
+  await replaceResetEvents(db, rows, titles, from, now);
+  return { marks: rows.length };
 }
