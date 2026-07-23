@@ -1,5 +1,6 @@
 import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react';
+import sentry from '@sentry/astro';
 import { defineConfig } from 'astro/config';
 
 export default defineConfig({
@@ -10,5 +11,28 @@ export default defineConfig({
   adapter: cloudflare({
     imageService: 'compile',
   }),
-  integrations: [react()],
+  integrations: [
+    react(),
+    // Client-side Sentry only (init lives in sentry.client.config.ts).
+    // Server-side stays on @sentry/cloudflare's wrapRequestHandler in
+    // src/middleware.ts — the @sentry/astro server runtime assumes Node.
+    sentry({
+      enabled: { client: true, server: false },
+      autoInstrumentation: { requestHandler: false },
+      telemetry: false,
+      // Upload client source maps only when CI provides the full credential
+      // set — a partial set (e.g. token without org/project) would make the
+      // bundler plugin fail the build. Otherwise skip quietly (local builds,
+      // forks).
+      ...(process.env.SENTRY_AUTH_TOKEN &&
+      process.env.SENTRY_ORG &&
+      process.env.SENTRY_PROJECT_ADMIN
+        ? {
+            org: process.env.SENTRY_ORG,
+            project: process.env.SENTRY_PROJECT_ADMIN,
+            authToken: process.env.SENTRY_AUTH_TOKEN,
+          }
+        : { sourceMapsUploadOptions: { enabled: false } }),
+    }),
+  ],
 });
