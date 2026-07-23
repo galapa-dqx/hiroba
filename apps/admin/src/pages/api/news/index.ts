@@ -6,7 +6,7 @@ import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 
-import { listNewsAdmin } from '../../../lib/db-operations';
+import { listNewsAdmin } from '../../../lib/article-list-queries';
 
 export const GET: APIRoute = async ({ url }) => {
   const db = createDb(env.DB);

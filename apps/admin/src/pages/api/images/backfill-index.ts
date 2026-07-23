@@ -12,7 +12,9 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 
-import { backfillArticleImages, createDb, type ArticleType } from '@hiroba/db';
+import { createDb, type ArticleType } from '@hiroba/db';
+
+import { backfillArticleImages } from '../../../lib/image-queries';
 
 const ITEM_TYPES: ReadonlySet<string> = new Set(['news', 'topic', 'playguide']);
 

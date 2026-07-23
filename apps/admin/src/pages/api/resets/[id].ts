@@ -5,13 +5,10 @@
 
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
+import { eq } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
-import {
-  createDb,
-  deleteResetMilestone,
-  materializeResetEvents,
-} from '@hiroba/db';
+import { createDb, materializeResetEvents, resetMilestones } from '@hiroba/db';
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -24,7 +21,8 @@ export const DELETE: APIRoute = async ({ params }) => {
   const db = createDb(env.DB);
   const id = params.id!;
 
-  await deleteResetMilestone(db, id);
+  // The definition's materialized events clear on the re-materialize below.
+  await db.delete(resetMilestones).where(eq(resetMilestones.id, id));
   await materializeResetEvents(db, { now: Temporal.Now.instant() });
 
   return json({ success: true, id });

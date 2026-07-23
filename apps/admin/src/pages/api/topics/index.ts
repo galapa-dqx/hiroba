@@ -3,7 +3,7 @@ import { env } from 'cloudflare:workers';
 
 import { createDb } from '@hiroba/db';
 
-import { listTopicsAdmin } from '../../../lib/db-operations';
+import { listTopicsAdmin } from '../../../lib/article-list-queries';
 
 export const GET: APIRoute = async ({ url }) => {
   const db = createDb(env.DB);

@@ -1,7 +1,9 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 
-import { createDb, listPlayguidesAdmin } from '@hiroba/db';
+import { createDb } from '@hiroba/db';
+
+import { listPlayguidesAdmin } from '../../../lib/article-list-queries';
 
 export const GET: APIRoute = async ({ url }) => {
   const db = createDb(env.DB);
