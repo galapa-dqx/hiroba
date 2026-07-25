@@ -47,6 +47,7 @@ import {
   type Inline,
   type InterviewExchange,
   type InterviewNode,
+  type ListItem,
   type ListNode,
   type MessageBoxNode,
   type ParagraphNode,
@@ -187,7 +188,10 @@ function serializeBlock(node: Block): string {
     case 'list': {
       const tag = node.ordered ? 'ol' : 'ul';
       const items = node.items
-        .map((it) => `<li>${contents(it.children)}</li>`)
+        .map(
+          (it) =>
+            `<li${attr('marker', it.marker)}>${contents(it.children)}</li>`,
+        )
         .join('');
       return `<${tag}${attr('variant', node.variant)}>${items}</${tag}>`;
     }
@@ -568,9 +572,12 @@ function parseBlock(el: Element): Block {
       const n: ListNode = {
         type: 'list',
         ordered: el.name === 'ol',
-        items: childEls(el, 'li').map((li) => ({
-          children: parseContent(li.children),
-        })),
+        items: childEls(el, 'li').map((li) => {
+          const item: ListItem = { children: parseContent(li.children) };
+          if (li.attribs.marker !== undefined)
+            item.marker = li.attribs.marker as ListItem['marker'];
+          return item;
+        }),
       };
       if (a.variant !== undefined) n.variant = a.variant as ListNode['variant'];
       return n;

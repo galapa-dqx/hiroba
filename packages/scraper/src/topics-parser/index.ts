@@ -19,6 +19,8 @@ import type {
   ContentNode,
   InfoBoxVariant,
   Inline,
+  ListItem,
+  ListMarker,
   RankingItem,
   StepItem,
   TableCell,
@@ -531,7 +533,7 @@ const list: Extractor = {
   extract: (el, ctx) => {
     const items = elChildren(el)
       .filter((li) => nm(li) === 'li')
-      .map((li) => ({ children: parseItemContent(li, ctx) }))
+      .map((li) => parseListItem(li, ctx))
       .filter((it) => it.children.length > 0);
     if (!items.length) return null;
     return { type: 'list', ordered: nm(el) === 'ol', items };
@@ -544,13 +546,15 @@ const cautionList: Extractor = {
   extract: (el, ctx) => {
     const variant = cls(el).includes('tp_caution') ? 'caution' : 'default';
     const lis = qa(ctx, el, 'li');
-    let items: { children: ContentNode[] }[];
+    let items: ListItem[];
     if (lis.length > 0) {
-      items = lis.map((li) => ({ children: parseItemContent(li, ctx) }));
+      items = lis.map((li) => parseListItem(li, ctx));
     } else {
-      items = splitByBreak(el.children).map((group) => ({
-        children: parseInline(group) as ContentNode[],
-      }));
+      items = splitByBreak(el.children).map((group) => {
+        const children = parseInline(group) as ContentNode[];
+        const marker = takeLeadingBullet(children);
+        return marker ? { children, marker } : { children };
+      });
     }
     items = items.filter((it) => it.children.length > 0);
     if (!items.length) return null;
@@ -950,6 +954,74 @@ function parseItemContent(el: Element, ctx: Ctx): ContentNode[] {
   if (hasBlockChildren(el) || elChildren(el).some(isContentImage))
     return parseFlow(el, ctx);
   return parseInline(el.children) as ContentNode[];
+}
+
+/**
+ * The 2005-era markup hand-types a bullet glyph at the front of a list item's
+ * text (`●選んだ…`, `※ご利用の…`) on top of the real `<li>` marker. Map each
+ * known glyph to its semantic {@link ListMarker}; anything not listed is left
+ * in the text untouched.
+ */
+const BULLET_MARKERS: Record<string, ListMarker> = {
+  '●': 'disc',
+  '•': 'disc',
+  '∙': 'disc',
+  '‣': 'disc',
+  '○': 'circle',
+  '◯': 'circle',
+  '◦': 'circle',
+  '■': 'square',
+  '□': 'square',
+  '▪': 'square',
+  '▫': 'square',
+  '◆': 'diamond',
+  '◇': 'diamond',
+  '◈': 'diamond',
+  '・': 'middot',
+  '･': 'middot',
+  '※': 'note',
+  '＊': 'note',
+  '*': 'note',
+};
+const LEADING_BULLET_RE = new RegExp(
+  `^[\\s\\u3000]*(${Object.keys(BULLET_MARKERS)
+    .map((g) => g.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')})[\\s\\u3000]*`,
+);
+
+/**
+ * Strip a leading manual bullet glyph from a list item's content, returning the
+ * marker it denoted (so the renderer can echo it instead of doubling it with the
+ * default bullet). Descends into the first text-bearing leaf — a bare string, or
+ * the first child of a leading paragraph / inline wrapper — and drops it if it
+ * empties out. Returns undefined (leaving the content untouched) when the item
+ * doesn't start with a known glyph.
+ */
+function takeLeadingBullet(children: ContentNode[]): ListMarker | undefined {
+  const first = children[0];
+  if (typeof first === 'string') {
+    const m = LEADING_BULLET_RE.exec(first);
+    if (!m) return undefined;
+    const rest = first.slice(m[0].length);
+    if (rest) children[0] = rest;
+    else children.shift();
+    return BULLET_MARKERS[m[1]];
+  }
+  if (
+    first &&
+    typeof first === 'object' &&
+    'children' in first &&
+    Array.isArray(first.children)
+  )
+    return takeLeadingBullet(first.children as ContentNode[]);
+  return undefined;
+}
+
+/** Parse a `<li>` into an item, lifting any hand-typed leading bullet glyph. */
+function parseListItem(li: Element, ctx: Ctx): ListItem {
+  const children = parseItemContent(li, ctx);
+  const marker = takeLeadingBullet(children);
+  return marker ? { children, marker } : { children };
 }
 
 /**

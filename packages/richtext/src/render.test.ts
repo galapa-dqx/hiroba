@@ -143,6 +143,15 @@ describe('renderBlocks', () => {
     expect(
       renderBlocks([
         {
+          type: 'list',
+          ordered: false,
+          items: [{ children: ['a'], marker: 'note' }, { children: ['b'] }],
+        },
+      ]),
+    ).toBe('<ul><li data-marker="note">a</li><li>b</li></ul>');
+    expect(
+      renderBlocks([
+        {
           type: 'table',
           headers: [{ children: ['H'], header: true }],
           rows: [[{ children: ['c'], colSpan: 2 }]],

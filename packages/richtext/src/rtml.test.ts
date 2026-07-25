@@ -540,6 +540,20 @@ describe('structured blocks', () => {
     ]),
   );
   roundTrips(
+    'list items with per-item bullet markers',
+    doc([
+      {
+        type: 'list',
+        ordered: false,
+        items: [
+          { children: ['bullet'], marker: 'disc' },
+          { children: ['note'], marker: 'note' },
+          { children: ['plain'] },
+        ],
+      },
+    ]),
+  );
+  roundTrips(
     'table with headers, spans, header cells',
     doc([
       {

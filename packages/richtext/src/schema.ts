@@ -363,9 +363,25 @@ export type MessageBoxNode = {
 };
 
 // --- structured blocks (own child shapes) ---
+/**
+ * The manual bullet glyph the source prefixed a list item with. The 2005-era
+ * markup hand-types a marker into the `<li>` text (`●選んだ…`, `※ご利用の…`)
+ * on top of the real list bullet; the parser strips that glyph from the text
+ * and records what it meant here, so the renderer can echo it (a `●` bullet vs
+ * a `※` note) instead of doubling it up with the default marker. Absent when
+ * the item carried no manual glyph — the theme's default bullet is used.
+ */
+export type ListMarker =
+  | 'disc'
+  | 'circle'
+  | 'square'
+  | 'diamond'
+  | 'middot'
+  | 'note';
 /** One list item; occurs inside {@link ListNode}. */
 export type ListItem = {
   children: ContentNode[];
+  marker?: ListMarker;
 };
 /**
  * Ordered/unordered list; `variant:'caution'` = the ※ notice list (`tp_caution`).

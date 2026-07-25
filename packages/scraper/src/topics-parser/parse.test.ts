@@ -239,7 +239,7 @@ describe('parseTopicBody — block extraction', () => {
     ]);
   });
 
-  it('caution list → list with caution variant', () => {
+  it('caution list → list with caution variant, lifting the ※ marker', () => {
     expect(
       parseTopicBody('<div class="tp_caution"><ul><li>※ note</li></ul></div>'),
     ).toEqual([
@@ -247,7 +247,40 @@ describe('parseTopicBody — block extraction', () => {
         type: 'list',
         ordered: false,
         variant: 'caution',
-        items: [{ children: ['※ note'] }],
+        items: [{ children: ['note'], marker: 'note' }],
+      },
+    ]);
+  });
+
+  it('lifts hand-typed leading bullet glyphs off list items into a marker', () => {
+    expect(
+      parseTopicBody(
+        '<ul><li>●選んだバージョン</li><li>※ご利用の環境</li><li>plain</li></ul>',
+      ),
+    ).toEqual([
+      {
+        type: 'list',
+        ordered: false,
+        items: [
+          { children: ['選んだバージョン'], marker: 'disc' },
+          { children: ['ご利用の環境'], marker: 'note' },
+          { children: ['plain'] },
+        ],
+      },
+    ]);
+  });
+
+  it('lifts a leading glyph nested inside the first formatted run', () => {
+    expect(parseTopicBody('<ul><li><b>・bold</b> tail</li></ul>')).toEqual([
+      {
+        type: 'list',
+        ordered: false,
+        items: [
+          {
+            children: [{ type: 'strong', children: ['bold'] }, ' tail'],
+            marker: 'middot',
+          },
+        ],
       },
     ]);
   });
