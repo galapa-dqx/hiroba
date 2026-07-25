@@ -10,14 +10,15 @@ import type { Database } from '../client';
 import { withLocalizedTitle } from '../relations';
 import type { Event } from './events';
 
-/** An extracted event with its English title translation merged in (null when
- * the title hasn't been translated yet — the caller falls back to titleJa). */
+/** An extracted event with its localized title translation merged in for the
+ * requested language (null when the title hasn't been translated yet — the
+ * caller falls back to titleJa). */
 export type EventWithTitle = Event & { localizedTitle: string | null };
 
 /**
  * Fetch the events extracted from a single source article (news item or topic),
- * ordered chronologically by start time, each merged with its English title
- * translation (item_type='event') when one exists. Powers the "events in this
+ * ordered chronologically by start time, each merged with its title translation
+ * (item_type='event') for `language` when one exists. Powers the "events in this
  * article" rail on the article pages.
  */
 export async function getEventsForSource(
