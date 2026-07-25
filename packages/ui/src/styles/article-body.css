@@ -164,6 +164,56 @@
   font-weight: 600;
 }
 
+/* body lists → a proper hanging indent with a gilt marker. The global reset
+   (`* { padding: 0 }`) zeroes the default list indent, so markers otherwise
+   spill left into the column's margin instead of sitting beside their text;
+   restore the indent and tint the marker to the manuscript gold. This covers
+   plain content lists and the `.rt-list-caution` variant; the numbered
+   `.rt-steps`/`.rt-ranking` lists own their layout and are held out via a
+   zero-specificity `:where(:not(…))`, which also keeps these rules below the
+   `.rt-toc` overrides so the TOC stays flush and markerless. */
+.article-body :is(ul, ol):where(:not(.rt-steps, .rt-ranking)) {
+  padding-inline-start: 1.5rem;
+}
+.article-body :is(ul, ol):where(:not(.rt-steps, .rt-ranking)) li + li,
+.article-body :is(ul, ol):where(:not(.rt-steps, .rt-ranking)) :is(ul, ol) {
+  margin-top: 0.3rem;
+}
+.article-body ul:where(:not(.rt-steps, .rt-ranking)) > li::marker {
+  color: var(--gold-mid);
+}
+.article-body ol:where(:not(.rt-steps, .rt-ranking)) > li::marker {
+  color: var(--gold-ink);
+  font-weight: 700;
+}
+.article-body .rt-toc li + li {
+  margin-top: 0;
+}
+
+/* Manual source bullets (● ※ ・ …) are stripped from the item text by the
+   parser and preserved as data-marker, so we echo the glyph's meaning here
+   rather than doubling it with the default bullet. disc/circle/square map to
+   native list-style-types; the rest set a ::marker glyph. Colour is inherited
+   from the gilt marker rules above. */
+.article-body li[data-marker='disc'] {
+  list-style-type: disc;
+}
+.article-body li[data-marker='circle'] {
+  list-style-type: circle;
+}
+.article-body li[data-marker='square'] {
+  list-style-type: square;
+}
+.article-body li[data-marker='diamond']::marker {
+  content: '\25C6\00A0';
+}
+.article-body li[data-marker='middot']::marker {
+  content: '\30FB\00A0';
+}
+.article-body li[data-marker='note']::marker {
+  content: '\203B\00A0';
+}
+
 /* table → ruled ledger */
 .article-body .rt-table {
   border-collapse: collapse;

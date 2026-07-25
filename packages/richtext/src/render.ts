@@ -193,7 +193,7 @@ export function renderBlocks(
       case 'list': {
         const tag = node.ordered ? 'ol' : 'ul';
         const cls = node.variant ? ` class="rt-list-${node.variant}"` : '';
-        return `<${tag}${cls}>${node.items.map((it) => `<li>${contents(it.children)}</li>`).join('')}</${tag}>`;
+        return `<${tag}${cls}>${node.items.map((it) => `<li${it.marker ? ` data-marker="${escAttr(it.marker)}"` : ''}>${contents(it.children)}</li>`).join('')}</${tag}>`;
       }
       case 'table': {
         const head = node.headers

@@ -540,6 +540,20 @@ describe('structured blocks', () => {
     ]),
   );
   roundTrips(
+    'list items with per-item bullet markers',
+    doc([
+      {
+        type: 'list',
+        ordered: false,
+        items: [
+          { children: ['bullet'], marker: 'disc' },
+          { children: ['note'], marker: 'note' },
+          { children: ['plain'] },
+        ],
+      },
+    ]),
+  );
+  roundTrips(
     'table with headers, spans, header cells',
     doc([
       {
@@ -1023,6 +1037,27 @@ describe('parse tolerance (LLM-shaped input)', () => {
           },
         ],
         'T',
+      ),
+    );
+  });
+
+  it('keeps a known list marker but drops unknown/empty ones', () => {
+    const markup =
+      '<doctitle></doctitle><ul><li marker="note">a</li><li marker="bogus">b</li><li marker="">c</li></ul>';
+    expect(parseRtml(markup)).toEqual(
+      doc(
+        [
+          {
+            type: 'list',
+            ordered: false,
+            items: [
+              { children: ['a'], marker: 'note' },
+              { children: ['b'] },
+              { children: ['c'] },
+            ],
+          },
+        ],
+        '',
       ),
     );
   });
