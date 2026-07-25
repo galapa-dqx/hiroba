@@ -24,7 +24,7 @@ import {
 import { collectImages, imageKey, type Block } from '@hiroba/richtext';
 
 import type { Database } from '../client';
-// Type-only, so the queries.ts ↔ article-images.ts reference stays a
+// Type-only, so the queries/articles.ts ↔ article-images.ts reference stays a
 // compile-time cycle with no runtime import loop.
 import type { ArticleType } from '../queries';
 

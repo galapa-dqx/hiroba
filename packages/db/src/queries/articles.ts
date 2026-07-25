@@ -1,27 +1,27 @@
 /**
- * Article queries — the news/topic/playguide domain: list-scrape upserts,
- * body writes (every blocks_ja writer keeps the article_images reverse index
- * in sync via syncArticleImages), and recheck scheduling. Table-scoped query
- * helpers live beside their schema files (DQX-51: schema/*.queries.ts,
- * reset-events.ts).
+ * Article lifecycle queries — the news/topic/playguide domain that spans three
+ * tables and so can't live in any single schema file: list-scrape upserts,
+ * block-tree writes, and body invalidation. Every blocks_ja writer keeps the
+ * article_images reverse index in sync via syncArticleImages. Table-scoped
+ * query helpers live beside their schema files (DQX-51: schema/*.queries.ts,
+ * reset-events.ts); recheck scheduling lives in ./recheck.
  */
 
-import { eq, inArray, isNotNull } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 
 import type { Block } from '@hiroba/richtext';
-import { getNextCheckTime } from '@hiroba/shared';
 
-import type { Database } from './client';
-import { chunked } from './d1-limits';
-import { syncArticleImages } from './schema/article-images';
-import { newsItems, type ListItem, type NewsItem } from './schema/news-items';
+import type { Database } from '../client';
+import { chunked } from '../d1-limits';
+import { syncArticleImages } from '../schema/article-images';
+import { newsItems, type ListItem, type NewsItem } from '../schema/news-items';
 import {
   playguides,
   type NewPlayguide,
   type Playguide,
-} from './schema/playguides';
-import { topics, type NewTopic, type Topic } from './schema/topics';
+} from '../schema/playguides';
+import { topics, type NewTopic, type Topic } from '../schema/topics';
 
 /** The three body-bearing article types, sharing the pipeline (news/topic/playguide). */
 export type ArticleType = 'news' | 'topic' | 'playguide';
@@ -111,192 +111,6 @@ export async function getItemTitles(
       .where(inArray(table.id, slice))
       .all(),
   );
-}
-
-/* ------------------------------------------------------------------ *
- * Recheck scheduling (news + topics)
- * ------------------------------------------------------------------ */
-
-/** One article in the recheck domain (its body has been fetched at least once). */
-export type RecheckEntry = {
-  itemType: ArticleType;
-  id: string;
-  titleJa: string;
-  category: string | null;
-  publishedAt: Temporal.Instant;
-  /** Last observed content change (publication when never seen to change). */
-  lastChangedAt: Temporal.Instant;
-  /** Last time the source page was polled. */
-  bodyCheckedAt: Temporal.Instant;
-  /** Next due poll — null once retired (quiet past the retirement horizon). */
-  nextCheckAt: Temporal.Instant | null;
-};
-
-/** Every fetched article of every type, with its recheck schedule computed.
- *  Exported for the admin dashboard's getStats (apps/admin, DQX-54), which
- *  buckets the whole domain per item type — a shape getRecheckQueue's
- *  due/upcoming/retired split doesn't preserve. */
-export async function collectRecheckEntries(
-  db: Database,
-  now: Temporal.Instant,
-): Promise<RecheckEntry[]> {
-  const [news, topicRows, playguideRows] = await Promise.all([
-    db
-      .select({
-        id: newsItems.id,
-        titleJa: newsItems.titleJa,
-        category: newsItems.category,
-        publishedAt: newsItems.publishedAt,
-        bodyFetchedAt: newsItems.bodyFetchedAt,
-        bodyCheckedAt: newsItems.bodyCheckedAt,
-        bodyChangedAt: newsItems.bodyChangedAt,
-      })
-      .from(newsItems)
-      .where(isNotNull(newsItems.bodyFetchedAt))
-      .all(),
-    db
-      .select({
-        id: topics.id,
-        titleJa: topics.titleJa,
-        category: topics.category,
-        publishedAt: topics.publishedAt,
-        bodyFetchedAt: topics.bodyFetchedAt,
-        bodyCheckedAt: topics.bodyCheckedAt,
-        bodyChangedAt: topics.bodyChangedAt,
-      })
-      .from(topics)
-      .where(isNotNull(topics.bodyFetchedAt))
-      .all(),
-    db
-      .select({
-        id: playguides.id,
-        titleJa: playguides.titleJa,
-        publishedAt: playguides.publishedAt,
-        bodyFetchedAt: playguides.bodyFetchedAt,
-        bodyCheckedAt: playguides.bodyCheckedAt,
-        bodyChangedAt: playguides.bodyChangedAt,
-      })
-      .from(playguides)
-      .where(isNotNull(playguides.bodyFetchedAt))
-      .all(),
-  ]);
-
-  const toEntry = (
-    itemType: ArticleType,
-    row: {
-      id: string;
-      titleJa: string;
-      category?: string | null;
-      // Playguides have no publish date; the change anchor falls back to the
-      // fetch time (which is non-null for anything in the recheck domain).
-      publishedAt: Temporal.Instant | null;
-      bodyFetchedAt: Temporal.Instant | null;
-      bodyCheckedAt: Temporal.Instant | null;
-      bodyChangedAt: Temporal.Instant | null;
-    },
-  ): RecheckEntry => {
-    const anchor = row.publishedAt ?? row.bodyFetchedAt!;
-    const lastChangedAt = row.bodyChangedAt ?? anchor;
-    const bodyCheckedAt = row.bodyCheckedAt ?? row.bodyFetchedAt!;
-    return {
-      itemType,
-      id: row.id,
-      titleJa: row.titleJa,
-      category: row.category ?? null,
-      publishedAt: anchor,
-      lastChangedAt,
-      bodyCheckedAt,
-      nextCheckAt: getNextCheckTime(lastChangedAt, bodyCheckedAt, now),
-    };
-  };
-
-  return [
-    ...news.map((row) => toEntry('news', row)),
-    ...topicRows.map((row) => toEntry('topic', row)),
-    ...playguideRows.map((row) => toEntry('playguide', row)),
-  ];
-}
-
-export type RecheckQueue = {
-  /** Due now, most overdue first. */
-  due: RecheckEntry[];
-  /** Scheduled in the future, soonest first. */
-  upcoming: RecheckEntry[];
-  /** Articles quiet past the retirement horizon — no longer checked. */
-  retired: number;
-};
-
-/**
- * The recheck queue for the admin page: due items, the next scheduled checks,
- * and how many articles have been retired from checking.
- */
-export async function getRecheckQueue(
-  db: Database,
-  options: { dueLimit?: number; upcomingLimit?: number } = {},
-): Promise<RecheckQueue> {
-  const dueLimit = options.dueLimit ?? 100;
-  const upcomingLimit = options.upcomingLimit ?? 25;
-  const now = Temporal.Now.instant();
-
-  const entries = await collectRecheckEntries(db, now);
-  const due: RecheckEntry[] = [];
-  const upcoming: RecheckEntry[] = [];
-  let retired = 0;
-
-  for (const entry of entries) {
-    if (entry.nextCheckAt === null) retired++;
-    else if (Temporal.Instant.compare(entry.nextCheckAt, now) <= 0)
-      due.push(entry);
-    else upcoming.push(entry);
-  }
-
-  const byNextCheck = (a: RecheckEntry, b: RecheckEntry) =>
-    Temporal.Instant.compare(a.nextCheckAt!, b.nextCheckAt!);
-  due.sort(byNextCheck);
-  upcoming.sort(byNextCheck);
-
-  return {
-    due: due.slice(0, dueLimit),
-    upcoming: upcoming.slice(0, upcomingLimit),
-    retired,
-  };
-}
-
-/**
- * Due rechecks for the cron consumer, most overdue first, with the stored
- * block tree loaded for change detection.
- */
-export async function getDueRechecks(
-  db: Database,
-  limit: number,
-): Promise<Array<RecheckEntry & { blocksJa: Block[] | null }>> {
-  const { due } = await getRecheckQueue(db, {
-    dueLimit: limit,
-    upcomingLimit: 0,
-  });
-
-  const out: Array<RecheckEntry & { blocksJa: Block[] | null }> = [];
-  for (const entry of due) {
-    const table = articleTable(entry.itemType);
-    const row = await db
-      .select({ blocksJa: table.blocksJa })
-      .from(table)
-      .where(eq(table.id, entry.id))
-      .get();
-    out.push({ ...entry, blocksJa: row?.blocksJa ?? null });
-  }
-  return out;
-}
-
-/** Record that a recheck poll found no change. */
-export async function setBodyChecked(
-  db: Database,
-  itemType: ArticleType,
-  id: string,
-  at: Temporal.Instant = Temporal.Now.instant(),
-): Promise<void> {
-  const table = articleTable(itemType);
-  await db.update(table).set({ bodyCheckedAt: at }).where(eq(table.id, id));
 }
 
 /**
