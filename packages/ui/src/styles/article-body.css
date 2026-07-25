@@ -164,23 +164,25 @@
   font-weight: 600;
 }
 
-/* plain body lists → a proper hanging indent with a gilt marker. The global
-   reset (`* { padding: 0 }`) zeroes the default list indent, so unstyled
-   markers spill left into the column's margin instead of sitting beside their
-   text; restore the indent and tint the marker to the manuscript gold. The
-   `.rt-toc` list has its own flush, markerless treatment above and wins on
-   specificity — we only neutralize the sibling spacing so it isn't loosened. */
-.article-body :is(ul, ol):not([class]) {
+/* body lists → a proper hanging indent with a gilt marker. The global reset
+   (`* { padding: 0 }`) zeroes the default list indent, so markers otherwise
+   spill left into the column's margin instead of sitting beside their text;
+   restore the indent and tint the marker to the manuscript gold. This covers
+   plain content lists and the `.rt-list-caution` variant; the numbered
+   `.rt-steps`/`.rt-ranking` lists own their layout and are held out via a
+   zero-specificity `:where(:not(…))`, which also keeps these rules below the
+   `.rt-toc` overrides so the TOC stays flush and markerless. */
+.article-body :is(ul, ol):where(:not(.rt-steps, .rt-ranking)) {
   padding-inline-start: 1.5rem;
 }
-.article-body :is(ul, ol):not([class]) li + li,
-.article-body :is(ul, ol):not([class]) :is(ul, ol) {
+.article-body :is(ul, ol):where(:not(.rt-steps, .rt-ranking)) li + li,
+.article-body :is(ul, ol):where(:not(.rt-steps, .rt-ranking)) :is(ul, ol) {
   margin-top: 0.3rem;
 }
-.article-body ul:not([class]) > li::marker {
+.article-body ul:where(:not(.rt-steps, .rt-ranking)) > li::marker {
   color: var(--gold-mid);
 }
-.article-body ol:not([class]) > li::marker {
+.article-body ol:where(:not(.rt-steps, .rt-ranking)) > li::marker {
   color: var(--gold-ink);
   font-weight: 700;
 }
@@ -206,7 +208,7 @@
   content: '\25C6\00A0';
 }
 .article-body li[data-marker='middot']::marker {
-  content: '\30FB';
+  content: '\30FB\00A0';
 }
 .article-body li[data-marker='note']::marker {
   content: '\203B\00A0';
