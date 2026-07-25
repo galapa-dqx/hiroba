@@ -1041,6 +1041,27 @@ describe('parse tolerance (LLM-shaped input)', () => {
     );
   });
 
+  it('keeps a known list marker but drops unknown/empty ones', () => {
+    const markup =
+      '<doctitle></doctitle><ul><li marker="note">a</li><li marker="bogus">b</li><li marker="">c</li></ul>';
+    expect(parseRtml(markup)).toEqual(
+      doc(
+        [
+          {
+            type: 'list',
+            ordered: false,
+            items: [
+              { children: ['a'], marker: 'note' },
+              { children: ['b'] },
+              { children: ['c'] },
+            ],
+          },
+        ],
+        '',
+      ),
+    );
+  });
+
   it('accepts self-closed atoms without swallowing siblings', () => {
     const markup = '<doctitle></doctitle><p>a<icon src="i.png"/>b<br/>c</p>';
     expect(parseRtml(markup)).toEqual(

@@ -371,13 +371,15 @@ export type MessageBoxNode = {
  * a `※` note) instead of doubling it up with the default marker. Absent when
  * the item carried no manual glyph — the theme's default bullet is used.
  */
-export type ListMarker =
-  | 'disc'
-  | 'circle'
-  | 'square'
-  | 'diamond'
-  | 'middot'
-  | 'note';
+export const LIST_MARKERS = [
+  'disc',
+  'circle',
+  'square',
+  'diamond',
+  'middot',
+  'note',
+] as const;
+export type ListMarker = (typeof LIST_MARKERS)[number];
 /** One list item; occurs inside {@link ListNode}. */
 export type ListItem = {
   children: ContentNode[];

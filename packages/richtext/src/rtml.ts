@@ -33,6 +33,7 @@ import { parseDocument } from 'htmlparser2';
 
 import {
   isInline,
+  LIST_MARKERS,
   type AccordionNode,
   type Align,
   type Block,
@@ -80,6 +81,11 @@ const escAttr = (s: string): string =>
 /** ` name="value"`, or `''` when the value is undefined. */
 const attr = (name: string, value: string | number | undefined): string =>
   value === undefined ? '' : ` ${name}="${escAttr(String(value))}"`;
+
+const LIST_MARKER_SET: ReadonlySet<string> = new Set(LIST_MARKERS);
+/** Narrow an arbitrary attribute string to a known {@link ListItem.marker}. */
+const isListMarker = (v: string): v is NonNullable<ListItem['marker']> =>
+  LIST_MARKER_SET.has(v);
 
 /** ` name` when `on` is true, else `''` (boolean attribute). */
 const boolAttr = (name: string, on: boolean | undefined): string =>
@@ -574,8 +580,11 @@ function parseBlock(el: Element): Block {
         ordered: el.name === 'ol',
         items: childEls(el, 'li').map((li) => {
           const item: ListItem = { children: parseContent(li.children) };
-          if (li.attribs.marker !== undefined)
-            item.marker = li.attribs.marker as ListItem['marker'];
+          // Only accept a marker from the closed set — an unknown or empty
+          // value (e.g. LLM drift) is dropped rather than round-tripped.
+          const marker = li.attribs.marker;
+          if (marker !== undefined && isListMarker(marker))
+            item.marker = marker;
           return item;
         }),
       };

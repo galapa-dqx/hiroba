@@ -285,6 +285,16 @@ describe('parseTopicBody — block extraction', () => {
     ]);
   });
 
+  it('drops a glyph-only wrapper when stripping empties it', () => {
+    expect(parseTopicBody('<ul><li><b>※</b> note</li></ul>')).toEqual([
+      {
+        type: 'list',
+        ordered: false,
+        items: [{ children: [' note'], marker: 'note' }],
+      },
+    ]);
+  });
+
   it('button unwraps its anchor (href absolutized)', () => {
     expect(
       parseTopicBody('<div class="btn01"><a href="/z/">Go</a></div>'),

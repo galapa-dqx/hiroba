@@ -1012,8 +1012,14 @@ function takeLeadingBullet(children: ContentNode[]): ListMarker | undefined {
     typeof first === 'object' &&
     'children' in first &&
     Array.isArray(first.children)
-  )
-    return takeLeadingBullet(first.children as ContentNode[]);
+  ) {
+    const wrapped = first.children as ContentNode[];
+    const marker = takeLeadingBullet(wrapped);
+    // Drop the wrapper if stripping the glyph emptied it (e.g. `<b>※</b> note`),
+    // so no hollow <strong>/<paragraph> is left at the item's head.
+    if (marker && wrapped.length === 0) children.shift();
+    return marker;
+  }
   return undefined;
 }
 
