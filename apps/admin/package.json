@@ -30,7 +30,7 @@
     "@lexical/table": "^0.46.0",
     "@lexical/utils": "^0.46.0",
     "@sentry/cloudflare": "^10.34.0",
-    "astro": "^7.0.9",
+    "astro": "^7.1.0",
     "drizzle-orm": "1.0.0-beta.22",
     "lexical": "^0.46.0",
     "react": "^19.0.0",
