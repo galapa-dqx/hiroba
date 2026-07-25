@@ -12,7 +12,7 @@
  * image link is first-class on the `banners` table.
  */
 
-import { sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   check,
   index,
@@ -20,6 +20,13 @@ import {
   sqliteTable,
   text,
 } from 'drizzle-orm/sqlite-core';
+
+import { collectImages, imageKey, type Block } from '@hiroba/richtext';
+
+import type { Database } from '../client';
+// Type-only, so the queries.ts ↔ article-images.ts reference stays a
+// compile-time cycle with no runtime import loop.
+import type { ArticleType } from '../queries';
 
 export const articleImages = sqliteTable(
   'article_images',
@@ -46,3 +53,53 @@ export const articleImages = sqliteTable(
 
 // Type exports
 export type ArticleImage = typeof articleImages.$inferSelect;
+
+/**
+ * Replace an article's rows in the article_images reverse index from its block
+ * tree. Called by every blocks_ja writer so the index can't drift. Only
+ * block-level images are indexed (the localizable ones — see the header doc);
+ * delete-then-insert as one atomic D1 batch, so a failure partway can't leave
+ * the index emptied or half-written while blocks_ja still references the keys.
+ *
+ * The invalidate helpers (blocksJa → null pending refetch) deliberately do NOT
+ * clear the index: the article still conceptually embeds those images, so a
+ * purge in the window before the refetch over-includes a blockless page
+ * (harmless) rather than under-purging if the refetch never lands. The next
+ * real block write replaces the set.
+ */
+export async function syncArticleImages(
+  db: Database,
+  itemType: ArticleType,
+  itemId: string,
+  blocks: Block[],
+): Promise<void> {
+  const keys = [
+    ...new Set(
+      collectImages(blocks)
+        .map((i) => imageKey(i.src))
+        .filter((k): k is string => !!k),
+    ),
+  ];
+  const del = db
+    .delete(articleImages)
+    .where(
+      and(
+        eq(articleImages.itemType, itemType),
+        eq(articleImages.itemId, itemId),
+      ),
+    );
+  // Inserts sliced to respect D1's per-query bind-parameter cap.
+  const inserts = [];
+  for (let i = 0; i < keys.length; i += 30) {
+    inserts.push(
+      db.insert(articleImages).values(
+        keys.slice(i, i + 30).map((key) => ({
+          itemType,
+          itemId,
+          imageKey: key,
+        })),
+      ),
+    );
+  }
+  await db.batch([del, ...inserts]);
+}

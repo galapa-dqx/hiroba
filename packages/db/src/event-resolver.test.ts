@@ -8,8 +8,8 @@ import {
   type Adjudicator,
   type ResolvableEvent,
 } from './event-resolver';
-import { getEventsForSource } from './queries';
 import { events, eventSources, type EventType } from './schema/events';
+import { getEventsForSource } from './schema/events.queries';
 import { newsItems } from './schema/news-items';
 import { topics } from './schema/topics';
 import { translations } from './schema/translations';
