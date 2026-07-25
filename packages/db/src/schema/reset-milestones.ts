@@ -11,7 +11,7 @@
  * task materializes the next horizon of occurrences into the `events` table as
  * `type='mark'`, `sourceType='reset'` rows (with title translations), so the
  * calendar renders them through the ordinary milestone path — see
- * `reset-events.ts` and `replaceResetEvents`/`pruneResetEvents` in queries.ts.
+ * `materializeResetEvents`/`pruneResetEvents` in `reset-events.ts`.
  */
 
 import { sql } from 'drizzle-orm';

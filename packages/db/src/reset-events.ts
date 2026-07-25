@@ -173,15 +173,20 @@ async function replaceResetEvents(
     .all();
   const staleIds = stale.map((r) => r.id);
   await chunked(staleIds, async (slice) => {
-    await db.delete(events).where(inArray(events.id, slice));
-    await db
-      .delete(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'event'),
-          inArray(translations.itemId, slice),
+    // One atomic D1 batch per slice: translations first, so a mid-slice failure
+    // can't strand orphaned title rows whose event was already deleted (their id
+    // has left the events window, so a later run never re-derives it).
+    await db.batch([
+      db
+        .delete(translations)
+        .where(
+          and(
+            eq(translations.itemType, 'event'),
+            inArray(translations.itemId, slice),
+          ),
         ),
-      );
+      db.delete(events).where(inArray(events.id, slice)),
+    ]);
     return [];
   });
 
@@ -248,15 +253,20 @@ export async function pruneResetEvents(
 
   const ids = stale.map((r) => r.id);
   await chunked(ids, async (slice) => {
-    await db.delete(events).where(inArray(events.id, slice));
-    await db
-      .delete(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'event'),
-          inArray(translations.itemId, slice),
+    // One atomic D1 batch per slice: translations first, so a mid-slice failure
+    // can't strand orphaned title rows whose event was already deleted (their id
+    // has left the events window, so a later run never re-derives it).
+    await db.batch([
+      db
+        .delete(translations)
+        .where(
+          and(
+            eq(translations.itemType, 'event'),
+            inArray(translations.itemId, slice),
+          ),
         ),
-      );
+      db.delete(events).where(inArray(events.id, slice)),
+    ]);
     return [];
   });
   return ids.length;

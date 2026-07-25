@@ -34,6 +34,7 @@ const TABLES = [
   'image_sources',
   'languages',
   'news_items',
+  'reset_milestones',
   'topics',
   'translations',
 ];
