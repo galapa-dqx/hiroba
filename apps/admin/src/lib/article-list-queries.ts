@@ -5,6 +5,7 @@
  */
 
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import { Temporal } from 'temporal-polyfill';
 
 import {
@@ -15,6 +16,53 @@ import {
   translations,
   type Database,
 } from '@hiroba/db';
+
+/** Article kinds surfaced by the admin lists (each carries title/content translations). */
+type ArticleItemType = 'news' | 'topic' | 'playguide';
+
+/**
+ * Join predicate matching the `title` translation of `itemType` items into
+ * `language` — lights up each row's `titleLocalized`, NULL when untranslated.
+ */
+function titleTranslationJoin(
+  itemType: ArticleItemType,
+  idColumn: AnySQLiteColumn,
+  language: string,
+) {
+  return and(
+    eq(translations.itemType, itemType),
+    eq(translations.itemId, idColumn),
+    eq(translations.language, language),
+    eq(translations.field, 'title'),
+  );
+}
+
+/**
+ * Subset of `ids` whose English `content` translation is complete — drives the
+ * per-row `translated` flag. Chunked to stay under D1's bound-parameter cap.
+ */
+async function fetchTranslatedIds(
+  db: Database,
+  itemType: ArticleItemType,
+  ids: string[],
+): Promise<Set<string>> {
+  const rows = await chunked(ids, (slice) =>
+    db
+      .select({ itemId: translations.itemId })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.itemType, itemType),
+          eq(translations.language, 'en'),
+          eq(translations.field, 'content'),
+          eq(translations.state, 'done'),
+          inArray(translations.itemId, slice),
+        ),
+      )
+      .all(),
+  );
+  return new Set(rows.map((r) => r.itemId));
+}
 
 /**
  * Lightweight paginated news list for the admin UI (mirrors listTopicsAdmin):
@@ -68,12 +116,7 @@ export async function listNewsAdmin(
     .from(newsItems)
     .leftJoin(
       translations,
-      and(
-        eq(translations.itemType, 'news'),
-        eq(translations.itemId, newsItems.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
+      titleTranslationJoin('news', newsItems.id, language),
     )
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(newsItems.publishedAt))
@@ -83,23 +126,11 @@ export async function listNewsAdmin(
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, -1) : rows;
 
-  const ids = page.map((r) => r.id);
-  const translatedRows = await chunked(ids, (slice) =>
-    db
-      .select({ itemId: translations.itemId })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'news'),
-          eq(translations.language, 'en'),
-          eq(translations.field, 'content'),
-          eq(translations.state, 'done'),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
+  const translated = await fetchTranslatedIds(
+    db,
+    'news',
+    page.map((r) => r.id),
   );
-  const translated = new Set(translatedRows.map((r) => r.itemId));
 
   return {
     items: page.map((r) => ({
@@ -157,15 +188,7 @@ export async function listTopicsAdmin(
       hasBody: sql<number>`(${topics.blocksJa} IS NOT NULL)`,
     })
     .from(topics)
-    .leftJoin(
-      translations,
-      and(
-        eq(translations.itemType, 'topic'),
-        eq(translations.itemId, topics.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
-    )
+    .leftJoin(translations, titleTranslationJoin('topic', topics.id, language))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(topics.publishedAt))
     .limit(limit + 1)
@@ -174,23 +197,11 @@ export async function listTopicsAdmin(
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, -1) : rows;
 
-  const ids = page.map((r) => r.id);
-  const translatedRows = await chunked(ids, (slice) =>
-    db
-      .select({ itemId: translations.itemId })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'topic'),
-          eq(translations.language, 'en'),
-          eq(translations.field, 'content'),
-          eq(translations.state, 'done'),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
+  const translated = await fetchTranslatedIds(
+    db,
+    'topic',
+    page.map((r) => r.id),
   );
-  const translated = new Set(translatedRows.map((r) => r.itemId));
 
   return {
     items: page.map((r) => ({
@@ -240,33 +251,16 @@ export async function listPlayguidesAdmin(
     .from(playguides)
     .leftJoin(
       translations,
-      and(
-        eq(translations.itemType, 'playguide'),
-        eq(translations.itemId, playguides.id),
-        eq(translations.language, language),
-        eq(translations.field, 'title'),
-      ),
+      titleTranslationJoin('playguide', playguides.id, language),
     )
     .orderBy(asc(playguides.sortOrder), asc(playguides.id))
     .all();
 
-  const ids = rows.map((r) => r.id);
-  const translatedRows = await chunked(ids, (slice) =>
-    db
-      .select({ itemId: translations.itemId })
-      .from(translations)
-      .where(
-        and(
-          eq(translations.itemType, 'playguide'),
-          eq(translations.language, 'en'),
-          eq(translations.field, 'content'),
-          eq(translations.state, 'done'),
-          inArray(translations.itemId, slice),
-        ),
-      )
-      .all(),
+  const translated = await fetchTranslatedIds(
+    db,
+    'playguide',
+    rows.map((r) => r.id),
   );
-  const translated = new Set(translatedRows.map((r) => r.itemId));
 
   return rows.map((r) => ({
     id: r.id,
