@@ -44,7 +44,6 @@ import { CATEGORIES } from '@hiroba/shared';
 import { listFlowRuns } from './flow-runs';
 import { flowStart } from './item-flows';
 import { createLogger, type Logger } from './logger';
-import { purgeImagePagesRoute } from './purge-image-pages';
 import { processRechecks } from './recheck';
 import { regenerateImage } from './regenerate-image';
 import { createEventAdjudicator } from './steps/adjudicate-events';
@@ -73,6 +72,7 @@ export { GlossaryRegenerateWorkflow } from './glossary-regenerate-workflow';
 export { PlayguideWorkflow } from './playguide-workflow';
 export { ImageIngestWorkflow } from './image-ingest-workflow';
 export { ImageLocalizeWorkflow } from './image-localize-workflow';
+export { ImageFileWorkflow } from './image-file-workflow';
 
 /**
  * Minimum gap between page-driven pipeline re-triggers for one article. A
@@ -133,12 +133,6 @@ export default Sentry.withSentry(
       // worker holds the OpenAI key and Images binding the admin lacks.
       if (url.pathname === '/regenerate-image' && request.method === 'POST') {
         return regenerateImage(env, request);
-      }
-
-      // Purge the pages embedding one image (admin manual upload's fan-out —
-      // this worker holds the purge credentials the admin lacks).
-      if (url.pathname === '/purge-image-pages' && request.method === 'POST') {
-        return purgeImagePagesRoute(env, request);
       }
 
       if (url.pathname === '/flow/start' && request.method === 'POST') {

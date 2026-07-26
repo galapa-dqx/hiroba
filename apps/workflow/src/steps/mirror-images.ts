@@ -9,10 +9,11 @@
  * transcribe step can read the bytes back from R2 (one CDN fetch per image ever).
  *
  * Mirroring a NEW object also records the mirrored original as a render (its
- * `images` row + primary `image_files` at the source key, dims measured via the
- * Images binding) — the reader now serves from that render, and its existence is
- * the "mirror done" signal. One original per source: a re-mirror hits the
- * bucket-head skip, so the render is written exactly once.
+ * `images` row + `image_files`: the primary at the source key with dims measured
+ * via the Images binding, plus the derived AVIF encoded beside it) — the reader
+ * now serves from that render, and its existence is the "mirror done" signal.
+ * One original per source: a re-mirror hits the bucket-head skip, so the render
+ * is written exactly once.
  */
 
 import {
@@ -29,10 +30,10 @@ import {
   imageUpstreamUrl,
   type Block,
 } from '@hiroba/richtext';
-import { measureImage } from '@hiroba/shared';
 
 import { mapWithConcurrency } from '../concurrency';
 import { sniffMimeType } from '../image-edit';
+import { buildRenderFiles } from '../image-files';
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -59,34 +60,34 @@ export type MirrorOutcome = 'mirrored' | 'skipped' | 'failed';
 
 /**
  * Record the mirrored original as a render — its `images` row (language NULL)
- * plus a primary `image_files` at the source key, dims measured. Once per
- * source: guarded on `hasOriginalRender`, since the file key is the fixed
- * source key and latest-wins never needs a second original.
+ * plus its `image_files`: the primary at the source key (dims measured) and
+ * whatever derived files encode beside it (DQX-49), all in one atomic insert.
+ * Once per source: guarded on `hasOriginalRender`, since the file key is the
+ * fixed source key and latest-wins never needs a second original.
  */
 async function recordOriginalRender(
   db: Database,
+  bucket: R2Bucket,
   images: ImagesBinding,
   key: string,
   sourceId: number,
   bytes: Uint8Array,
   contentType: string | null,
 ): Promise<void> {
-  const measured = await measureImage(images, bytes);
+  const files = await buildRenderFiles(
+    images,
+    bucket,
+    key,
+    bytes,
+    CACHE_CONTROL,
+    { fallbackMime: contentType },
+  );
   await insertImageRender(db, {
     id: crypto.randomUUID(),
     sourceId,
     language: null,
     model: null,
-    files: [
-      {
-        key,
-        isPrimary: true,
-        mime: measured.mime ?? contentType,
-        width: measured.width,
-        height: measured.height,
-        bytes: bytes.byteLength,
-      },
-    ],
+    files,
   });
 }
 
@@ -112,6 +113,7 @@ async function ensureOriginalRender(
   const bytes = new Uint8Array(await obj.arrayBuffer());
   await recordOriginalRender(
     db,
+    bucket,
     images,
     key,
     sourceId,
@@ -167,6 +169,7 @@ export async function mirrorOneImage(
     if (source && !(await hasOriginalRender(db, source.id))) {
       await recordOriginalRender(
         db,
+        bucket,
         images,
         key,
         source.id,

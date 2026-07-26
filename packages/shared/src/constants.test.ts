@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { keyWithExtension, localizedImageKey } from './constants';
+import {
+  avifVariantKey,
+  fitVariantKey,
+  keyWithExtension,
+  localizedImageKey,
+} from './constants';
 
 describe('keyWithExtension', () => {
   it('keeps a key whose extension already matches the content type', () => {
@@ -32,6 +37,31 @@ describe('keyWithExtension', () => {
     expect(() => keyWithExtension('host/a.jpg', 'image/tiff')).toThrow(
       /no canonical extension/,
     );
+  });
+});
+
+describe('avifVariantKey', () => {
+  it('appends rather than swapping, so siblings never collide', () => {
+    expect(avifVariantKey('host/a.jpg')).toBe('host/a.jpg.avif');
+    expect(avifVariantKey('host/a.png')).toBe('host/a.png.avif');
+    expect(avifVariantKey('host/a.jpg')).not.toBe(avifVariantKey('host/a.png'));
+  });
+});
+
+describe('fitVariantKey', () => {
+  it('names the rendition by its requested box and output format', () => {
+    expect(
+      fitVariantKey('host/a.jpg', { width: 320, height: 240 }, 'image/jpeg'),
+    ).toBe('host/a.jpg.fit320x240.jpg');
+    expect(
+      fitVariantKey('host/a.jpg', { width: 320, height: 240 }, 'image/avif'),
+    ).toBe('host/a.jpg.fit320x240.avif');
+  });
+
+  it('throws on an unknown output type', () => {
+    expect(() =>
+      fitVariantKey('host/a.jpg', { width: 10, height: 10 }, 'image/tiff'),
+    ).toThrow(/no canonical extension/);
   });
 });
 

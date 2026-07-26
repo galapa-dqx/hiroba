@@ -1,11 +1,11 @@
 /**
  * Home-page rotation banners — the display-time resolver for the carousel.
  *
- * Each banner's image is a row in the shared `images` table, so it resolves to a
- * URL exactly like article images (see article-images.ts): the versioned
- * localized object recorded on its `url` translation row when we actually
- * localized it, else the original —
- * both served from the R2 public host (IMAGE_BASE). A banner links to our
+ * Each banner's image is a source in the shared `image_sources` table, so it
+ * resolves exactly like an article image (see article-images.ts): the newest
+ * localized render when we have one, else the mirrored original — both served
+ * from the R2 public host (IMAGE_BASE), with the render's measured dimensions
+ * and alternate encodings. A banner links to our
  * translated topic page when it points at a topic we render, otherwise to its
  * original external URL. The visible caption is baked into the (translated)
  * image; the `alt` is the linked topic's translated title when available, else
@@ -18,10 +18,23 @@ import {
   getTitleTranslations,
   type Database,
 } from '@hiroba/db';
-import { imageUpstreamUrl, rewriteImageSrc } from '@hiroba/richtext';
+import {
+  imageUpstreamUrl,
+  rewriteImageSrc,
+  type ResolvedImageSrc,
+} from '@hiroba/richtext';
+
+import { resolveRender } from './article-images';
 
 export type CarouselBanner = {
   imageUrl: string;
+  /** The raster's measured intrinsic dimensions; the carousel falls back to
+   *  the nominal slot size when the render predates measurement. */
+  width?: number;
+  height?: number;
+  /** Alternate encodings of the same raster (DQX-49), most-preferred first —
+   *  rendered as `<picture>` sources with `imageUrl` as the fallback. */
+  sources?: Array<{ src: string; type: string }>;
   href: string;
   /** True when the link leaves our site (renderer adds target/rel). */
   external: boolean;
@@ -40,7 +53,9 @@ export async function resolveBanners(
   });
   if (rows.length === 0) return [];
 
-  // Original key → the localized render's primary file key for this language.
+  // Original key → the render that serves it in this language: the localized
+  // one where we have it, else the mirrored original (same URL the upstream
+  // rewrite would produce, but carrying dimensions and alternate encodings).
   const imgRows = await getImageSourcesByKeys(
     db,
     rows.map((r) => r.imageKey),
@@ -50,10 +65,11 @@ export async function resolveBanners(
     imgRows.map((r) => r.id),
     language,
   );
-  const localizedByKey = new Map<string, string>();
+  const resolvedByKey = new Map<string, ResolvedImageSrc>();
   for (const r of imgRows) {
-    const stored = served.get(r.id)?.localized?.key;
-    if (stored) localizedByKey.set(r.key, stored);
+    const renders = served.get(r.id);
+    const render = renders?.localized ?? renders?.original;
+    if (render) resolvedByKey.set(r.key, resolveRender(render, imageBase));
   }
 
   // Translated captions for banners that link to a topic we can render.
@@ -63,11 +79,14 @@ export async function resolveBanners(
   const titles = await getTitleTranslations(db, 'topic', topicIds, language);
 
   return rows.map((b) => {
-    const stored = localizedByKey.get(b.imageKey);
+    const resolved = resolvedByKey.get(b.imageKey);
     return {
-      imageUrl: stored
-        ? `${imageBase}/${stored}`
-        : rewriteImageSrc(imageUpstreamUrl(b.imageKey), imageBase),
+      imageUrl:
+        resolved?.src ??
+        rewriteImageSrc(imageUpstreamUrl(b.imageKey), imageBase),
+      ...(resolved?.width != null ? { width: resolved.width } : {}),
+      ...(resolved?.height != null ? { height: resolved.height } : {}),
+      ...(resolved?.sources ? { sources: resolved.sources } : {}),
       href: b.linkTopicId
         ? `/${language}/topics/${b.linkTopicId}`
         : (b.linkUrl ?? '#'),

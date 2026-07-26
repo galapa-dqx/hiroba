@@ -2,8 +2,8 @@
  * Type definitions for the workflow worker.
  */
 
-import type { NewsBackfillOutput } from '@hiroba/flows';
-import type { Category } from '@hiroba/shared';
+import type { ImageFileOutput, NewsBackfillOutput } from '@hiroba/flows';
+import type { Category, FitSize } from '@hiroba/shared';
 
 import type { LocalizeOutcome, LocalizeResult } from './steps/localize-images';
 import type { MirrorOutcome, MirrorResult } from './steps/mirror-images';
@@ -98,6 +98,12 @@ export type Env = {
    *  one language, keyed `${imageKey}:${lang}`. Instances are created only by
    *  the FlowHub, from parent flows' `mapJoin`s after their translate phase. */
   IMAGE_LOCALIZE_WORKFLOW: WorkflowBinding<ImageLocalizeWorkflowParams>;
+  /** Derived-file generation + page purge for one written render
+   *  (ImageFileFlow, DQX-49), keyed by the render's image id. Instances are
+   *  created only by the FlowHub — the admin's manual-upload route starts it
+   *  via hub.start('image-file'), since this worker holds the Images encoding
+   *  and purge credentials the admin lacks. */
+  IMAGE_FILE_WORKFLOW: WorkflowBinding<ImageFileWorkflowParams>;
   CF_VERSION_METADATA: { id: string };
   /** Log verbosity: debug | info | warn | error | silent (default info). */
   LOG_LEVEL?: string;
@@ -264,6 +270,21 @@ export type ImageLocalizeWorkflowOutput = {
   lang: string;
   outcome: LocalizeOutcome;
 };
+
+/**
+ * Parameters for the ImageFileWorkflow (ImageFileFlow, DQX-49): the render's
+ * image id — also the hub's dedup key, and the row the purge scope (source key
+ * + language) is read from — plus optional fit-inside boxes to render
+ * thumbnails for.
+ */
+export type ImageFileWorkflowParams = {
+  imageId: string;
+  sizes?: FitSize[];
+};
+
+/** Result of the ImageFileWorkflow. Declared beside the flow definition so
+ *  producer and consumers derive from one shape. */
+export type ImageFileWorkflowOutput = ImageFileOutput;
 
 /**
  * Parameters for the PlayguideWorkflow (PlayguideFlow, DQX-24). Just the

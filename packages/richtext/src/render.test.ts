@@ -130,6 +130,47 @@ describe('renderBlocks', () => {
     );
   });
 
+  it('emits intrinsic dimensions when the resolver knows them', () => {
+    const out = renderBlocks([{ type: 'image', src: 'a.jpg' }], {
+      imageSrc: () => ({ src: '/img/a.jpg', width: 640, height: 360 }),
+    });
+    expect(out).toBe(
+      '<img class="rt-image" src="/img/a.jpg" width="640" height="360" alt="">',
+    );
+  });
+
+  it('wraps the image in <picture> when alternate encodings are offered', () => {
+    const out = renderBlocks([{ type: 'image', src: 'a.jpg' }], {
+      imageSrc: () => ({
+        src: '/img/a.jpg',
+        width: 640,
+        height: 360,
+        sources: [{ src: '/img/a.jpg.avif', type: 'image/avif' }],
+      }),
+    });
+    expect(out).toBe(
+      '<picture><source type="image/avif" srcset="/img/a.jpg.avif">' +
+        '<img class="rt-image" src="/img/a.jpg" width="640" height="360" alt="">' +
+        '</picture>',
+    );
+  });
+
+  it('offers alternates for icons and speech portraits too', () => {
+    const out = renderBlocks(
+      [{ type: 'paragraph', children: [{ type: 'icon', src: 'i.png' }] }],
+      {
+        imageSrc: () => ({
+          src: '/img/i.png',
+          sources: [{ src: '/img/i.png.avif', type: 'image/avif' }],
+        }),
+      },
+    );
+    expect(out).toBe(
+      '<p><picture><source type="image/avif" srcset="/img/i.png.avif">' +
+        '<img class="rt-icon" src="/img/i.png" alt=""></picture></p>',
+    );
+  });
+
   it('renders lists and tables', () => {
     expect(
       renderBlocks([

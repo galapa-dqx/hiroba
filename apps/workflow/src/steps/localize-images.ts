@@ -6,9 +6,9 @@
  * (`translations` item_type='image', field='text'), hands the pairs to
  * gpt-image-2, and stores the result in R2 under a fresh versioned key
  * (`l10n/<lang>/v<ts36>/<imageKey>` — see localizedImageKey in @hiroba/shared).
- * The render is recorded as an `images` row + primary `image_files` (dims
- * measured) in one atomic batch; latest-wins serving means the new render
- * supersedes any prior one. The skip identity is the newest render's `model`:
+ * The render is recorded as an `images` row + its `image_files` (the measured
+ * primary and the AVIF encoded beside it) in one atomic batch; latest-wins
+ * serving means the new render supersedes any prior one. The skip identity is the newest render's `model`:
  * a source already localized by the current model (or a manual override) is
  * skipped, and a model change (or an explicit admin regenerate) redoes it.
  *
@@ -33,7 +33,6 @@ import {
   hasJapanese,
   LOCALIZED_IMAGE_CACHE_CONTROL,
   localizedImageKey,
-  measureImage,
 } from '@hiroba/shared';
 
 import { mapWithConcurrency } from '../concurrency';
@@ -44,6 +43,7 @@ import {
   toEditableImage,
   type ImageQuality,
 } from '../image-edit';
+import { buildRenderFiles } from '../image-files';
 import {
   hasMeaningfulTransparency,
   recoverAlphaFromTwoUp,
@@ -280,23 +280,24 @@ async function localizeRowForLanguage(
     await bucket.put(localizedKey, localizedBytes, {
       httpMetadata: { contentType, cacheControl: CACHE_CONTROL },
     });
-    // Record the render + its primary file (dims measured) in one atomic batch.
-    const measured = await measureImage(images, localizedBytes);
+    // Record the render + its files — the measured primary and the derived
+    // AVIF written beside it — in one atomic batch. The fresh versioned key
+    // means fresh derived keys too, so nothing collides with the render this
+    // one supersedes.
+    const files = await buildRenderFiles(
+      images,
+      bucket,
+      localizedKey,
+      localizedBytes,
+      CACHE_CONTROL,
+      { fallbackMime: contentType },
+    );
     await insertImageRender(db, {
       id: crypto.randomUUID(),
       sourceId: row.id,
       language,
       model,
-      files: [
-        {
-          key: localizedKey,
-          isPrimary: true,
-          mime: measured.mime ?? contentType,
-          width: measured.width,
-          height: measured.height,
-          bytes: localizedBytes.byteLength,
-        },
-      ],
+      files,
     });
     return 'localized';
   } catch (err) {
