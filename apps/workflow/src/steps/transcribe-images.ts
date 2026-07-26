@@ -148,7 +148,13 @@ async function transcribeKey(
 ): Promise<boolean> {
   try {
     const dataUrl = await loadByKey(key, bucket);
-    if (!dataUrl) return false;
+    if (!dataUrl) {
+      // loadByKey swallows both the R2 miss and the CDN fallback's failure, so
+      // without this the key just stays un-transcribed with nothing to explain
+      // it — there's no failed row to inspect any more.
+      console.error(`Failed to transcribe ${key}: image bytes unavailable`);
+      return false;
+    }
     const spans = await transcribeOne(client, dataUrl);
     await upsertImageTranscription(db, {
       key,
