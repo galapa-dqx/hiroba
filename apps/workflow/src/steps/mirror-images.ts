@@ -113,8 +113,11 @@ function failed(key: string, reason: string): MirrorOutcome {
  *     without touching D1, so R2 can be ahead of the render table);
  *  3. neither → fetch upstream, store, record.
  *
- * Never throws for an upstream failure — it returns `'failed'`, leaving no
- * render row, because one bad image degrades the article, never blocks it.
+ * Never throws: one bad image degrades the article, never blocks it. EVERY
+ * path is inside the guard, not just the upstream fetch — a D1 read, a
+ * corrupted object in the bucket, or a render insert that fails all come back
+ * as `'failed'` with no render row, which is exactly the state that makes the
+ * next pass retry.
  */
 export async function mirrorOneImage(
   db: Database,
@@ -122,25 +125,25 @@ export async function mirrorOneImage(
   images: ImagesBinding,
   key: string,
 ): Promise<MirrorOutcome> {
-  const [source] = await getImageSourcesByKeys(db, [key]);
-  if (source && (await hasOriginalRender(db, source.id))) return 'skipped';
-
-  const stored = await bucket.get(key);
-  if (stored) {
-    const bytes = new Uint8Array(await stored.arrayBuffer());
-    if (source)
-      await recordOriginalRender(
-        db,
-        images,
-        key,
-        source.id,
-        bytes,
-        stored.httpMetadata?.contentType ?? null,
-      );
-    return 'skipped';
-  }
-
   try {
+    const [source] = await getImageSourcesByKeys(db, [key]);
+    if (source && (await hasOriginalRender(db, source.id))) return 'skipped';
+
+    const stored = await bucket.get(key);
+    if (stored) {
+      const bytes = new Uint8Array(await stored.arrayBuffer());
+      if (source)
+        await recordOriginalRender(
+          db,
+          images,
+          key,
+          source.id,
+          bytes,
+          stored.httpMetadata?.contentType ?? null,
+        );
+      return 'skipped';
+    }
+
     const res = await fetch(imageUpstreamUrl(key), {
       headers: FETCH_HEADERS,
     });
@@ -169,8 +172,6 @@ export async function mirrorOneImage(
       );
     return 'mirrored';
   } catch (err) {
-    // Covers the R2 put and the render insert too, not just the fetch — an
-    // unexpected exception here would otherwise vanish entirely.
     return failed(key, String(err));
   }
 }

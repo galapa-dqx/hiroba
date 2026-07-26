@@ -143,6 +143,27 @@ describe('mirrorOneImage', () => {
     expect(await originalFile()).toMatchObject({ key: KEY, w: 64 });
   });
 
+  it('degrades instead of throwing when the stored object is unreadable', async () => {
+    // The self-heal path reads bytes back out of R2; a corrupted object must
+    // come back as 'failed' like any other bad image, not escape the step.
+    await ensureImageSourceRows(ctx.db, [KEY]);
+    const bucket = fakeBucket({ [KEY]: PNG });
+    bucket.get = async () => ({
+      arrayBuffer: async () => {
+        throw new Error('corrupt object');
+      },
+      httpMetadata: { contentType: 'image/png' },
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(await run(bucket)).toBe('failed');
+
+    expect(await ctx.db.select().from(renders).all()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining('corrupt object'),
+    );
+  });
+
   it('leaves no render when upstream fails, and says why', async () => {
     await ensureImageSourceRows(ctx.db, [KEY]);
     const bucket = fakeBucket();
