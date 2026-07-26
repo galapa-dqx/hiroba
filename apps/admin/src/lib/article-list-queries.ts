@@ -15,10 +15,15 @@ import {
   topics,
   translations,
   type Database,
+  type ItemType,
 } from '@hiroba/db';
 
-/** Article kinds surfaced by the admin lists (each carries title/content translations). */
-type ArticleItemType = 'news' | 'topic' | 'playguide';
+/**
+ * Article kinds surfaced by the admin lists (each carries title/content
+ * translations). Derived from the canonical {@link ItemType} so it tracks
+ * renames and never drifts from the schema-level union.
+ */
+type ArticleItemType = Extract<ItemType, 'news' | 'topic' | 'playguide'>;
 
 /**
  * Join predicate matching the `title` translation of `itemType` items into
