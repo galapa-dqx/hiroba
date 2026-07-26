@@ -94,10 +94,13 @@ async function recordOriginalRender(
 /**
  * Log why a key didn't mirror, and return the outcome. Dropping `mirror_state`
  * took away the failed row that used to be the only breadcrumb, so every
- * non-throwing failure says so in the run's logs instead.
+ * non-throwing failure says so in the run's logs instead. A thrown value goes
+ * in `detail` rather than the message, so an Error keeps its stack.
  */
-function failed(key: string, reason: string): MirrorOutcome {
-  console.error(`Failed to mirror ${key}: ${reason}`);
+function failed(key: string, reason: string, detail?: unknown): MirrorOutcome {
+  const message = `Failed to mirror ${key}: ${reason}`;
+  if (detail === undefined) console.error(message);
+  else console.error(message, detail);
   return 'failed';
 }
 
@@ -172,7 +175,7 @@ export async function mirrorOneImage(
       );
     return 'mirrored';
   } catch (err) {
-    return failed(key, String(err));
+    return failed(key, 'unexpected error', err);
   }
 }
 

@@ -159,8 +159,10 @@ describe('mirrorOneImage', () => {
     expect(await run(bucket)).toBe('failed');
 
     expect(await ctx.db.select().from(renders).all()).toEqual([]);
+    // The thrown value is logged as-is, so an Error keeps its stack.
     expect(logged).toHaveBeenCalledWith(
-      expect.stringContaining('corrupt object'),
+      expect.stringContaining('Failed to mirror'),
+      expect.objectContaining({ message: 'corrupt object' }),
     );
   });
 
@@ -201,7 +203,10 @@ describe('mirrorOneImage', () => {
     expect(await run(bucket)).toBe('failed');
 
     expect(await ctx.db.select().from(renders).all()).toEqual([]);
-    expect(logged).toHaveBeenCalledWith(expect.stringContaining('R2 exploded'));
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to mirror'),
+      expect.objectContaining({ message: 'R2 exploded' }),
+    );
   });
 
   it('refuses to store a non-image body under an image key', async () => {

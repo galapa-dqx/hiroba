@@ -85,11 +85,12 @@ export const GET: APIRoute = async ({ url }) => {
       hasText: !!textsJa && hasJapanese(textsJa),
       isBanner,
       // Neither step keeps a state column (DQX-46): the work it produced is
-      // the done signal — the mirrored original render, and texts_ja ([]
-      // included). Anything else is "not there yet"; in-flight and failure
-      // live on the flow run.
+      // the done signal — the mirrored original render, and texts_ja. Note the
+      // transcribe test is on NULL, not emptiness: `[]` means "transcribed, no
+      // text", which is done. Anything else is "not there yet"; in-flight and
+      // failure live on the flow run.
       mirrorState: isMirrored ? 'done' : null,
-      transcribeState: textsJa ? 'done' : null,
+      transcribeState: textsJa !== null ? 'done' : null,
       updatedAt: image.updatedAt.toString(),
       translation: {
         textState: text?.state ?? null,

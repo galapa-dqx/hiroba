@@ -88,7 +88,8 @@ export const GET: APIRoute = async ({ params }) => {
     textsJa,
     hasText: !!textsJa && hasJapanese(textsJa),
     mirrorState: isMirrored ? 'done' : null,
-    transcribeState: textsJa ? 'done' : null,
+    // On NULL, not emptiness: `[]` is "transcribed, no text" — done.
+    transcribeState: textsJa !== null ? 'done' : null,
     updatedAt: image.updatedAt.toString(),
     languages: enabled.map((l) => ({
       code: l.code,
