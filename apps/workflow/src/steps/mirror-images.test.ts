@@ -39,6 +39,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks(); // the console.error spies some cases install
 });
 
 const KEY = 'cache.hiroba.dqx.jp/dq_resource/banner.png';
@@ -142,19 +143,44 @@ describe('mirrorOneImage', () => {
     expect(await originalFile()).toMatchObject({ key: KEY, w: 64 });
   });
 
-  it('leaves no render when upstream fails', async () => {
+  it('leaves no render when upstream fails, and says why', async () => {
     await ensureImageSourceRows(ctx.db, [KEY]);
     const bucket = fakeBucket();
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('nope', { status: 404 })),
     );
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     expect(await run(bucket)).toBe('failed');
 
     expect(await ctx.db.select().from(renders).all()).toEqual([]);
     // The source row survives — the next pass retries it.
     expect(await ctx.db.select().from(imageSources).all()).toHaveLength(1);
+    // With no failed row left to inspect, the log is the only breadcrumb.
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining('Failed to mirror'),
+    );
+  });
+
+  it('logs and degrades when a write throws mid-mirror', async () => {
+    await ensureImageSourceRows(ctx.db, [KEY]);
+    const bucket = fakeBucket();
+    // An R2 put (or the render insert behind it) blowing up must not escape
+    // the step — nor vanish silently.
+    bucket.put = async () => {
+      throw new Error('R2 exploded');
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(PNG, { status: 200 })),
+    );
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(await run(bucket)).toBe('failed');
+
+    expect(await ctx.db.select().from(renders).all()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining('R2 exploded'));
   });
 
   it('refuses to store a non-image body under an image key', async () => {

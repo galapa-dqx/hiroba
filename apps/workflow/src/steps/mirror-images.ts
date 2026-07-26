@@ -92,6 +92,16 @@ async function recordOriginalRender(
 }
 
 /**
+ * Log why a key didn't mirror, and return the outcome. Dropping `mirror_state`
+ * took away the failed row that used to be the only breadcrumb, so every
+ * non-throwing failure says so in the run's logs instead.
+ */
+function failed(key: string, reason: string): MirrorOutcome {
+  console.error(`Failed to mirror ${key}: ${reason}`);
+  return 'failed';
+}
+
+/**
  * Mirror a single image key into R2 (the per-unit worker behind
  * `mirrorImages`, exported for the flow framework's per-image `map` units).
  * Assumes the key's image_sources row exists (ensureImageSourceRows ran).
@@ -134,7 +144,7 @@ export async function mirrorOneImage(
     const res = await fetch(imageUpstreamUrl(key), {
       headers: FETCH_HEADERS,
     });
-    if (!res.ok || !res.body) return 'failed';
+    if (!res.ok || !res.body) return failed(key, `upstream HTTP ${res.status}`);
     const bytes = new Uint8Array(await res.arrayBuffer());
     // A mirrored object must be an image: trust the magic bytes first, the
     // upstream header only when it at least claims image/* (SVG has no
@@ -143,7 +153,8 @@ export async function mirrorOneImage(
     const header = res.headers.get('content-type');
     const contentType =
       sniffMimeType(bytes) ?? (header?.startsWith('image/') ? header : null);
-    if (!contentType) return 'failed';
+    if (!contentType)
+      return failed(key, `not an image (content-type ${header ?? 'absent'})`);
     await bucket.put(key, bytes, {
       httpMetadata: { contentType, cacheControl: CACHE_CONTROL },
     });
@@ -157,8 +168,10 @@ export async function mirrorOneImage(
         contentType,
       );
     return 'mirrored';
-  } catch {
-    return 'failed';
+  } catch (err) {
+    // Covers the R2 put and the render insert too, not just the fetch — an
+    // unexpected exception here would otherwise vanish entirely.
+    return failed(key, String(err));
   }
 }
 
