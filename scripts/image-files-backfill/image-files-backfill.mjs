@@ -26,9 +26,25 @@ import sharp from 'sharp';
 // ---------------------------------------------------------------- config --
 
 const DRY_RUN = process.argv.includes('--dry-run');
-const LIMIT_ARG = process.argv.indexOf('--limit');
-/** Max renders to process this run (Infinity = the whole archive). */
-const LIMIT = LIMIT_ARG !== -1 ? Number(process.argv[LIMIT_ARG + 1]) : Infinity;
+
+/**
+ * Max renders to process this run (Infinity = the whole archive). A malformed
+ * `--limit` exits rather than defaulting: `Number(undefined)` is NaN, and
+ * `slice(0, NaN)` silently processes NOTHING — an easy "it ran clean" lie on a
+ * job whose whole point is the count it converted.
+ */
+const LIMIT = (() => {
+  const at = process.argv.indexOf('--limit');
+  if (at === -1) return Infinity;
+  const value = Number(process.argv[at + 1]);
+  if (!Number.isInteger(value) || value <= 0) {
+    console.error(
+      `--limit needs a positive integer (got '${process.argv[at + 1] ?? ''}')`,
+    );
+    process.exit(1);
+  }
+  return value;
+})();
 
 const BUCKET = process.env.R2_BUCKET ?? 'galapa--images';
 const ACCOUNT_ID = process.env.R2_ACCOUNT_ID;

@@ -35,11 +35,21 @@ import { sniffMimeType } from './image-edit';
 /** Source formats worth re-encoding. GIF is excluded: it's animated more
  *  often than not on the DQX CDN, and a still/resized re-encode would break
  *  the animation. */
-const DERIVABLE_SOURCE_TYPES = new Set([
+type DerivableSource = 'image/png' | 'image/jpeg' | 'image/webp';
+const DERIVABLE_SOURCE_TYPES = new Set<string>([
   'image/png',
   'image/jpeg',
   'image/webp',
 ]);
+
+/** Narrows a sniffed MIME to a source we'll re-encode — the one gate every
+ *  derived file passes, so downstream code (and fitVariantKey's extension
+ *  lookup) only ever sees formats we know. */
+const isDerivableSource = (mime: string): mime is DerivableSource =>
+  DERIVABLE_SOURCE_TYPES.has(mime);
+
+/** What an encode may emit: a rendition in the source's own format, or AVIF. */
+type EncodeFormat = DerivableSource | 'image/avif';
 
 export type DeriveOptions = {
   /** MIME to record when the Images binding can't decode the bytes and the
@@ -58,7 +68,7 @@ export type DeriveOptions = {
 async function encode(
   images: ImagesBinding,
   bytes: Uint8Array,
-  format: string,
+  format: EncodeFormat,
   size?: FitSize,
 ): Promise<Uint8Array | null> {
   try {
@@ -73,7 +83,7 @@ async function encode(
         fit: 'scale-down',
       });
     }
-    const result = await input.output({ format: format as 'image/avif' });
+    const result = await input.output({ format });
     const out = new Uint8Array(await result.response().arrayBuffer());
     return out.byteLength < bytes.byteLength ? out : null;
   } catch (err) {
@@ -103,10 +113,10 @@ async function deriveFiles(
   const sniffed = sniffMimeType(bytes);
   // Only rasters we can safely re-encode; everything else keeps its primary
   // alone (an SVG, an animated GIF, a format the sniff doesn't know).
-  if (!sniffed || !DERIVABLE_SOURCE_TYPES.has(sniffed)) return [];
+  if (!sniffed || !isDerivableSource(sniffed)) return [];
 
   const rows: RenderFileInput[] = [];
-  const add = async (format: string, size?: FitSize): Promise<void> => {
+  const add = async (format: EncodeFormat, size?: FitSize): Promise<void> => {
     const out = await encode(images, bytes, format, size);
     if (!out) return;
     const key = size
