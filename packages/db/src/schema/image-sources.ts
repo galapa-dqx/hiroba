@@ -12,15 +12,13 @@
  * in `translations` (item_type='image', item_id=<this id>, field='text'); the
  * `url` field is gone (renders own their R2 keys now).
  *
- * `mirror_state` / `transcribe_state` linger for the admin panels until DQX-46
- * drops them; serving no longer reads them (an original `images` row's
- * existence is the mirror-done signal, and Flow owns in-flight/failure).
+ * No pipeline-state columns (DQX-46): "mirrored" is an original `images` row
+ * existing, "transcribed" is `texts_ja` being non-NULL, and in-flight/failure
+ * belongs to the flow run.
  */
 
 import { sql } from 'drizzle-orm';
 import { check, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
-
-import type { PhaseState } from '@hiroba/shared';
 
 import { instant } from '../types/instant';
 import { json } from '../types/json';
@@ -39,14 +37,6 @@ export const imageSources = sqliteTable(
     textsJa: json<string[]>('texts_ja'),
 
     transcribeModel: text('transcribe_model'),
-    mirrorState: text('mirror_state')
-      .$type<PhaseState>()
-      .notNull()
-      .default('pending'),
-    transcribeState: text('transcribe_state')
-      .$type<PhaseState>()
-      .notNull()
-      .default('pending'),
     updatedAt: instant('updated_at').notNull(),
   },
   (table) => [

@@ -8,8 +8,9 @@
  * `lang` is the primary translation target (defaults to the first enabled
  * language). Each row carries the source transcription plus, for that language,
  * the translated spans and the localized-image R2 key so the client can render
- * the source and its translated equivalent side-by-side. In-progress rows come
- * back with their step states so the UI can show where localization is.
+ * the source and its translated equivalent side-by-side. Each step also reports
+ * `'done'` or null — done meaning the step's output exists — so the UI can show
+ * how far along an unlocalized image is.
  */
 
 import type { APIRoute } from 'astro';
@@ -73,7 +74,7 @@ export const GET: APIRoute = async ({ url }) => {
     source,
   });
 
-  const items = rows.map(({ image, text, localized, isBanner }) => {
+  const items = rows.map(({ image, text, localized, isMirrored, isBanner }) => {
     // textsJa is a json<string[]> column — already parsed on read. The `text`
     // translation, by contrast, is a plain TEXT column holding a JSON array.
     const textsJa = image.textsJa ?? null;
@@ -83,15 +84,19 @@ export const GET: APIRoute = async ({ url }) => {
       textsJa,
       hasText: !!textsJa && hasJapanese(textsJa),
       isBanner,
-      mirrorState: image.mirrorState,
-      transcribeState: image.transcribeState,
+      // Neither step keeps a state column (DQX-46): the work it produced is
+      // the done signal — the mirrored original render, and texts_ja ([]
+      // included). Anything else is "not there yet"; in-flight and failure
+      // live on the flow run.
+      mirrorState: isMirrored ? 'done' : null,
+      transcribeState: textsJa ? 'done' : null,
       updatedAt: image.updatedAt.toString(),
       translation: {
         textState: text?.state ?? null,
         texts: parseSpans(text?.value),
         // The localized image is now a render — its existence IS the "done"
         // signal; in-flight/failure lives on the flow run, not a state column.
-        urlState: localized ? 'done' : null,
+        renderState: localized ? 'done' : null,
         localizedKey: localized?.key ?? null,
         error: text?.error ?? null,
         translatedAt:

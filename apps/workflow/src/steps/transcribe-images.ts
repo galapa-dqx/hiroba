@@ -15,7 +15,6 @@ import type OpenAI from 'openai';
 import {
   ensureImageSourceRows,
   getImageSourcesByKeys,
-  setImageTranscribeState,
   upsertImageTranscription,
   type Database,
 } from '@hiroba/db';
@@ -115,15 +114,17 @@ async function transcribeOne(
 }
 
 /** How one image's transcription attempt ended: freshly transcribed, skipped
- *  because a previous run already did it, or failed (row marked failed). */
+ *  because a previous run already did it, or failed (no spans written). */
 export type TranscribeOutcome = 'transcribed' | 'skipped' | 'failed';
 
 /**
  * Transcribe one image key's baked-in text into the `images` table (the
  * per-unit worker behind `transcribeImages`, exported for the flow framework's
- * per-image `map` units). Skips a key already transcribed. Never throws for a
- * bad image — the row is marked failed and `'failed'` returned, because one
- * bad image degrades the article, never blocks it.
+ * per-image `map` units). Skips a key already transcribed — non-NULL `texts_ja`
+ * is that signal since DQX-46 dropped `transcribe_state`, and `[]` counts
+ * (transcribed, no text). Never throws for a bad image — it returns `'failed'`
+ * and leaves `texts_ja` NULL, because one bad image degrades the article, never
+ * blocks it.
  */
 export async function transcribeOneImage(
   db: Database,
@@ -132,7 +133,7 @@ export async function transcribeOneImage(
   bucket: R2Bucket,
 ): Promise<TranscribeOutcome> {
   const [existing] = await getImageSourcesByKeys(db, [key]);
-  if (existing?.transcribeState === 'done') return 'skipped';
+  if (existing?.textsJa != null) return 'skipped';
   return (await transcribeKey(db, createGemini(apiKey), bucket, key))
     ? 'transcribed'
     : 'failed';
@@ -145,13 +146,9 @@ async function transcribeKey(
   bucket: R2Bucket,
   key: string,
 ): Promise<boolean> {
-  await setImageTranscribeState(db, key, 'running');
   try {
     const dataUrl = await loadByKey(key, bucket);
-    if (!dataUrl) {
-      await setImageTranscribeState(db, key, 'failed');
-      return false;
-    }
+    if (!dataUrl) return false;
     const spans = await transcribeOne(client, dataUrl);
     await upsertImageTranscription(db, {
       key,
@@ -160,10 +157,9 @@ async function transcribeKey(
     });
     return true;
   } catch (err) {
-    // One bad image shouldn't wedge the whole step (or strand this row in
-    // 'running' — shared rows aren't covered by the workflow's mark-failed).
+    // One bad image shouldn't wedge the whole step; the run's error carries
+    // the detail, and the next pass retries this key (texts_ja stays NULL).
     console.error(`Failed to transcribe ${key}:`, err);
-    await setImageTranscribeState(db, key, 'failed');
     return false;
   }
 }
@@ -187,13 +183,13 @@ export async function transcribeImages(
   ];
   if (keys.length === 0) return 0;
 
-  // Discovery: every referenced image gets a row (pending) so the pipeline
-  // snapshot can see the full set before transcription completes.
+  // Discovery: every referenced image gets a row so the full set is known
+  // before any transcription completes.
   await ensureImageSourceRows(db, keys);
 
   const existing = await getImageSourcesByKeys(db, keys);
   const done = new Set(
-    existing.filter((r) => r.transcribeState === 'done').map((r) => r.key),
+    existing.filter((r) => r.textsJa != null).map((r) => r.key),
   );
 
   const client = createGemini(apiKey);

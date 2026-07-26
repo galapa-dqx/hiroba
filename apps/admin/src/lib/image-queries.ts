@@ -14,6 +14,7 @@ import {
   gt,
   inArray,
   isNotNull,
+  isNull,
   lt,
   sql,
 } from 'drizzle-orm';
@@ -92,6 +93,26 @@ async function getLatestLocalizedRenders(
 }
 
 /**
+ * Which of `sourceIds` have a mirrored original render (language NULL) — the
+ * admin screens' "Mirror" step indicator, now that `mirror_state` is gone
+ * (DQX-46): the original's existence IS mirror-done.
+ */
+async function getMirroredSourceIds(
+  db: Database,
+  sourceIds: number[],
+): Promise<Set<number>> {
+  if (sourceIds.length === 0) return new Set();
+  const rows = await chunked(sourceIds, (slice) =>
+    db
+      .selectDistinct({ sourceId: images.sourceId })
+      .from(images)
+      .where(and(inArray(images.sourceId, slice), isNull(images.language)))
+      .all(),
+  );
+  return new Set(rows.map((r) => r.sourceId));
+}
+
+/**
  * Newest localized render per language for ONE source (primary file key + model
  * + created_at) — the admin image-edit screen's per-language state.
  */
@@ -138,6 +159,8 @@ export type AdminImageRow = {
   image: ImageSource;
   text: Translation | null;
   localized: LatestRender | null;
+  /** True once the source has a mirrored-original render (i.e. it's mirrored). */
+  isMirrored: boolean;
   /** True when this image backs a rotation banner (banners.imageKey = key). */
   isBanner: boolean;
 };
@@ -230,6 +253,7 @@ export async function listImagesForAdmin(
   for (const tr of trRows) textById.set(Number(tr.itemId), tr);
 
   const localizedById = await getLatestLocalizedRenders(db, ids, opts.language);
+  const mirroredIds = await getMirroredSourceIds(db, ids);
 
   // Which of this page's images back a rotation banner (banners.imageKey = key).
   // Banners are the one image source with a first-class join, so we can tag them
@@ -255,6 +279,7 @@ export async function listImagesForAdmin(
     image,
     text: textById.get(image.id) ?? null,
     localized: localizedById.get(image.id) ?? null,
+    isMirrored: mirroredIds.has(image.id),
     isBanner: bannerKeys.has(image.key),
   }));
 

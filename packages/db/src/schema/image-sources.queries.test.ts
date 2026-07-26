@@ -6,7 +6,6 @@ import { imageSources } from './image-sources';
 import {
   ensureImageSourceRows,
   restructureImageTexts,
-  setImageTranscribeState,
   upsertImageTranscription,
 } from './image-sources.queries';
 import { newsItems } from './news-items';
@@ -70,28 +69,48 @@ describe('upsertImageTranscription', () => {
   });
 });
 
-describe('image source discovery + transcription state', () => {
-  it('tracks image discovery and transcription state', async () => {
+describe('image source discovery', () => {
+  it('creates a row per key, un-transcribed', async () => {
     await ensureImageSourceRows(ctx.db, ['host/a.png', 'host/b.png']);
-    // Idempotent — a second discovery pass must not reset anything.
-    await setImageTranscribeState(ctx.db, 'host/a.png', 'running');
+
+    const rows = await ctx.db.select().from(imageSources).all();
+    expect(rows.map((r) => r.key).sort()).toEqual(['host/a.png', 'host/b.png']);
+    // `texts_ja` NULL is the "not transcribed yet" signal (DQX-46 dropped the
+    // state column), so discovery must not pre-fill it.
+    expect(rows.map((r) => r.textsJa)).toEqual([null, null]);
+  });
+
+  it('leaves an already-transcribed row alone on a second pass', async () => {
     await ensureImageSourceRows(ctx.db, ['host/a.png']);
-
-    let rows = await ctx.db.select().from(imageSources).all();
-    expect(rows.map((r) => r.transcribeState).sort()).toEqual([
-      'pending',
-      'running',
-    ]);
-
     await upsertImageTranscription(ctx.db, {
       key: 'host/a.png',
       textsJa: ['テキスト'],
       model: 'gemini',
     });
-    rows = await ctx.db.select().from(imageSources).all();
+
+    await ensureImageSourceRows(ctx.db, ['host/a.png', 'host/b.png']);
+
+    const rows = await ctx.db.select().from(imageSources).all();
     const a = rows.find((r) => r.key === 'host/a.png');
-    expect(a?.transcribeState).toBe('done');
     expect(a?.textsJa).toEqual(['テキスト']);
+    expect(a?.transcribeModel).toBe('gemini');
+    // The newly discovered sibling is still untranscribed.
+    expect(rows.find((r) => r.key === 'host/b.png')?.textsJa).toBeNull();
+  });
+
+  it('records a text-free transcription as [] so a re-run skips it', async () => {
+    await upsertImageTranscription(ctx.db, {
+      key: 'host/blank.png',
+      textsJa: [],
+      model: 'gemini',
+    });
+
+    const row = await ctx.db
+      .select()
+      .from(imageSources)
+      .where(eq(imageSources.key, 'host/blank.png'))
+      .get();
+    expect(row?.textsJa).toEqual([]);
   });
 });
 

@@ -58,8 +58,9 @@ export type Translation = typeof translations.$inferSelect;
 export type NewTranslation = typeof translations.$inferInsert;
 export type ItemType = 'news' | 'topic' | 'playguide' | 'event' | 'image';
 // news/topic bodies use 'title' | 'content'; per-image (item_type='image') uses
-// 'text' (translated spans) | 'url' (localized image R2 key).
-export type TranslationField = 'title' | 'content' | 'text' | 'url';
+// 'text' (the translated spans). The localized raster used to be a 'url' row
+// here — it's a render now (schema/images.ts), and DQX-45 deleted the rows.
+export type TranslationField = 'title' | 'content' | 'text';
 
 /** Result for a single translated field */
 export type FieldTranslation = {

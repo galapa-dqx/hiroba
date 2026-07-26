@@ -5,14 +5,15 @@
  *
  * Keyed by @hiroba/richtext's `imageKey` (`<host>/<path>`, alias-canonicalized),
  * which is the same key the web `/img` route and any bucket custom-domain read.
- * Idempotent: skips keys already in the bucket, so re-runs are cheap and the
+ * Idempotent: skips keys already mirrored, so re-runs are cheap and the
  * transcribe step can read the bytes back from R2 (one CDN fetch per image ever).
  *
- * Mirroring a NEW object also records the mirrored original as a render (its
- * `images` row + primary `image_files` at the source key, dims measured via the
- * Images binding) — the reader now serves from that render, and its existence is
- * the "mirror done" signal. One original per source: a re-mirror hits the
- * bucket-head skip, so the render is written exactly once.
+ * Mirroring records the original as a render (its `images` row + primary
+ * `image_files` at the source key, dims measured via the Images binding) — the
+ * reader serves from that render, and its existence IS the "mirrored" signal
+ * (DQX-46 dropped `mirror_state`; a failure is no render row plus the flow
+ * run's error). That render is therefore also the skip predicate: one indexed
+ * D1 read, no R2 round-trip, and exactly one original per source.
  */
 
 import {
@@ -20,7 +21,6 @@ import {
   getImageSourcesByKeys,
   hasOriginalRender,
   insertImageRender,
-  setImageMirrorState,
   type Database,
 } from '@hiroba/db';
 import {
@@ -60,8 +60,9 @@ export type MirrorOutcome = 'mirrored' | 'skipped' | 'failed';
 /**
  * Record the mirrored original as a render — its `images` row (language NULL)
  * plus a primary `image_files` at the source key, dims measured. Once per
- * source: guarded on `hasOriginalRender`, since the file key is the fixed
- * source key and latest-wins never needs a second original.
+ * source: callers reach here only past a `hasOriginalRender` miss, since the
+ * file key is the fixed source key and latest-wins never needs a second
+ * original.
  */
 async function recordOriginalRender(
   db: Database,
@@ -91,41 +92,19 @@ async function recordOriginalRender(
 }
 
 /**
- * Ensure the original render exists for a source whose bytes are already in
- * the bucket, reading them back to measure. Renders normally land with the
- * mirror itself, but bytes can reach R2 without one — the web/admin `/img`
- * routes self-heal objects on a miss without touching D1, and pre-migration
- * sources that weren't mirror_state='done' got no seeded render — so the skip
- * path heals the row here. Cheap in steady state: one indexed existence check;
- * the R2 read + measure run only when the render is actually missing.
- */
-async function ensureOriginalRender(
-  db: Database,
-  bucket: R2Bucket,
-  images: ImagesBinding,
-  key: string,
-  sourceId: number,
-): Promise<void> {
-  if (await hasOriginalRender(db, sourceId)) return;
-  const obj = await bucket.get(key);
-  if (!obj) return; // raced a delete; the next mirror pass re-copies.
-  const bytes = new Uint8Array(await obj.arrayBuffer());
-  await recordOriginalRender(
-    db,
-    images,
-    key,
-    sourceId,
-    bytes,
-    obj.httpMetadata?.contentType ?? null,
-  );
-}
-
-/**
  * Mirror a single image key into R2 (the per-unit worker behind
  * `mirrorImages`, exported for the flow framework's per-image `map` units).
- * Assumes the key's image_sources row exists (ensureImageSourceRows ran). Never
- * throws for an upstream failure — the row is marked failed and the outcome
- * says so, because one bad image degrades the article, never blocks it.
+ * Assumes the key's image_sources row exists (ensureImageSourceRows ran).
+ *
+ * Three paths, cheapest first:
+ *  1. the original render exists → already mirrored, nothing to do;
+ *  2. no render but the bytes are in the bucket → read them back and record the
+ *     render (self-heal: the web/admin `/img` routes restore objects on a miss
+ *     without touching D1, so R2 can be ahead of the render table);
+ *  3. neither → fetch upstream, store, record.
+ *
+ * Never throws for an upstream failure — it returns `'failed'`, leaving no
+ * render row, because one bad image degrades the article, never blocks it.
  */
 export async function mirrorOneImage(
   db: Database,
@@ -134,20 +113,28 @@ export async function mirrorOneImage(
   key: string,
 ): Promise<MirrorOutcome> {
   const [source] = await getImageSourcesByKeys(db, [key]);
-  if (await bucket.head(key)) {
-    await setImageMirrorState(db, key, 'done');
-    if (source) await ensureOriginalRender(db, bucket, images, key, source.id);
+  if (source && (await hasOriginalRender(db, source.id))) return 'skipped';
+
+  const stored = await bucket.get(key);
+  if (stored) {
+    const bytes = new Uint8Array(await stored.arrayBuffer());
+    if (source)
+      await recordOriginalRender(
+        db,
+        images,
+        key,
+        source.id,
+        bytes,
+        stored.httpMetadata?.contentType ?? null,
+      );
     return 'skipped';
   }
-  await setImageMirrorState(db, key, 'running');
+
   try {
     const res = await fetch(imageUpstreamUrl(key), {
       headers: FETCH_HEADERS,
     });
-    if (!res.ok || !res.body) {
-      await setImageMirrorState(db, key, 'failed');
-      return 'failed';
-    }
+    if (!res.ok || !res.body) return 'failed';
     const bytes = new Uint8Array(await res.arrayBuffer());
     // A mirrored object must be an image: trust the magic bytes first, the
     // upstream header only when it at least claims image/* (SVG has no
@@ -156,15 +143,11 @@ export async function mirrorOneImage(
     const header = res.headers.get('content-type');
     const contentType =
       sniffMimeType(bytes) ?? (header?.startsWith('image/') ? header : null);
-    if (!contentType) {
-      await setImageMirrorState(db, key, 'failed');
-      return 'failed';
-    }
+    if (!contentType) return 'failed';
     await bucket.put(key, bytes, {
       httpMetadata: { contentType, cacheControl: CACHE_CONTROL },
     });
-    await setImageMirrorState(db, key, 'done');
-    if (source && !(await hasOriginalRender(db, source.id))) {
+    if (source)
       await recordOriginalRender(
         db,
         images,
@@ -173,10 +156,8 @@ export async function mirrorOneImage(
         bytes,
         contentType,
       );
-    }
     return 'mirrored';
   } catch {
-    await setImageMirrorState(db, key, 'failed');
     return 'failed';
   }
 }
@@ -186,8 +167,7 @@ export async function mirrorOneImage(
  * from the DQX CDN once and streams it into R2 with a content type + long TTL.
  *
  * Also the pipeline's image-discovery point: every referenced key gets an
- * image_sources row here (pending), and its mirror_state tracks the copy —
- * that's what feeds the "Downloading images (x/y)" progress in the SSE snapshot.
+ * image_sources row here, so the set is known before any copy completes.
  */
 export async function mirrorImages(
   db: Database,
