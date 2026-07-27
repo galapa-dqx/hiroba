@@ -1,13 +1,13 @@
 /**
- * Pipeline state model — the machine-readable states individual pipeline
- * components move through, tracked at their natural key:
- * - translation       → translations.state per (item_type, item_id, language, field)
- * - image mirror      → images.mirror_state (per image, language-independent)
- * - image transcribe  → images.transcribe_state (per image, language-independent)
- * - image localize    → translations.state per (image, language), fields text/url
+ * Pipeline state model — the machine-readable states a pipeline component moves
+ * through. Only `translations.state` is still stored, per (item_type, item_id,
+ * language, field); `pending` there is mostly *derived*, since a missing row
+ * means the work hasn't been picked up yet.
  *
- * `pending` is mostly *derived*: a missing translations row means the work
- * hasn't been picked up yet. Rows are created when a step first touches them.
+ * The image steps carry no state columns (DQX-46). Their done-ness is the data
+ * they produce — an original `images` row for the mirror, `texts_ja` for the
+ * transcription, a localized `images` row for the localize — and the admin
+ * panels map "produced / not produced" onto `done` / `pending` for display.
  *
  * (The composite per-item `StateSnapshot` and its SSE stream retired with
  * DQX-28 — cross-step progress is the item's hub run now; see

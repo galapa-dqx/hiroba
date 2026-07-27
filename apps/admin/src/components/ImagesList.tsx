@@ -38,11 +38,20 @@ type SourceFilter = (typeof SOURCE_FILTERS)[number]['key'];
 
 type Step = { key: string; label: string; state: PhaseState };
 
-/** The ordered pipeline steps for an image, with the current language's states. */
+/**
+ * The ordered pipeline steps for an image, with the current language's states.
+ * No step keeps a state column any more (DQX-46): each reports 'done' once its
+ * output exists, and everything else reads as `pending` here — a failure shows
+ * up as a step that never leaves pending, with the detail on the flow run.
+ */
 function imageSteps(img: AdminImage): Step[] {
   const steps: Step[] = [
-    { key: 'mirror', label: 'Mirror', state: img.mirrorState },
-    { key: 'transcribe', label: 'Transcribe', state: img.transcribeState },
+    { key: 'mirror', label: 'Mirror', state: img.mirrorState ?? 'pending' },
+    {
+      key: 'transcribe',
+      label: 'Transcribe',
+      state: img.transcribeState ?? 'pending',
+    },
   ];
   // Only text-bearing images are translated + localized.
   if (img.hasText) {
@@ -53,9 +62,9 @@ function imageSteps(img: AdminImage): Step[] {
         state: img.translation.textState ?? 'pending',
       },
       {
-        key: 'url',
+        key: 'localize',
         label: 'Localize image',
-        state: img.translation.urlState ?? 'pending',
+        state: img.translation.renderState ?? 'pending',
       },
     );
   }
@@ -109,7 +118,7 @@ function Spans({ spans, lang }: { spans: string[]; lang?: string }) {
 
 function ImageRow({ img, langLabel }: { img: AdminImage; langLabel: string }) {
   const { translation: t } = img;
-  const localized = t.urlState === 'done' && t.localizedKey;
+  const localized = t.renderState === 'done' && t.localizedKey;
   const settledNoText = img.transcribeState === 'done' && !img.hasText;
 
   return (
