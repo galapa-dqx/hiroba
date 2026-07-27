@@ -136,8 +136,11 @@ async function encode(
  * Encode and store every derived object for a primary raster, returning their
  * `image_files` rows. `measured` is the primary's own measurement — both the
  * byte size the skip rule compares against and the dimensions the ladder is
- * scaled from. Never throws for one bad encode: a render with no derived files
- * simply serves as a bare `<img>`.
+ * scaled from.
+ *
+ * Never throws: neither a failed encode NOR a failed store may cost the caller
+ * its render, since every file here is optional. A render that loses all of
+ * them simply serves as a bare `<img>`.
  */
 async function deriveFiles(
   images: ImagesBinding,
@@ -159,20 +162,30 @@ async function deriveFiles(
     const key = size
       ? fitVariantKey(primaryKey, size, format)
       : avifVariantKey(primaryKey);
-    await bucket.put(key, out, {
-      httpMetadata: { contentType: format, cacheControl },
-    });
-    // Resized outputs are re-measured rather than computed: Cloudflare owns
-    // the scale-down rounding, and a row's dimensions must match its bytes.
-    const dims = size ? await measureImage(images, out) : measured;
-    rows.push({
-      key,
-      isPrimary: false,
-      mime: format,
-      width: dims.width,
-      height: dims.height,
-      bytes: out.byteLength,
-    });
+    try {
+      await bucket.put(key, out, {
+        httpMetadata: { contentType: format, cacheControl },
+      });
+      // Resized outputs are re-measured rather than computed: Cloudflare owns
+      // the scale-down rounding, and a row's dimensions must match its bytes.
+      const dims = size ? await measureImage(images, out) : measured;
+      rows.push({
+        key,
+        isPrimary: false,
+        mime: format,
+        width: dims.width,
+        height: dims.height,
+        bytes: out.byteLength,
+      });
+    } catch (err) {
+      // A failed store is the same outcome as a failed encode: one fewer file
+      // to offer. Letting it escape would cost the caller the whole render —
+      // a localize that already paid for gpt-image-2 and stored its primary
+      // would report `failed` and record nothing over an OPTIONAL file. The
+      // row is only pushed once the object is durably stored, so a reader
+      // never learns about an object that isn't there.
+      console.error(`derived file store failed for ${key}:`, err);
+    }
   };
 
   // 1x: the primary's own format is the primary; only AVIF is new.

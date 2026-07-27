@@ -285,6 +285,50 @@ describe('buildRenderFiles', () => {
     ]);
   });
 
+  it('survives a failing store — the caller keeps its render', async () => {
+    // R2 rejects the full-size AVIF but takes the rungs. Letting the throw
+    // escape would cost the caller the whole render (a localize would report
+    // `failed` and record nothing) over a file that is optional by design.
+    const images = makeImages(
+      [
+        pngInfo(800, 600),
+        pngInfo(400, 300),
+        pngInfo(400, 300),
+        pngInfo(200, 150),
+        pngInfo(200, 150),
+      ],
+      [
+        pngBytes(300),
+        pngBytes(500),
+        pngBytes(200),
+        pngBytes(150),
+        pngBytes(80),
+      ],
+    );
+    const bucket = makeBucket();
+    vi.mocked(bucket.put).mockImplementationOnce(() => {
+      throw new Error('R2 unavailable');
+    });
+
+    const files = await buildRenderFiles(
+      images,
+      bucket,
+      'g/a.png',
+      pngBytes(1000),
+      'cc',
+    );
+
+    // The primary survives, the unstored AVIF is NOT recorded (a row for a
+    // missing object would 404 a <source>), and every later rung still lands.
+    expect(files.map((f) => f.key)).toEqual([
+      'g/a.png',
+      'g/a.png.fit400x300.png',
+      'g/a.png.fit400x300.avif',
+      'g/a.png.fit200x150.png',
+      'g/a.png.fit200x150.avif',
+    ]);
+  });
+
   it('survives a failing encode — the render just serves as a bare <img>', async () => {
     const images = {
       info: vi.fn(async () => pngInfo(800, 600)),

@@ -443,7 +443,15 @@ async function convert(row, now) {
     const derivedKey = size
       ? fitVariantKey(key, size, format)
       : avifVariantKey(key);
-    await putObject(derivedKey, out, format);
+    // A failed put is one fewer file, never a dead sweep — same rule as the
+    // pipeline's deriveFiles. The row is only queued once the object stored,
+    // so D1 never learns about an object that isn't there.
+    try {
+      await putObject(derivedKey, out, format);
+    } catch (err) {
+      console.warn(`  store failed for ${derivedKey}: ${reason(err)}`);
+      return;
+    }
     // Renditions are re-measured rather than computed — sharp owns the
     // fit-inside rounding, and a row's dimensions must match its bytes.
     const outDims = size ? await measure(out) : dims;
