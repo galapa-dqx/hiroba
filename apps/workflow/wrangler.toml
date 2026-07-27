@@ -197,6 +197,16 @@ name = "image-localize-workflow"
 binding = "IMAGE_LOCALIZE_WORKFLOW"
 class_name = "ImageLocalizeWorkflow"
 
+# ImageFileFlow (DQX-49): derived files (AVIF, fit renditions) + page purge for
+# one already-written render, keyed by its image id. Created only by the
+# FlowHub, from the admin's manual-upload route — the admin worker writes the
+# raster and its render row itself, but the encode and the purge need this
+# worker's Images binding and zone credentials.
+[[workflows]]
+name = "image-file-workflow"
+binding = "IMAGE_FILE_WORKFLOW"
+class_name = "ImageFileWorkflow"
+
 # Scheduled triggers. The nightly work is staggered into separate invocations
 # so each job gets its own subrequest/CPU budget and can't starve the next
 # (the playguide crawl alone fetches ~130 pages):

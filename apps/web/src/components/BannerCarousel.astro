@@ -42,14 +42,21 @@ const t = useTranslations(Astro.locals.lang ?? "en");
                     ? { target: "_blank", rel: "noopener noreferrer" }
                     : {})}
                 >
-                  <img
-                    src={b.imageUrl}
-                    alt={b.alt}
-                    width="632"
-                    height="157"
-                    loading={i === 0 ? "eager" : "lazy"}
-                    decoding="async"
-                  />
+                  <picture>
+                    {(b.sources ?? []).map((s) => (
+                      <source type={s.type} srcset={s.srcset} sizes={b.sizes} />
+                    ))}
+                    <img
+                      src={b.imageUrl}
+                      srcset={b.srcset}
+                      sizes={b.srcset ? b.sizes : undefined}
+                      alt={b.alt}
+                      width={b.width ?? 632}
+                      height={b.height ?? 157}
+                      loading={i === 0 ? "eager" : "lazy"}
+                      decoding="async"
+                    />
+                  </picture>
                 </a>
               </li>
             ))}
@@ -156,7 +163,10 @@ const t = useTranslations(Astro.locals.lang ?? "en");
     flex: 0 0 100%;
     min-width: 0;
   }
-  .banners__link {
+  .banners__link,
+  /* <picture> is inline by default; the block img inside it would otherwise
+     sit on a line box and leave a sliver of descender space in the slide. */
+  .banners__link picture {
     display: block;
   }
   .banners__link img {

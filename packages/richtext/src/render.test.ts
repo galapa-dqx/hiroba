@@ -130,6 +130,73 @@ describe('renderBlocks', () => {
     );
   });
 
+  it('emits intrinsic dimensions when the resolver knows them', () => {
+    const out = renderBlocks([{ type: 'image', src: 'a.jpg' }], {
+      imageSrc: () => ({ src: '/img/a.jpg', width: 640, height: 360 }),
+    });
+    expect(out).toBe(
+      '<img class="rt-image" src="/img/a.jpg" width="640" height="360" alt="">',
+    );
+  });
+
+  it('wraps the image in <picture> when alternate encodings are offered', () => {
+    const out = renderBlocks([{ type: 'image', src: 'a.jpg' }], {
+      imageSrc: () => ({
+        src: '/img/a.jpg',
+        width: 640,
+        height: 360,
+        sources: [{ type: 'image/avif', srcset: '/img/a.jpg.avif 640w' }],
+        sizes: '640px',
+      }),
+    });
+    expect(out).toBe(
+      '<picture><source type="image/avif" srcset="/img/a.jpg.avif 640w" sizes="640px">' +
+        '<img class="rt-image" src="/img/a.jpg" width="640" height="360" alt="">' +
+        '</picture>',
+    );
+  });
+
+  it('emits the candidate ladder and its sizes hint on the <img>', () => {
+    const out = renderBlocks([{ type: 'image', src: 'a.jpg' }], {
+      imageSrc: () => ({
+        src: '/img/a.jpg',
+        width: 640,
+        height: 360,
+        srcset: '/img/a.jpg.fit320x180.jpg 320w, /img/a.jpg 640w',
+        sizes: '(min-width: 860px) 825px, 100vw',
+      }),
+    });
+    expect(out).toBe(
+      '<img class="rt-image" src="/img/a.jpg" ' +
+        'srcset="/img/a.jpg.fit320x180.jpg 320w, /img/a.jpg 640w" ' +
+        'sizes="(min-width: 860px) 825px, 100vw" ' +
+        'width="640" height="360" alt="">',
+    );
+  });
+
+  it('never emits sizes without a srcset to apply it to', () => {
+    const out = renderBlocks([{ type: 'image', src: 'a.jpg' }], {
+      imageSrc: () => ({ src: '/img/a.jpg', sizes: '100vw' }),
+    });
+    expect(out).toBe('<img class="rt-image" src="/img/a.jpg" alt="">');
+  });
+
+  it('offers alternates for icons and speech portraits too', () => {
+    const out = renderBlocks(
+      [{ type: 'paragraph', children: [{ type: 'icon', src: 'i.png' }] }],
+      {
+        imageSrc: () => ({
+          src: '/img/i.png',
+          sources: [{ type: 'image/avif', srcset: '/img/i.png.avif 32w' }],
+        }),
+      },
+    );
+    expect(out).toBe(
+      '<p><picture><source type="image/avif" srcset="/img/i.png.avif 32w">' +
+        '<img class="rt-icon" src="/img/i.png" alt=""></picture></p>',
+    );
+  });
+
   it('renders lists and tables', () => {
     expect(
       renderBlocks([

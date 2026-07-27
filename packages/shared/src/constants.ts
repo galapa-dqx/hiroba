@@ -56,6 +56,19 @@ const EXTENSION_BY_TYPE: Record<string, string> = {
 };
 
 /**
+ * The canonical extension for a content type we store. Every key we mint is
+ * for bytes we produced or validated (gpt-image-2 output, an Images-binding
+ * encode, an admin upload restricted to known raster types), so an unknown
+ * type is a programmer error, not a case to serve — it throws rather than
+ * minting a URL whose extension lies.
+ */
+function extensionForType(contentType: string): string {
+  const ext = EXTENSION_BY_TYPE[contentType];
+  if (!ext) throw new Error(`no canonical extension for '${contentType}'`);
+  return ext;
+}
+
+/**
  * Rewrite a storage key so its extension is the canonical one for the bytes
  * actually stored under it (`.jpeg` → `.jpg` included). Localized renders are
  * always re-rasterized (PNG today), while the key tail inherits the SOURCE's
@@ -71,8 +84,7 @@ const EXTENSION_BY_TYPE: Record<string, string> = {
  * serve, and throws rather than minting a lying URL.
  */
 export function keyWithExtension(key: string, contentType: string): string {
-  const ext = EXTENSION_BY_TYPE[contentType];
-  if (!ext) throw new Error(`no canonical extension for '${contentType}'`);
+  const ext = extensionForType(contentType);
   const slash = key.lastIndexOf('/');
   const dot = key.lastIndexOf('.');
   if (dot <= slash + 1) return `${key}${ext}`; // no (or dot-file) extension
@@ -97,6 +109,42 @@ export const localizedImageKey = (
   contentType: string,
 ): string =>
   `l10n/${language}/v${version}/${keyWithExtension(imageKey, contentType)}`;
+
+/**
+ * The R2 key of an image object's AVIF re-encode: the primary's key plus
+ * `.avif`, so the derived file sits next to the raster it came from and the
+ * URL's final extension stays truthful. Appending (not swapping) keeps
+ * derivation collision-free among OUR objects, where `foo.jpg` and `foo.png`
+ * may both exist upstream. It does assume upstream never publishes an asset
+ * at a derived-looking path itself (`foo.jpg.avif`, `foo.jpg.fit….png`) —
+ * mirrored originals share the source-key namespace, so such an asset would
+ * collide with our derived object and its row. Accepted: no DQX CDN asset has
+ * ever matched the pattern, and nothing here defends against it.
+ *
+ * Existence is NOT implied by the key: encoding is skipped for some rasters
+ * (animated GIFs and WebPs, oddball formats, outputs no smaller than the
+ * primary), so readers consult the recorded `image_files` rows and never
+ * derive blindly — a `<source>` that 404s does not fall back to the `<img>`.
+ */
+export const avifVariantKey = (key: string): string => `${key}.avif`;
+
+/** A "scale down to fit inside width×height" box (never enlarges). */
+export type FitSize = { width: number; height: number };
+
+/**
+ * The R2 key of a fit-inside rendition of an image object — scaled down to fit
+ * inside `size` and re-encoded as `contentType`: `<key>.fit<W>x<H><ext>`. Named
+ * by the REQUESTED box, not the resulting dimensions, so writers and readers
+ * derive the same key without knowing the aspect ratio; the actual output
+ * dimensions live on the rendition's `image_files` row. Same appending rules as
+ * avifVariantKey: collision-free beside the primary, extension truthful.
+ */
+export const fitVariantKey = (
+  key: string,
+  size: FitSize,
+  contentType: string,
+): string =>
+  `${key}.fit${size.width}x${size.height}${extensionForType(contentType)}`;
 
 /**
  * Scraping configuration - source URLs and paths.

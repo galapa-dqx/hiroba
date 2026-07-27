@@ -8,12 +8,13 @@
  * Idempotent: skips keys already mirrored, so re-runs are cheap and the
  * transcribe step can read the bytes back from R2 (one CDN fetch per image ever).
  *
- * Mirroring records the original as a render (its `images` row + primary
- * `image_files` at the source key, dims measured via the Images binding) — the
- * reader serves from that render, and its existence IS the "mirrored" signal
- * (DQX-46 dropped `mirror_state`; a failure is no render row plus the flow
- * run's error). That render is therefore also the skip predicate: one indexed
- * D1 read, no R2 round-trip, and exactly one original per source.
+ * Mirroring records the original as a render (its `images` row + `image_files`:
+ * the primary at the source key with dims measured via the Images binding, plus
+ * the derived AVIF encoded beside it) — the reader serves from that render, and
+ * its existence IS the "mirrored" signal (DQX-46 dropped `mirror_state`; a
+ * failure is no render row plus the flow run's error). That render is therefore
+ * also the skip predicate: one indexed D1 read, no R2 round-trip, and exactly
+ * one original per source.
  */
 
 import {
@@ -29,10 +30,10 @@ import {
   imageUpstreamUrl,
   type Block,
 } from '@hiroba/richtext';
-import { measureImage } from '@hiroba/shared';
 
 import { mapWithConcurrency } from '../concurrency';
 import { sniffMimeType } from '../image-edit';
+import { buildRenderFiles } from '../image-files';
 
 const FETCH_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -59,35 +60,35 @@ export type MirrorOutcome = 'mirrored' | 'skipped' | 'failed';
 
 /**
  * Record the mirrored original as a render — its `images` row (language NULL)
- * plus a primary `image_files` at the source key, dims measured. Once per
- * source: callers reach here only past a `hasOriginalRender` miss, since the
- * file key is the fixed source key and latest-wins never needs a second
- * original.
+ * plus its `image_files`: the primary at the source key (dims measured) and
+ * whatever derived files encode beside it (DQX-49), all in one atomic insert.
+ * Once per source: callers reach here only past a `hasOriginalRender` miss,
+ * since the file key is the fixed source key and latest-wins never needs a
+ * second original.
  */
 async function recordOriginalRender(
   db: Database,
+  bucket: R2Bucket,
   images: ImagesBinding,
   key: string,
   sourceId: number,
   bytes: Uint8Array,
   contentType: string | null,
 ): Promise<void> {
-  const measured = await measureImage(images, bytes);
+  const files = await buildRenderFiles(
+    images,
+    bucket,
+    key,
+    bytes,
+    CACHE_CONTROL,
+    { fallbackMime: contentType },
+  );
   await insertImageRender(db, {
     id: crypto.randomUUID(),
     sourceId,
     language: null,
     model: null,
-    files: [
-      {
-        key,
-        isPrimary: true,
-        mime: measured.mime ?? contentType,
-        width: measured.width,
-        height: measured.height,
-        bytes: bytes.byteLength,
-      },
-    ],
+    files,
   });
 }
 
@@ -138,6 +139,7 @@ export async function mirrorOneImage(
       if (source)
         await recordOriginalRender(
           db,
+          bucket,
           images,
           key,
           source.id,
@@ -167,6 +169,7 @@ export async function mirrorOneImage(
     if (source)
       await recordOriginalRender(
         db,
+        bucket,
         images,
         key,
         source.id,

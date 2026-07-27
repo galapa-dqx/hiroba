@@ -12,6 +12,7 @@ export { ArticleFlow } from './article';
 export { BannerFlow } from './banner';
 export { articleImagework, articleIntake, articleOutput } from './fragments';
 export { GlossaryRegenFlow } from './glossary-regen';
+export { ImageFileFlow, type ImageFileOutput } from './image-file';
 export { ImageIngestFlow } from './image-ingest';
 export { ImageLocalizeFlow } from './image-localize';
 export { NewsBackfillFlow, type NewsBackfillOutput } from './news-backfill';

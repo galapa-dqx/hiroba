@@ -4,14 +4,15 @@
  *   POST /api/images/<id>/<lang>/upload   (multipart/form-data, field `file`)
  *
  * The bytes are stored in R2 at a fresh VERSIONED key (`l10n/<lang>/v<ts>/…`,
- * immutable — see LOCALIZED_IMAGE_CACHE_CONTROL), recorded as a render (its
+ * immutable — see LOCALIZED_IMAGE_CACHE_CONTROL) and recorded as a render (its
  * `images` row + primary `image_files` row, dimensions measured via the Images
- * binding), and the pages embedding the image are purged so the new URL reaches
- * readers immediately. The render's model is the manual sentinel so the nightly
- * localize step won't overwrite it (an explicit "Regenerate" still can). The
- * admin worker owns the R2 bucket, so the write happens here — only the page
- * purge is proxied over the WORKFLOW service binding (the purge credentials live
- * on the workflow worker).
+ * binding). The render's model is the manual sentinel so the nightly localize
+ * step won't overwrite it (an explicit "Regenerate" still can).
+ *
+ * The admin worker owns the R2 bucket, so the write happens here; the
+ * follow-ups — the derived files (Images encoding) and the page purge (zone
+ * credentials) — need the workflow worker, so they run as one hub-started
+ * ImageFileFlow over the render this route just wrote.
  */
 
 import type { APIRoute } from 'astro';
@@ -23,11 +24,14 @@ import {
   insertImageRender,
   MANUAL_IMAGE_MODEL,
 } from '@hiroba/db';
+import { ImageFileFlow } from '@hiroba/flows';
 import {
   LOCALIZED_IMAGE_CACHE_CONTROL,
   localizedImageKey,
   measureImage,
 } from '@hiroba/shared';
+
+import { startFlowViaHub } from '../../../../../lib/start-flow';
 
 /** Formats gpt-image-2 emits / the /img route can serve back verbatim. */
 const ALLOWED_TYPES = new Set([
@@ -89,9 +93,11 @@ export const POST: APIRoute = async ({ params, request }) => {
   });
 
   // Record the render + its primary file (dims measured) in one atomic batch.
+  // The id is allocated here so the follow-up flow can name this exact render.
+  const imageId = crypto.randomUUID();
   const dims = await measureImage(env.IMAGES, bytes);
   await insertImageRender(db, {
-    id: crypto.randomUUID(),
+    id: imageId,
     sourceId: id,
     language: lang,
     model: MANUAL_IMAGE_MODEL,
@@ -107,24 +113,19 @@ export const POST: APIRoute = async ({ params, request }) => {
     ],
   });
 
-  // Cached article pages still embed the previous version's URL; purge every
-  // page carrying this image so the new render is picked up immediately. The
-  // purge credentials live only on the workflow side (like the regenerate
-  // path), so proxy there — best-effort: a purge failure must not fail the
-  // upload (pages then refresh on their own TTL).
+  // Hand the follow-ups to ImageFileFlow: the derived files (AVIF, DQX-49)
+  // and the page purge both need capabilities that live on the workflow
+  // worker — Images encoding and the zone purge credentials. Order doesn't
+  // matter to readers: the web emits only recorded files, so until the flow
+  // lands the fresh render serves as a bare <img>. Best-effort — a failed
+  // start must not fail the upload (pages then refresh on their own TTL). But
+  // note NOTHING revisits this render automatically: this route is the flow's
+  // only start site, and nightly localize skips manual-model renders by
+  // design — recovery is an operator re-running the flow or re-uploading.
   try {
-    const res = await env.WORKFLOW.fetch('http://internal/purge-image-pages', {
-      method: 'POST',
-      body: JSON.stringify({ imageKey: image.key, language: lang }),
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) {
-      console.warn(
-        `upload: page purge failed for ${image.key} (${res.status}): ${await res.text().catch(() => '')}`,
-      );
-    }
+    await startFlowViaHub(env.FLOW_HUB, ImageFileFlow.name, { imageId });
   } catch (err) {
-    console.warn(`upload: page purge failed for ${image.key}:`, err);
+    console.warn(`upload: image-file start failed for ${localizedKey}:`, err);
   }
 
   return json({ success: true, localizedKey });

@@ -95,7 +95,7 @@ export async function regenerateImage(
   // url-row state now — the render's existence is the settled signal, so state
   // mirrors whether this run produced one.
   const served = await getServedImages(db, [imageId], language);
-  const localizedKey = served.get(imageId)?.localized?.key ?? null;
+  const localizedKey = served.get(imageId)?.localized?.primary.key ?? null;
   const done = result.localized > 0;
 
   // The fresh render lives at a NEW versioned URL; what's stale is every

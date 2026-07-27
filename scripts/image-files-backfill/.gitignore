@@ -1,0 +1,2 @@
+# Durable keyset cursor from an in-progress limited run — machine-local state.
+.cursor.json

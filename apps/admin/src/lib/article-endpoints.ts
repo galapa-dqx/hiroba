@@ -122,7 +122,7 @@ export function createArticleGet(itemType: ArticleType): APIRoute {
       if (imageIds.length) {
         const served = await getServedImages(db, imageIds, lang.code);
         for (const row of imageRows) {
-          const stored = served.get(row.id)?.localized?.key;
+          const stored = served.get(row.id)?.localized?.primary.key;
           if (stored) localizedImages[row.key] = stored;
         }
       }

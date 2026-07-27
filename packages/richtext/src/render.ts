@@ -18,14 +18,29 @@ import {
 } from './schema';
 
 /**
- * A resolved image source: the servable URL plus (for block images) the
- * intrinsic pixel dimensions, so the renderer can emit `width`/`height` and
- * reserve layout space (no CLS). Icons/inline images resolve to a bare string.
+ * A resolved image source: the servable URL, the intrinsic pixel dimensions so
+ * the renderer can emit `width`/`height` and reserve layout space (no CLS),
+ * the downscaled candidates for that URL's own format, and any alternate
+ * encodings of the same raster, most-preferred first. A resolver that knows
+ * none of that may return a bare string instead.
+ *
+ * With `sources` the renderer wraps the `<img>` in `<picture>`, so supporting
+ * browsers take the better encoding and everything else falls back to `src`.
+ * Every candidate must actually exist — the web app passes only recorded
+ * `image_files` rows, because a `<source>` that 404s does NOT fall back.
  */
 export type ResolvedImageSrc = {
   src: string;
   width?: number | null;
   height?: number | null;
+  /** `w`-descriptor candidates for `src`'s own format, including `src` itself.
+   *  Only meaningful alongside `sizes` — without it the browser assumes the
+   *  image fills the viewport and just takes the largest rung. */
+  srcset?: string;
+  /** How wide the image will actually render, as a CSS `sizes` list. Emitted
+   *  on the `<img>` and on every `<source>`, which all share one layout box. */
+  sizes?: string;
+  sources?: Array<{ type: string; srcset: string }>;
 };
 
 export type RenderOptions = {
@@ -45,11 +60,37 @@ export function renderBlocks(
   blocks: Block[],
   opts: RenderOptions = {},
 ): string {
-  const resolveSrc = opts.imageSrc ?? ((s: string) => s);
-  // Icons/inline images want just the URL; block images also read dimensions.
-  const src = (s: string): string => {
-    const r = resolveSrc(s);
-    return typeof r === 'string' ? r : r.src;
+  const rewrite = opts.imageSrc ?? ((s: string) => s);
+  const resolve = (s: string): ResolvedImageSrc => {
+    const r = rewrite(s);
+    return typeof r === 'string' ? { src: r } : r;
+  };
+  /** An `<img>` carrying whatever the resolver knew, wrapped in `<picture>`
+   *  when there are alternate encodings to offer. */
+  const imgTag = (
+    image: ResolvedImageSrc,
+    attrs: string,
+    alt: string,
+  ): string => {
+    // Intrinsic dimensions let the browser reserve layout space — no CLS.
+    const dims =
+      (image.width != null ? ` width="${image.width}"` : '') +
+      (image.height != null ? ` height="${image.height}"` : '');
+    // `sizes` only means anything next to a `w`-descriptor candidate list, so
+    // it rides along with each srcset rather than being emitted on its own.
+    const sizes = image.sizes ? ` sizes="${escAttr(image.sizes)}"` : '';
+    const candidates = image.srcset
+      ? ` srcset="${escAttr(image.srcset)}"${sizes}`
+      : '';
+    const img = `<img ${attrs} src="${escAttr(image.src)}"${candidates}${dims} alt="${escAttr(alt)}">`;
+    if (!image.sources?.length) return img;
+    const alternates = image.sources
+      .map(
+        (s) =>
+          `<source type="${escAttr(s.type)}" srcset="${escAttr(s.srcset)}"${sizes}>`,
+      )
+      .join('');
+    return `<picture>${alternates}${img}</picture>`;
   };
   const href = opts.linkHref ?? ((h: string) => h);
 
@@ -78,7 +119,7 @@ export function renderBlocks(
       case 'badge':
         return `<span class="rt-badge"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}>${esc(node.text)}</span>`;
       case 'icon':
-        return `<img class="rt-icon" src="${escAttr(src(node.src))}" alt="${escAttr(node.alt ?? '')}">`;
+        return imgTag(resolve(node.src), `class="rt-icon"`, node.alt ?? '');
       case 'time':
         // Children are the human-readable JST text; a client script rewrites
         // datetime-bearing ones to the viewer's timezone (date-only values stay).
@@ -120,16 +161,11 @@ export function renderBlocks(
         // The in-image text (localized into the image itself) rides as alt for
         // accessibility; hydrate `text` with the displayed language's spans.
         const alt = node.text?.length ? node.text.join(' ') : (node.alt ?? '');
-        const resolved = resolveSrc(node.src);
-        const url = typeof resolved === 'string' ? resolved : resolved.src;
-        // Emit intrinsic dimensions when the resolver knows them (measured on
-        // the served render) so the browser reserves layout space — no CLS.
-        const w = typeof resolved === 'string' ? undefined : resolved.width;
-        const h = typeof resolved === 'string' ? undefined : resolved.height;
-        const dims =
-          (w != null ? ` width="${w}"` : '') +
-          (h != null ? ` height="${h}"` : '');
-        const img = `<img class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''} src="${escAttr(url)}"${dims} alt="${escAttr(alt)}">`;
+        const img = imgTag(
+          resolve(node.src),
+          `class="rt-image"${node.variant ? ` data-variant="${escAttr(node.variant)}"` : ''}`,
+          alt,
+        );
         const rel = node.external
           ? ' target="_blank" rel="noopener noreferrer"'
           : '';
@@ -172,7 +208,7 @@ export function renderBlocks(
         return (
           `<div class="rt-speech">` +
           (node.icon
-            ? `<img class="rt-speech-icon" src="${escAttr(src(node.icon))}" alt="">`
+            ? imgTag(resolve(node.icon), `class="rt-speech-icon"`, '')
             : '') +
           (node.speaker !== undefined
             ? `<div class="rt-speaker">${esc(node.speaker)}</div>`
