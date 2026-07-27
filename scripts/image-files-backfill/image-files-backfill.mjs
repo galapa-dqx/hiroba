@@ -160,18 +160,16 @@ async function measure(bytes) {
 const sq = (s) => s.replace(/'/g, "''");
 const num = (n) => (n == null ? 'NULL' : String(n));
 
-async function mapLimit(items, limit, fn) {
-  const results = [];
+/** Run `fn` over every item, at most `limit` at a time. Side-effect only —
+ *  each conversion tallies its own outcome and queues its own SQL, so nothing
+ *  is collected and the whole archive never sits in memory at once. */
+async function eachLimit(items, limit, fn) {
   let i = 0;
   await Promise.all(
     Array.from({ length: Math.min(limit, items.length) }, async () => {
-      while (i < items.length) {
-        const idx = i++;
-        results[idx] = await fn(items[idx]);
-      }
+      while (i < items.length) await fn(items[i++]);
     }),
   );
-  return results;
 }
 
 // ------------------------------------------------------------------- d1 --
@@ -402,7 +400,7 @@ async function backfill() {
   };
   const missingKeys = [];
   let done = 0;
-  await mapLimit(rows, CONCURRENCY, async (row) => {
+  await eachLimit(rows, CONCURRENCY, async (row) => {
     const now = Date.now();
     const outcome = await convert(row, now);
     for (const [name, hit] of Object.entries(outcome)) if (hit) counts[name]++;
