@@ -454,7 +454,7 @@ function derivedRowSql({ key, imageId, mime, width, height, size }, now) {
  *
  * Returns the outcome tally keys to bump.
  */
-async function convert(row, now) {
+async function convert(row, now, occupiedKeys) {
   const obj = await getObject(row.key);
   // Nothing to convert and nothing to record — collected and printed so a
   // rerun just re-checks these few instead of carrying a tombstone.
@@ -476,20 +476,31 @@ async function convert(row, now) {
     // path verbatim — that path IS their identity — so only their
     // content-type is fixed.
     //
-    // OR IGNORE: for LEGACY unversioned l10n keys (pre-versioning, mutated in
-    // place) the corrected key can already be another row's — `key` is the
-    // table's PRIMARY KEY, and a bare UPDATE would fail the whole checkpoint
-    // batch, roll it back, and poison every rerun with the same statement.
-    // An ignored swap just leaves the row on its old key, whose object still
-    // exists — the render keeps serving, merely unrenamed.
+    // The guard comes BEFORE the copy: for LEGACY unversioned l10n keys
+    // (pre-versioning, mutated in place) the corrected key can already be
+    // another row's — `key` is the table's PRIMARY KEY — and copying first
+    // would overwrite that render's bytes in R2 before the DB swap had any
+    // chance to be refused. Check-and-claim is synchronous (no await between
+    // has and add), so two workers correcting onto one key can't race. A
+    // skipped swap leaves the row on its old key, whose object still exists —
+    // the render keeps serving, merely unrenamed. OR IGNORE stays as the
+    // last line of defense against anything the snapshot missed.
     const corrected = keyWithExtension(row.key, sniffed);
     if (corrected !== row.key) {
-      await copyObject(row.key, corrected, sniffed);
-      queueSql(
-        `UPDATE OR IGNORE image_files SET key='${sq(corrected)}' WHERE key='${sq(row.key)}';`,
-      );
-      key = corrected;
-      outcome.rekeyed = true;
+      if (occupiedKeys.has(corrected)) {
+        console.warn(
+          `  ${row.key}: corrected key ${corrected} already taken; keeping the old key`,
+        );
+        outcome.rekeySkipped = true;
+      } else {
+        occupiedKeys.add(corrected);
+        await copyObject(row.key, corrected, sniffed);
+        queueSql(
+          `UPDATE OR IGNORE image_files SET key='${sq(corrected)}' WHERE key='${sq(row.key)}';`,
+        );
+        key = corrected;
+        outcome.rekeyed = true;
+      }
     }
   }
   if (sniffed && sniffed !== obj.contentType && key === row.key) {
@@ -565,11 +576,20 @@ async function backfill() {
   const rows = pendingRenders(cursor);
   console.log(`${rows.length} render(s) pending`);
 
+  // Every key a row already holds, so a re-key can refuse a taken target
+  // BEFORE overwriting its object. One snapshot up front (re-keys claim into
+  // it as they go); the pipeline only mints fresh versioned keys, so nothing
+  // else writes into the legacy namespace this guards.
+  const occupiedKeys = new Set(
+    d1Query(`SELECT key FROM image_files`).map((r) => r.key),
+  );
+
   const counts = {
     encoded: 0,
     primaryOnly: 0,
     missing: 0,
     rekeyed: 0,
+    rekeySkipped: 0,
     retyped: 0,
     failed: 0,
   };
@@ -584,7 +604,7 @@ async function backfill() {
     // this script exists to print.
     let outcome;
     try {
-      outcome = await convert(row, now);
+      outcome = await convert(row, now, occupiedKeys);
     } catch (err) {
       console.warn(`  ${row.key}: ${reason(err)}`);
       outcome = { failed: true };
