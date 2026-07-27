@@ -99,12 +99,15 @@ describe('image file flow — derived files for one written render', () => {
       [expect.objectContaining({ key: `${RENDER_KEY}.avif` })],
     );
     // Purged by the SOURCE key + language — the versioned render key isn't
-    // reversible to the pages embedding the image.
+    // reversible to the pages embedding the image. A real logger rides along:
+    // purge.ts reports every failure path through log?.warn, so passing none
+    // makes a rotated token or missing zone config silently strand caches.
     expect(vi.mocked(purgeImagePages)).toHaveBeenCalledWith(
       env,
       expect.anything(),
       SOURCE_KEY,
       'en',
+      expect.objectContaining({ warn: expect.any(Function) }),
     );
   });
 
@@ -151,5 +154,39 @@ describe('image file flow — derived files for one written render', () => {
 
     expect(result.output).toEqual({ imageId: IMAGE_ID, files: 1 });
     expect(vi.mocked(purgeImagePages)).not.toHaveBeenCalled();
+  });
+
+  it('lets an infrastructure failure escape so the engine retries', async () => {
+    // The render row is already committed before the flow starts, so a throw
+    // costs nothing — swallowing it would memoize the step as a permanent
+    // files:0 success with no later pass to recover.
+    bucket.get.mockRejectedValue(new Error('R2 unavailable'));
+
+    const result = await run();
+
+    expect(result.error).toBeDefined();
+    expect(vi.mocked(replaceDerivedFiles)).not.toHaveBeenCalled();
+  });
+
+  it('keeps the previous pass rows when this pass derived nothing', async () => {
+    // Zero files is ambiguous — legitimately nothing, or an Images outage
+    // failing every encode. Retiring rows on the latter would 404 <source>
+    // URLs cached HTML still embeds, so an empty set must not touch the db.
+    vi.mocked(buildDerivedFiles).mockResolvedValue([]);
+
+    const result = await run();
+
+    expect(result.output).toEqual({ imageId: IMAGE_ID, files: 0 });
+    expect(vi.mocked(replaceDerivedFiles)).not.toHaveBeenCalled();
+    expect(bucket.delete).not.toHaveBeenCalled();
+  });
+
+  it('completes despite a throwing purge — best-effort by contract', async () => {
+    vi.mocked(purgeImagePages).mockRejectedValue(new Error('D1 blip'));
+
+    const result = await run();
+
+    expect(result.error).toBeUndefined();
+    expect(result.output).toEqual({ imageId: IMAGE_ID, files: 1 });
   });
 });

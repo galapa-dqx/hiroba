@@ -64,21 +64,24 @@ describe('IN-list chunking (D1 variable cap)', () => {
   });
 });
 
-/** One source with one localized render carrying a primary + AVIF file. */
+/** One source with one localized render carrying a primary + AVIF file.
+ *  `id` is injectable because renderIsNewer ties equal-millisecond renders on
+ *  id — back-to-back inserts in one test routinely share a wall-clock ms, and
+ *  two random UUIDs would decide "newest" by coin flip. */
 async function seedRender(
   files: Parameters<typeof insertImageRender>[1]['files'],
+  id = crypto.randomUUID(),
 ): Promise<{ sourceId: number; imageId: string }> {
   await ensureImageSourceRows(ctx.db, ['host/a.png']);
   const [source] = await getImageSourcesByKeys(ctx.db, ['host/a.png']);
-  const imageId = crypto.randomUUID();
   await insertImageRender(ctx.db, {
-    id: imageId,
+    id,
     sourceId: source!.id,
     language: 'en',
     model: 'gpt-image-2',
     files,
   });
-  return { sourceId: source!.id, imageId };
+  return { sourceId: source!.id, imageId: id };
 }
 
 const PRIMARY = {
@@ -117,10 +120,15 @@ describe('serving a render with derived files', () => {
   });
 
   it('serves only the newest render, files and all', async () => {
-    const { sourceId } = await seedRender([PRIMARY, AVIF]);
+    // Deterministic ids ordered v1 < v2: the inserts routinely land in the
+    // same millisecond, where renderIsNewer falls back to the id tiebreak.
+    const { sourceId } = await seedRender(
+      [PRIMARY, AVIF],
+      '00000000-0000-4000-8000-000000000001',
+    );
     // A regeneration: fresh versioned key, fresh render, latest-wins.
     await insertImageRender(ctx.db, {
-      id: crypto.randomUUID(),
+      id: '00000000-0000-4000-8000-000000000002',
       sourceId,
       language: 'en',
       model: 'manual',

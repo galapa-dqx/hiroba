@@ -118,8 +118,10 @@ export const POST: APIRoute = async ({ params, request }) => {
   // worker — Images encoding and the zone purge credentials. Order doesn't
   // matter to readers: the web emits only recorded files, so until the flow
   // lands the fresh render serves as a bare <img>. Best-effort — a failed
-  // start must not fail the upload (pages then refresh on their own TTL, and
-  // the files land on the next pass over this render).
+  // start must not fail the upload (pages then refresh on their own TTL). But
+  // note NOTHING revisits this render automatically: this route is the flow's
+  // only start site, and nightly localize skips manual-model renders by
+  // design — recovery is an operator re-running the flow or re-uploading.
   try {
     await startFlowViaHub(env.FLOW_HUB, ImageFileFlow.name, { imageId });
   } catch (err) {

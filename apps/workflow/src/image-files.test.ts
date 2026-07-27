@@ -230,6 +230,57 @@ describe('buildRenderFiles', () => {
     expect(files.map((f) => f.key)).toEqual(['g/a.png', 'g/a.png.avif']);
   });
 
+  it('never re-encodes an animated WebP — a GIF in a newer coat', async () => {
+    // RIFF/WEBP header + VP8X chunk with the ANIM feature bit set: the AVIF
+    // outputs would freeze the first frame and pass the byte gate precisely
+    // because they dropped every other frame.
+    const animated = new Uint8Array(1000);
+    animated.set([0x52, 0x49, 0x46, 0x46], 0); // "RIFF"
+    animated.set([0x57, 0x45, 0x42, 0x50], 8); // "WEBP"
+    animated.set([0x56, 0x50, 0x38, 0x58], 12); // "VP8X"
+    animated[20] = 0x02; // feature flags: ANIM
+    const images = makeImages(
+      [{ format: 'image/webp', fileSize: 1, width: 100, height: 100 }],
+      [],
+    );
+    const bucket = makeBucket();
+
+    const files = await buildRenderFiles(
+      images,
+      bucket,
+      'g/a.webp',
+      animated,
+      'cc',
+    );
+
+    expect(files.map((f) => f.key)).toEqual(['g/a.webp']);
+    expect(bucket.put).not.toHaveBeenCalled();
+  });
+
+  it('still derives from a STILL WebP — only the ANIM flag opts out', async () => {
+    // Same VP8X layout, animation bit clear.
+    const still = new Uint8Array(1000);
+    still.set([0x52, 0x49, 0x46, 0x46], 0);
+    still.set([0x57, 0x45, 0x42, 0x50], 8);
+    still.set([0x56, 0x50, 0x38, 0x58], 12);
+    still[20] = 0x00;
+    const images = makeImages(
+      [{ format: 'image/webp', fileSize: 1, width: 1, height: 1 }],
+      [pngBytes(300)],
+    );
+    const bucket = makeBucket();
+
+    const files = await buildRenderFiles(
+      images,
+      bucket,
+      'g/a.webp',
+      still,
+      'cc',
+    );
+
+    expect(files.map((f) => f.key)).toEqual(['g/a.webp', 'g/a.webp.avif']);
+  });
+
   it('never re-encodes a GIF (animation) but still records the primary', async () => {
     const images = makeImages(
       [{ format: 'image/gif', fileSize: 1, width: 100, height: 100 }],

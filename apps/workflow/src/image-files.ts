@@ -53,6 +53,25 @@ const DERIVABLE_SOURCE_TYPES = new Set<string>([
 const isDerivableSource = (mime: string): mime is DerivableSource =>
   DERIVABLE_SOURCE_TYPES.has(mime);
 
+/**
+ * WebP's animation flag: a VP8X chunk directly after the RIFF/WEBP header,
+ * with bit 1 of its feature byte set. Animated WebP is the same hazard the
+ * GIF exclusion names, wearing a different container: the Images binding's
+ * `anim` default preserves animation for WebP OUTPUT, but AVIF output is
+ * still-only — and a frozen first frame sails through the smaller-than-primary
+ * gate precisely because it dropped every other frame.
+ */
+function isAnimatedWebP(b: Uint8Array): boolean {
+  return (
+    b.length > 20 &&
+    b[12] === 0x56 && // "VP8X"
+    b[13] === 0x50 &&
+    b[14] === 0x38 &&
+    b[15] === 0x58 &&
+    ((b[20] ?? 0) & 0x02) !== 0
+  );
+}
+
 /** What an encode may emit: a rendition in the source's own format, or AVIF. */
 type EncodeFormat = DerivableSource | 'image/avif';
 
@@ -152,13 +171,18 @@ async function deriveFiles(
 ): Promise<RenderFileInput[]> {
   const sniffed = sniffMimeType(bytes);
   // Only rasters we can safely re-encode; everything else keeps its primary
-  // alone (an SVG, an animated GIF, a format the sniff doesn't know).
+  // alone (an SVG, an animated GIF, a format the sniff doesn't know). An
+  // animated WebP is a GIF in a newer coat — see isAnimatedWebP.
   if (!sniffed || !isDerivableSource(sniffed)) return [];
+  if (sniffed === 'image/webp' && isAnimatedWebP(bytes)) return [];
 
-  const rows: RenderFileInput[] = [];
-  const add = async (format: EncodeFormat, size?: FitSize): Promise<void> => {
+  /** One encode→store→measure chain; null when skipped or failed. */
+  const derive = async (
+    format: EncodeFormat,
+    size?: FitSize,
+  ): Promise<RenderFileInput | null> => {
     const out = await encode(images, bytes, format, size);
-    if (!out) return;
+    if (!out) return null;
     const key = size
       ? fitVariantKey(primaryKey, size, format)
       : avifVariantKey(primaryKey);
@@ -169,35 +193,40 @@ async function deriveFiles(
       // Resized outputs are re-measured rather than computed: Cloudflare owns
       // the scale-down rounding, and a row's dimensions must match its bytes.
       const dims = size ? await measureImage(images, out) : measured;
-      rows.push({
+      return {
         key,
         isPrimary: false,
         mime: format,
         width: dims.width,
         height: dims.height,
         bytes: out.byteLength,
-      });
+      };
     } catch (err) {
       // A failed store is the same outcome as a failed encode: one fewer file
       // to offer. Letting it escape would cost the caller the whole render —
       // a localize that already paid for gpt-image-2 and stored its primary
-      // would report `failed` and record nothing over an OPTIONAL file. The
-      // row is only pushed once the object is durably stored, so a reader
-      // never learns about an object that isn't there.
+      // would report `failed` and record nothing over an OPTIONAL file. A row
+      // is only returned once the object is durably stored, so a reader never
+      // learns about an object that isn't there.
       console.error(`derived file store failed for ${key}:`, err);
+      return null;
     }
   };
 
-  // 1x: the primary's own format is the primary; only AVIF is new.
-  await add('image/avif');
-  // Then each smaller rung in both formats, so a browser that takes the AVIF
-  // <source> has the same ladder to choose from as one falling back to the
-  // primary's format.
+  // The full-size AVIF, then each smaller rung in both formats — so a browser
+  // that takes the AVIF <source> has the same ladder to choose from as one
+  // falling back to the primary's format.
+  const specs: Array<[EncodeFormat, FitSize?]> = [['image/avif', undefined]];
   for (const size of ladder(measured)) {
-    await add(sniffed, size);
-    await add('image/avif', size);
+    specs.push([sniffed, size], ['image/avif', size]);
   }
-  return rows;
+  // The chains are independent — distinct keys by construction, read-only
+  // input, no chain ever throws — so they run concurrently: sequentially this
+  // was up to ~14 serialized Images/R2 round-trips, the whole tail of the
+  // per-image child flows. Collecting by spec index keeps the row order
+  // deterministic regardless of which chain finishes first.
+  const results = await Promise.all(specs.map(([f, s]) => derive(f, s)));
+  return results.filter((r): r is RenderFileInput => r !== null);
 }
 
 /**

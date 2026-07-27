@@ -345,6 +345,11 @@
 .article-body .rt-icon {
   display: inline;
   height: 1em;
+  /* Icons carry intrinsic width/height attributes since DQX-49 (they resolve
+     through the same served-render path as block images). Without this, the
+     width presentational hint stays at intrinsic pixels while the CSS shrinks
+     only the height — a 24×24 icon at 17px text paints 24×17, stretched. */
+  width: auto;
   vertical-align: -0.12em;
 }
 

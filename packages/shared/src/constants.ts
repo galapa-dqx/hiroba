@@ -114,13 +114,17 @@ export const localizedImageKey = (
  * The R2 key of an image object's AVIF re-encode: the primary's key plus
  * `.avif`, so the derived file sits next to the raster it came from and the
  * URL's final extension stays truthful. Appending (not swapping) keeps
- * derivation collision-free for mirrored originals, where `foo.jpg` and
- * `foo.png` may both exist upstream.
+ * derivation collision-free among OUR objects, where `foo.jpg` and `foo.png`
+ * may both exist upstream. It does assume upstream never publishes an asset
+ * at a derived-looking path itself (`foo.jpg.avif`, `foo.jpg.fit….png`) —
+ * mirrored originals share the source-key namespace, so such an asset would
+ * collide with our derived object and its row. Accepted: no DQX CDN asset has
+ * ever matched the pattern, and nothing here defends against it.
  *
  * Existence is NOT implied by the key: encoding is skipped for some rasters
- * (animated GIFs, oddball formats, outputs no smaller than the primary), so
- * readers consult the recorded `image_files` rows and never derive blindly —
- * a `<source>` that 404s does not fall back to the `<img>`.
+ * (animated GIFs and WebPs, oddball formats, outputs no smaller than the
+ * primary), so readers consult the recorded `image_files` rows and never
+ * derive blindly — a `<source>` that 404s does not fall back to the `<img>`.
  */
 export const avifVariantKey = (key: string): string => `${key}.avif`;
 

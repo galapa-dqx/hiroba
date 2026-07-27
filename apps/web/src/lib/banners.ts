@@ -33,20 +33,14 @@ import { resolveRender } from './article-images';
  */
 const BANNER_SIZES = '(min-width: 860px) 811px, calc(100vw - 2.2rem - 14px)';
 
-export type CarouselBanner = {
+/**
+ * One slide: the resolved image under its carousel name (`imageUrl` = `src`,
+ * everything else — dimensions, srcset/sizes, `<picture>` sources — inherited
+ * from ResolvedImageSrc so a field added there reaches this surface without a
+ * hand-synced copy) plus the link and caption.
+ */
+export type CarouselBanner = Omit<ResolvedImageSrc, 'src'> & {
   imageUrl: string;
-  /** The raster's measured intrinsic dimensions; the carousel falls back to
-   *  the nominal slot size when the render predates measurement. */
-  width?: number;
-  height?: number;
-  /** Downscaled candidates for `imageUrl`'s own format (DQX-49), `w`-descriptor
-   *  form, paired with `sizes`. */
-  srcset?: string;
-  /** How wide the slide actually renders — meaningless without a srcset. */
-  sizes?: string;
-  /** Alternate encodings of the same raster, most-preferred first — rendered
-   *  as `<picture>` sources with `imageUrl` as the fallback. */
-  sources?: Array<{ type: string; srcset: string }>;
   href: string;
   /** True when the link leaves our site (renderer adds target/rel). */
   external: boolean;
@@ -92,16 +86,14 @@ export async function resolveBanners(
   const titles = await getTitleTranslations(db, 'topic', topicIds, language);
 
   return rows.map((b) => {
-    const resolved = resolvedByKey.get(b.imageKey);
+    // One destructure carries every ResolvedImageSrc field — a field added
+    // there reaches the carousel without a spread to remember here.
+    const { src: imageUrl, ...image } = resolvedByKey.get(b.imageKey) ?? {
+      src: rewriteImageSrc(imageUpstreamUrl(b.imageKey), imageBase),
+    };
     return {
-      imageUrl:
-        resolved?.src ??
-        rewriteImageSrc(imageUpstreamUrl(b.imageKey), imageBase),
-      ...(resolved?.width != null ? { width: resolved.width } : {}),
-      ...(resolved?.height != null ? { height: resolved.height } : {}),
-      ...(resolved?.srcset ? { srcset: resolved.srcset } : {}),
-      ...(resolved?.sizes ? { sizes: resolved.sizes } : {}),
-      ...(resolved?.sources ? { sources: resolved.sources } : {}),
+      imageUrl,
+      ...image,
       href: b.linkTopicId
         ? `/${language}/topics/${b.linkTopicId}`
         : (b.linkUrl ?? '#'),

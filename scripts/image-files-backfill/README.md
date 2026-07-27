@@ -72,8 +72,14 @@ node image-files-backfill.mjs
 
 Rows land in checkpointed batches, so an interrupted run resumes where it left
 off: every render that got at least one derived file drops out of the
-predicate. Renders where every rung was legitimately skipped (a GIF, a 1x1
-spacer) have no derived row to show for it, so a rerun re-downloads and
-re-checks those few — harmless, and they are re-measured to the same values.
+predicate. One render's failure (a transient R2 error) is tallied, listed at
+the end, and skipped — never the whole sweep; rerun to retry.
+
+Renders where every rung was legitimately skipped (a GIF, an animated WebP, a
+1x1 spacer) keep matching the predicate forever, so limited runs use a durable
+keyset cursor (`.cursor.json`, machine-local): each `--limit N` run continues
+after the previous one's last id instead of re-selecting the same N leaders. A
+run that reaches the end of the table clears the cursor, so the next full run
+re-checks the skipped few from the top. Delete the file to restart manually.
 
 Delete this directory once the archive is converted.
