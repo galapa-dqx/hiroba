@@ -101,12 +101,18 @@ function keyWithExtension(key, contentType) {
 
 const avifVariantKey = (key) => `${key}.avif`;
 
+/** A thrown value as a log line. `err.message` alone reads `undefined` for a
+ *  thrown string and throws outright for a thrown null, and one unloggable
+ *  oddity shouldn't take the archive sweep down with it. */
+const reason = (err) =>
+  err instanceof Error ? err.message : String(err ?? 'unknown');
+
 /** Magic-byte sniff — mirrors apps/workflow/src/image-edit.ts. */
 function sniffMimeType(b) {
   if (b.length >= 3 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46)
     return 'image/gif';
   if (
-    b.length >= 4 &&
+    b.length >= 8 &&
     b[0] === 0x89 &&
     b[1] === 0x50 &&
     b[2] === 0x4e &&
@@ -142,7 +148,7 @@ async function encodeAvif(bytes) {
     // icons, where the AVIF container dominates). Same rule as the pipeline.
     return avif.byteLength < bytes.byteLength ? avif : null;
   } catch (err) {
-    console.warn(`  encode failed: ${err.message}`);
+    console.warn(`  encode failed: ${reason(err)}`);
     return null;
   }
 }
@@ -249,7 +255,9 @@ async function getObject(key) {
       contentType: res.ContentType,
     };
   } catch (err) {
-    if (err.name === 'NoSuchKey' || err.$metadata?.httpStatusCode === 404)
+    // Optional-chained: a null throwable must rethrow as itself, not as a
+    // TypeError from this very line.
+    if (err?.name === 'NoSuchKey' || err?.$metadata?.httpStatusCode === 404)
       return null;
     throw err;
   }
