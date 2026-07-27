@@ -356,6 +356,10 @@ async function copyObject(fromKey, toKey, contentType) {
  * and DQX-49. Ordered by id so a `--limit` slice is stable across runs.
  */
 function pendingRenders() {
+  // The limit rides in the SQL, not a JS slice: --limit 25 must actually
+  // query 25 rows, or a large archive still ships its whole pending list
+  // through wrangler's JSON output just to sample it.
+  const limit = Number.isFinite(LIMIT) ? ` LIMIT ${LIMIT}` : '';
   return d1Query(
     `SELECT i.id AS imageId, i.language AS language, f.key AS key
        FROM images i
@@ -363,8 +367,8 @@ function pendingRenders() {
       WHERE NOT EXISTS (
               SELECT 1 FROM image_files d
                WHERE d.image_id = i.id AND d.is_primary = 0)
-      ORDER BY i.id`,
-  ).slice(0, LIMIT);
+      ORDER BY i.id${limit}`,
+  );
 }
 
 /** UPDATE the primary row's measured metadata (seeds land with NULLs). */
