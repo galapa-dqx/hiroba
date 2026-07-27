@@ -89,9 +89,17 @@ const EXTENSION_BY_TYPE = {
   'image/gif': '.gif',
   'image/avif': '.avif',
 };
-function keyWithExtension(key, contentType) {
+/** Throws on an unknown type, like the shared helper — a lying or
+ *  `undefined`-suffixed key is worse than a loud stop. Unreachable today
+ *  (every caller passes a sniffed or hardcoded known type), which is exactly
+ *  when an invariant is cheapest to keep. */
+function extensionForType(contentType) {
   const ext = EXTENSION_BY_TYPE[contentType];
-  if (!ext) return key;
+  if (!ext) throw new Error(`no canonical extension for '${contentType}'`);
+  return ext;
+}
+function keyWithExtension(key, contentType) {
+  const ext = extensionForType(contentType);
   const slash = key.lastIndexOf('/');
   const dot = key.lastIndexOf('.');
   if (dot <= slash + 1) return `${key}${ext}`;
@@ -101,7 +109,7 @@ function keyWithExtension(key, contentType) {
 
 const avifVariantKey = (key) => `${key}.avif`;
 const fitVariantKey = (key, size, contentType) =>
-  `${key}.fit${size.width}x${size.height}${EXTENSION_BY_TYPE[contentType]}`;
+  `${key}.fit${size.width}x${size.height}${extensionForType(contentType)}`;
 
 /** A thrown value as a log line. `err.message` alone reads `undefined` for a
  *  thrown string and throws outright for a thrown null, and one unloggable
