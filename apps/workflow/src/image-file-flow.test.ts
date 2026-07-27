@@ -92,7 +92,6 @@ describe('image file flow — derived files for one written render', () => {
       RENDER_KEY,
       expect.any(Uint8Array),
       'immutable-ish',
-      { fallbackMime: 'image/png', sizes: undefined },
     );
     expect(vi.mocked(replaceDerivedFiles)).toHaveBeenCalledWith(
       expect.anything(),

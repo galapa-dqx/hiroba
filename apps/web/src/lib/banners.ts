@@ -26,15 +26,27 @@ import {
 
 import { resolveRender } from './article-images';
 
+/**
+ * The carousel slot: the page column, less the gilt frame's 7px padding on
+ * each side. Same shape as the article column (see CONTENT_COLUMN_SIZES) —
+ * `sizes` is a hint, so being a few px generous costs nothing.
+ */
+const BANNER_SIZES = '(min-width: 860px) 811px, calc(100vw - 2.2rem - 14px)';
+
 export type CarouselBanner = {
   imageUrl: string;
   /** The raster's measured intrinsic dimensions; the carousel falls back to
    *  the nominal slot size when the render predates measurement. */
   width?: number;
   height?: number;
-  /** Alternate encodings of the same raster (DQX-49), most-preferred first —
-   *  rendered as `<picture>` sources with `imageUrl` as the fallback. */
-  sources?: Array<{ src: string; type: string }>;
+  /** Downscaled candidates for `imageUrl`'s own format (DQX-49), `w`-descriptor
+   *  form, paired with `sizes`. */
+  srcset?: string;
+  /** How wide the slide actually renders — meaningless without a srcset. */
+  sizes?: string;
+  /** Alternate encodings of the same raster, most-preferred first — rendered
+   *  as `<picture>` sources with `imageUrl` as the fallback. */
+  sources?: Array<{ type: string; srcset: string }>;
   href: string;
   /** True when the link leaves our site (renderer adds target/rel). */
   external: boolean;
@@ -69,7 +81,8 @@ export async function resolveBanners(
   for (const r of imgRows) {
     const renders = served.get(r.id);
     const render = renders?.localized ?? renders?.original;
-    if (render) resolvedByKey.set(r.key, resolveRender(render, imageBase));
+    if (render)
+      resolvedByKey.set(r.key, resolveRender(render, imageBase, BANNER_SIZES));
   }
 
   // Translated captions for banners that link to a topic we can render.
@@ -86,6 +99,8 @@ export async function resolveBanners(
         rewriteImageSrc(imageUpstreamUrl(b.imageKey), imageBase),
       ...(resolved?.width != null ? { width: resolved.width } : {}),
       ...(resolved?.height != null ? { height: resolved.height } : {}),
+      ...(resolved?.srcset ? { srcset: resolved.srcset } : {}),
+      ...(resolved?.sizes ? { sizes: resolved.sizes } : {}),
       ...(resolved?.sources ? { sources: resolved.sources } : {}),
       href: b.linkTopicId
         ? `/${language}/topics/${b.linkTopicId}`

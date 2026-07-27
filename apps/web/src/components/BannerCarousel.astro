@@ -44,10 +44,12 @@ const t = useTranslations(Astro.locals.lang ?? "en");
                 >
                   <picture>
                     {(b.sources ?? []).map((s) => (
-                      <source type={s.type} srcset={s.src} />
+                      <source type={s.type} srcset={s.srcset} sizes={b.sizes} />
                     ))}
                     <img
                       src={b.imageUrl}
+                      srcset={b.srcset}
+                      sizes={b.srcset ? b.sizes : undefined}
                       alt={b.alt}
                       width={b.width ?? 632}
                       height={b.height ?? 157}

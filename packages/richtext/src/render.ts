@@ -20,19 +20,27 @@ import {
 /**
  * A resolved image source: the servable URL, the intrinsic pixel dimensions so
  * the renderer can emit `width`/`height` and reserve layout space (no CLS),
- * and any alternate encodings of the same raster, most-preferred first. A
- * resolver that knows none of that may return a bare string instead.
+ * the downscaled candidates for that URL's own format, and any alternate
+ * encodings of the same raster, most-preferred first. A resolver that knows
+ * none of that may return a bare string instead.
  *
  * With `sources` the renderer wraps the `<img>` in `<picture>`, so supporting
- * browsers take the smaller encoding and everything else falls back to `src`.
- * Every entry must actually exist — the web app passes only recorded
+ * browsers take the better encoding and everything else falls back to `src`.
+ * Every candidate must actually exist — the web app passes only recorded
  * `image_files` rows, because a `<source>` that 404s does NOT fall back.
  */
 export type ResolvedImageSrc = {
   src: string;
   width?: number | null;
   height?: number | null;
-  sources?: Array<{ src: string; type: string }>;
+  /** `w`-descriptor candidates for `src`'s own format, including `src` itself.
+   *  Only meaningful alongside `sizes` — without it the browser assumes the
+   *  image fills the viewport and just takes the largest rung. */
+  srcset?: string;
+  /** How wide the image will actually render, as a CSS `sizes` list. Emitted
+   *  on the `<img>` and on every `<source>`, which all share one layout box. */
+  sizes?: string;
+  sources?: Array<{ type: string; srcset: string }>;
 };
 
 export type RenderOptions = {
@@ -68,11 +76,18 @@ export function renderBlocks(
     const dims =
       (image.width != null ? ` width="${image.width}"` : '') +
       (image.height != null ? ` height="${image.height}"` : '');
-    const img = `<img ${attrs} src="${escAttr(image.src)}"${dims} alt="${escAttr(alt)}">`;
+    // `sizes` only means anything next to a `w`-descriptor candidate list, so
+    // it rides along with each srcset rather than being emitted on its own.
+    const sizes = image.sizes ? ` sizes="${escAttr(image.sizes)}"` : '';
+    const candidates = image.srcset
+      ? ` srcset="${escAttr(image.srcset)}"${sizes}`
+      : '';
+    const img = `<img ${attrs} src="${escAttr(image.src)}"${candidates}${dims} alt="${escAttr(alt)}">`;
     if (!image.sources?.length) return img;
     const alternates = image.sources
       .map(
-        (s) => `<source type="${escAttr(s.type)}" srcset="${escAttr(s.src)}">`,
+        (s) =>
+          `<source type="${escAttr(s.type)}" srcset="${escAttr(s.srcset)}"${sizes}>`,
       )
       .join('');
     return `<picture>${alternates}${img}</picture>`;

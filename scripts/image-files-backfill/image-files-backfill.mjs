@@ -100,6 +100,8 @@ function keyWithExtension(key, contentType) {
 }
 
 const avifVariantKey = (key) => `${key}.avif`;
+const fitVariantKey = (key, size, contentType) =>
+  `${key}.fit${size.width}x${size.height}${EXTENSION_BY_TYPE[contentType]}`;
 
 /** A thrown value as a log line. `err.message` alone reads `undefined` for a
  *  thrown string and throws outright for a thrown null, and one unloggable
@@ -137,20 +139,71 @@ function sniffMimeType(b) {
 }
 
 /** Formats worth re-encoding; GIF excluded (animation — a still AVIF eats it). */
-const AVIF_SOURCE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const DERIVABLE_SOURCE_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+]);
 
-async function encodeAvif(bytes) {
+/** Mirrors RENDITION_SCALES in apps/workflow/src/image-files.ts — 1x is the
+ *  primary itself, so only the smaller rungs are listed. */
+const RENDITION_SCALES = [0.5, 0.25];
+
+/** sharp's encoder per output type, matching the pipeline's Images formats. */
+function encodeAs(pipeline, format) {
+  if (format === 'image/avif') return pipeline.avif({ quality: AVIF_QUALITY });
+  if (format === 'image/png') return pipeline.png();
+  if (format === 'image/webp') return pipeline.webp();
+  return pipeline.jpeg();
+}
+
+/**
+ * Re-encode `bytes` to `format`, optionally scaled to fit inside `size`.
+ * Null when the source isn't re-encodable or the output isn't smaller than
+ * the primary — the pipeline's rules, so a backfilled render ends up with the
+ * same file set a freshly written one would have.
+ */
+async function encode(bytes, format, size) {
   const mime = sniffMimeType(bytes);
-  if (!mime || !AVIF_SOURCE_TYPES.has(mime)) return null;
+  if (!mime || !DERIVABLE_SOURCE_TYPES.has(mime)) return null;
   try {
-    const avif = await sharp(bytes).avif({ quality: AVIF_QUALITY }).toBuffer();
+    let pipeline = sharp(bytes);
+    if (size) {
+      pipeline = pipeline.resize({
+        width: size.width,
+        height: size.height,
+        fit: 'inside',
+        withoutEnlargement: true,
+      });
+    }
+    const out = await encodeAs(pipeline, format).toBuffer();
     // A file that isn't smaller is pure storage cost — skip (typical for tiny
     // icons, where the AVIF container dominates). Same rule as the pipeline.
-    return avif.byteLength < bytes.byteLength ? avif : null;
+    return out.byteLength < bytes.byteLength ? out : null;
   } catch (err) {
-    console.warn(`  encode failed: ${reason(err)}`);
+    console.warn(`  encode failed (${format}): ${reason(err)}`);
     return null;
   }
+}
+
+/** The ladder for a raster of `dims` size — mirrors `ladder()` in
+ *  apps/workflow/src/image-files.ts, including the dedup that keeps two rungs
+ *  of a small raster from rounding onto one key. */
+function ladder(dims) {
+  if (dims.width == null || dims.height == null) return [];
+  const seen = new Set();
+  const rungs = [];
+  for (const scale of RENDITION_SCALES) {
+    const width = Math.round(dims.width * scale);
+    const height = Math.round(dims.height * scale);
+    if (width < 1 || height < 1) continue;
+    if (width >= dims.width && height >= dims.height) continue;
+    const box = `${width}x${height}`;
+    if (seen.has(box)) continue;
+    seen.add(box);
+    rungs.push({ width, height });
+  }
+  return rungs;
 }
 
 /** Pixel dimensions via sharp, or nulls (formats sharp can't decode). */
@@ -382,23 +435,43 @@ async function convert(row, now) {
     primaryUpdateSql(key, { mime, ...dims, size: obj.bytes.byteLength }),
   );
 
-  const avif = await encodeAvif(obj.bytes);
-  if (!avif) return { ...outcome, primaryOnly: true };
-  const derivedKey = avifVariantKey(key);
-  await putObject(derivedKey, avif, 'image/avif');
-  queueSql(
-    derivedRowSql(
-      {
-        key: derivedKey,
-        imageId: row.imageId,
-        mime: 'image/avif',
-        ...dims,
-        size: avif.byteLength,
-      },
-      now,
-    ),
-  );
-  return { ...outcome, encoded: true };
+  /** Encode + store + record one derived file; no-op when it's not worth it. */
+  let derived = 0;
+  const add = async (format, size) => {
+    const out = await encode(obj.bytes, format, size);
+    if (!out) return;
+    const derivedKey = size
+      ? fitVariantKey(key, size, format)
+      : avifVariantKey(key);
+    await putObject(derivedKey, out, format);
+    // Renditions are re-measured rather than computed — sharp owns the
+    // fit-inside rounding, and a row's dimensions must match its bytes.
+    const outDims = size ? await measure(out) : dims;
+    queueSql(
+      derivedRowSql(
+        {
+          key: derivedKey,
+          imageId: row.imageId,
+          mime: format,
+          ...outDims,
+          size: out.byteLength,
+        },
+        now,
+      ),
+    );
+    derived++;
+  };
+
+  // The same ladder the pipeline writes: full-size AVIF, then each smaller
+  // rung in the source format and AVIF.
+  await add('image/avif');
+  if (sniffed) {
+    for (const size of ladder(dims)) {
+      await add(sniffed, size);
+      await add('image/avif', size);
+    }
+  }
+  return { ...outcome, [derived > 0 ? 'encoded' : 'primaryOnly']: true };
 }
 
 async function backfill() {

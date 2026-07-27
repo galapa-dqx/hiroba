@@ -3,7 +3,7 @@
  */
 
 import type { ImageFileOutput, NewsBackfillOutput } from '@hiroba/flows';
-import type { Category, FitSize } from '@hiroba/shared';
+import type { Category } from '@hiroba/shared';
 
 import type { LocalizeOutcome, LocalizeResult } from './steps/localize-images';
 import type { MirrorOutcome, MirrorResult } from './steps/mirror-images';
@@ -272,14 +272,13 @@ export type ImageLocalizeWorkflowOutput = {
 };
 
 /**
- * Parameters for the ImageFileWorkflow (ImageFileFlow, DQX-49): the render's
- * image id — also the hub's dedup key, and the row the purge scope (source key
- * + language) is read from — plus optional fit-inside boxes to render
- * thumbnails for.
+ * Parameters for the ImageFileWorkflow (ImageFileFlow, DQX-49): just the
+ * render's image id — the hub's dedup key, and the row the purge scope (source
+ * key + language) is read from. The rendition ladder is backend-driven, so
+ * there is nothing to parameterize.
  */
 export type ImageFileWorkflowParams = {
   imageId: string;
-  sizes?: FitSize[];
 };
 
 /** Result of the ImageFileWorkflow. Declared beside the flow definition so

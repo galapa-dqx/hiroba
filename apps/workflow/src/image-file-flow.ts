@@ -26,7 +26,7 @@ import type { Flow } from '@hiroba/flow';
 import { type ImageFileFlow } from '@hiroba/flows';
 import { LOCALIZED_IMAGE_CACHE_CONTROL } from '@hiroba/shared';
 
-import { buildDerivedFiles, type DeriveOptions } from './image-files';
+import { buildDerivedFiles } from './image-files';
 import { purgeImagePages, type PurgeEnv } from './purge';
 import type {
   Env,
@@ -48,7 +48,6 @@ async function registerDerivedFiles(
   env: ImageFileFlowEnv,
   primaryKey: string,
   imageId: string,
-  opts: DeriveOptions,
 ): Promise<number> {
   try {
     const obj = await env.IMAGES_BUCKET.get(primaryKey);
@@ -60,7 +59,6 @@ async function registerDerivedFiles(
       primaryKey,
       bytes,
       obj.httpMetadata?.cacheControl ?? LOCALIZED_IMAGE_CACHE_CONTROL,
-      opts,
     );
     // Replace rather than insert: a re-run whose encode outcomes differ must
     // retire the previous pass's rows. Rows fall out first, then their objects
@@ -97,7 +95,6 @@ export async function runImageFileFlow(
       env,
       render.primary.key,
       render.id,
-      { fallbackMime: render.primary.mime, sizes: params.sizes },
     );
     return { files, sourceKey: render.sourceKey, language: render.language };
   });

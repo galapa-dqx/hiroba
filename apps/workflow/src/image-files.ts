@@ -3,18 +3,23 @@
  * `<picture>` the web emits.
  *
  * Every raster we store keeps its byte-exact primary object; beside it this
- * writes an AVIF re-encode at `<key>.avif` and, when a caller asks for them,
- * fit-inside renditions at `<key>.fit<W>x<H>.<ext>` in both the source format
- * and AVIF (see avifVariantKey / fitVariantKey in @hiroba/shared). Each one
+ * writes an AVIF re-encode at `<key>.avif` and a fixed ladder of downscaled
+ * renditions at `<key>.fit<W>x<H>.<ext>`, each in both the source format and
+ * AVIF (see avifVariantKey / fitVariantKey in @hiroba/shared). Each one
  * becomes a non-primary `image_files` row: the MIME + width/height the
- * renderer reads to decide what it may offer.
+ * renderer turns into `<picture>` sources and `w`-descriptor srcsets.
+ *
+ * The ladder is backend-driven — every render gets the same rungs, derived
+ * from its own dimensions, so no caller has to know anything about layout.
+ * The frontend picks from what's recorded using its own `sizes` hint.
  *
  * Every derived file is best-effort and RECORDED, never assumed — a
  * `<source>` that 404s does not fall back to the `<img>`, so a row is the only
  * evidence an object exists. Skips: GIFs (Cloudflare Images won't produce
  * animated AVIF, and resizing would eat the animation), formats we can't
- * sniff, boxes the raster already fits inside, and any output that comes out
- * no smaller than the primary. Whatever survives is the render's file set.
+ * sniff, rungs that round away to nothing on a tiny raster, and any output
+ * that comes out no smaller than the primary. Whatever survives is the
+ * render's file set.
  *
  * Callers write these into the render's ONE atomic insert (mirror, localize),
  * or — for renders written outside this worker — hand the image id to
@@ -51,14 +56,46 @@ const isDerivableSource = (mime: string): mime is DerivableSource =>
 /** What an encode may emit: a rendition in the source's own format, or AVIF. */
 type EncodeFormat = DerivableSource | 'image/avif';
 
+/**
+ * The rendition ladder, as fractions of the primary's own dimensions. 1x is
+ * the primary itself (and its full-size AVIF), which every render already
+ * gets, so the ladder only names the smaller rungs — listing 1x here would
+ * just re-encode the primary at its own size.
+ */
+const RENDITION_SCALES = [0.5, 0.25];
+
 export type DeriveOptions = {
   /** MIME to record when the Images binding can't decode the bytes and the
    *  magic-byte sniff comes up empty (an upstream header, an upload's type). */
   fallbackMime?: string | null;
-  /** Fit-inside boxes to render thumbnails for (DQX-48 consumes them); each
-   *  produces a source-format and an AVIF rendition. */
-  sizes?: FitSize[];
 };
+
+/**
+ * The ladder for a raster of `measured` size: each scale rounded to whole
+ * pixels, minus the rungs that don't survive contact with a small raster.
+ *
+ * Two rungs of a small raster can round to the SAME box (2px wide: 0.5x and
+ * 0.25x both land on 1px), and a box is keyed by its dimensions — so without
+ * deduping here the render would try to insert one key twice and lose the
+ * whole atomic batch. A rung at the primary's own size is dropped for the same
+ * reason it isn't in RENDITION_SCALES: it's the primary.
+ */
+function ladder(measured: Measured): FitSize[] {
+  if (measured.width === null || measured.height === null) return [];
+  const seen = new Set<string>();
+  const rungs: FitSize[] = [];
+  for (const scale of RENDITION_SCALES) {
+    const width = Math.round(measured.width * scale);
+    const height = Math.round(measured.height * scale);
+    if (width < 1 || height < 1) continue;
+    if (width >= measured.width && height >= measured.height) continue;
+    const box = `${width}x${height}`;
+    if (seen.has(box)) continue;
+    seen.add(box);
+    rungs.push({ width, height });
+  }
+  return rungs;
+}
 
 /**
  * Run one Images transform chain and keep the result only if it beat the
@@ -97,9 +134,10 @@ async function encode(
 
 /**
  * Encode and store every derived object for a primary raster, returning their
- * `image_files` rows. `measured` is the primary's own measurement (the size
- * and dimensions the skip rules compare against). Never throws for one bad
- * encode: a render with no derived files simply serves as a bare `<img>`.
+ * `image_files` rows. `measured` is the primary's own measurement — both the
+ * byte size the skip rule compares against and the dimensions the ladder is
+ * scaled from. Never throws for one bad encode: a render with no derived files
+ * simply serves as a bare `<img>`.
  */
 async function deriveFiles(
   images: ImagesBinding,
@@ -108,7 +146,6 @@ async function deriveFiles(
   bytes: Uint8Array,
   measured: Measured,
   cacheControl: string,
-  opts: DeriveOptions,
 ): Promise<RenderFileInput[]> {
   const sniffed = sniffMimeType(bytes);
   // Only rasters we can safely re-encode; everything else keeps its primary
@@ -138,14 +175,12 @@ async function deriveFiles(
     });
   };
 
+  // 1x: the primary's own format is the primary; only AVIF is new.
   await add('image/avif');
-  for (const size of opts.sizes ?? []) {
-    // A raster already inside the box has nothing to shrink — a "resized"
-    // rendition would just be a lossy re-encode at the same dimensions, which
-    // the renderer would then be free to mistake for a full-size alternate.
-    if (measured.width === null || measured.height === null) continue;
-    if (measured.width <= size.width && measured.height <= size.height)
-      continue;
+  // Then each smaller rung in both formats, so a browser that takes the AVIF
+  // <source> has the same ladder to choose from as one falling back to the
+  // primary's format.
+  for (const size of ladder(measured)) {
     await add(sniffed, size);
     await add('image/avif', size);
   }
@@ -182,7 +217,6 @@ export async function buildRenderFiles(
     bytes,
     measured,
     cacheControl,
-    opts,
   );
   return [primary, ...derived];
 }
@@ -190,7 +224,9 @@ export async function buildRenderFiles(
 /**
  * The derived files alone, for a render whose primary row already exists
  * (ImageFileFlow's register step, over an admin upload). Measures the bytes
- * itself, since the recorded primary may predate measurement.
+ * itself, since the recorded primary may predate measurement. Takes no
+ * fallback MIME: only the primary row ever needs one, and that row is already
+ * written by the time this runs.
  */
 export async function buildDerivedFiles(
   images: ImagesBinding,
@@ -198,16 +234,7 @@ export async function buildDerivedFiles(
   primaryKey: string,
   bytes: Uint8Array,
   cacheControl: string,
-  opts: DeriveOptions = {},
 ): Promise<RenderFileInput[]> {
   const measured = await measureImage(images, bytes);
-  return deriveFiles(
-    images,
-    bucket,
-    primaryKey,
-    bytes,
-    measured,
-    cacheControl,
-    opts,
-  );
+  return deriveFiles(images, bucket, primaryKey, bytes, measured, cacheControl);
 }
