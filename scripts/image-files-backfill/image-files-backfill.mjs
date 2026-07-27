@@ -165,6 +165,9 @@ async function measure(bytes) {
 
 const sq = (s) => s.replace(/'/g, "''");
 const num = (n) => (n == null ? 'NULL' : String(n));
+/** A nullable TEXT literal — `image_files.mime` is NULL for "we don't know",
+ *  never a sentinel string, so unknown must not arrive quoted. */
+const txt = (s) => (s == null ? 'NULL' : `'${sq(s)}'`);
 
 /** Run `fn` over every item, at most `limit` at a time. Side-effect only —
  *  each conversion tallies its own outcome and queues its own SQL, so nothing
@@ -314,7 +317,7 @@ function pendingRenders() {
 /** UPDATE the primary row's measured metadata (seeds land with NULLs). */
 function primaryUpdateSql(key, { mime, width, height, size }) {
   return (
-    `UPDATE image_files SET mime='${sq(mime)}', width=${num(width)},` +
+    `UPDATE image_files SET mime=${txt(mime)}, width=${num(width)},` +
     ` height=${num(height)}, bytes=${num(size)} WHERE key='${sq(key)}';`
   );
 }
@@ -323,7 +326,7 @@ function primaryUpdateSql(key, { mime, width, height, size }) {
 function derivedRowSql({ key, imageId, mime, width, height, size }, now) {
   return (
     `INSERT OR REPLACE INTO image_files (key, image_id, is_primary, mime, width, height, bytes, created_at) ` +
-    `VALUES ('${sq(key)}','${sq(imageId)}',0,'${sq(mime)}',${num(width)},${num(height)},${num(size)},${now});`
+    `VALUES ('${sq(key)}','${sq(imageId)}',0,${txt(mime)},${num(width)},${num(height)},${num(size)},${now});`
   );
 }
 
@@ -341,7 +344,10 @@ async function convert(row, now) {
   if (!obj) return { missing: true };
 
   const sniffed = sniffMimeType(obj.bytes);
-  const mime = sniffed ?? obj.contentType ?? 'application/octet-stream';
+  // NULL, not a sentinel, when neither the bytes nor the stored header say what
+  // this is — same as the pipeline's writers. An "unknown" that reads as a
+  // format would be a lie the serving side has to keep re-detecting.
+  const mime = sniffed ?? obj.contentType ?? null;
   const outcome = {};
 
   let key = row.key;
