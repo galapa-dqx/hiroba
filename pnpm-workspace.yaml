@@ -8,6 +8,7 @@ overrides:
   "drizzle-orm>zod": "^3.24.4"
 allowBuilds:
   '@google/genai': true
+  '@sentry/cli': true
   esbuild: true
   protobufjs: true
   sharp: true

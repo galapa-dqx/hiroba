@@ -27,6 +27,17 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Browser-side Sentry DSNs, inlined into the client bundles at build
+      # time (sentry.client.config.ts in each app). DSNs are public by
+      # design; unset secrets simply leave the client SDK disabled.
+      PUBLIC_WEB_SENTRY_DSN: ${{ secrets.WEB_SENTRY_DSN }}
+      PUBLIC_ADMIN_SENTRY_DSN: ${{ secrets.ADMIN_SENTRY_DSN }}
+      # Optional: client source-map upload to Sentry. When SENTRY_AUTH_TOKEN
+      # is absent the upload is skipped and builds stay green.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+      SENTRY_PROJECT_WEB: ${{ vars.SENTRY_PROJECT_WEB }}
+      SENTRY_PROJECT_ADMIN: ${{ vars.SENTRY_PROJECT_ADMIN }}
     steps:
       - uses: actions/checkout@v4
 

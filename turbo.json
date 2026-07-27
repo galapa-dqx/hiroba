@@ -3,7 +3,18 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".astro/**"]
+      "outputs": ["dist/**", ".astro/**"],
+      // Turbo strict env filtering would otherwise hide these from the Astro
+      // builds; listing them here also keys the build cache on them, so
+      // adding/rotating a DSN can't replay a stale DSN-less dist/.
+      "env": [
+        "PUBLIC_WEB_SENTRY_DSN",
+        "PUBLIC_ADMIN_SENTRY_DSN",
+        "SENTRY_AUTH_TOKEN",
+        "SENTRY_ORG",
+        "SENTRY_PROJECT_WEB",
+        "SENTRY_PROJECT_ADMIN"
+      ]
     },
     "dev": {
       "cache": false,
