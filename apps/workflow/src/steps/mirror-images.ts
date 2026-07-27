@@ -5,15 +5,16 @@
  *
  * Keyed by @hiroba/richtext's `imageKey` (`<host>/<path>`, alias-canonicalized),
  * which is the same key the web `/img` route and any bucket custom-domain read.
- * Idempotent: skips keys already in the bucket, so re-runs are cheap and the
+ * Idempotent: skips keys already mirrored, so re-runs are cheap and the
  * transcribe step can read the bytes back from R2 (one CDN fetch per image ever).
  *
- * Mirroring a NEW object also records the mirrored original as a render (its
- * `images` row + `image_files`: the primary at the source key with dims measured
- * via the Images binding, plus the derived AVIF encoded beside it) — the reader
- * now serves from that render, and its existence is the "mirror done" signal.
- * One original per source: a re-mirror hits the bucket-head skip, so the render
- * is written exactly once.
+ * Mirroring records the original as a render (its `images` row + `image_files`:
+ * the primary at the source key with dims measured via the Images binding, plus
+ * the derived AVIF encoded beside it) — the reader serves from that render, and
+ * its existence IS the "mirrored" signal (DQX-46 dropped `mirror_state`; a
+ * failure is no render row plus the flow run's error). That render is therefore
+ * also the skip predicate: one indexed D1 read, no R2 round-trip, and exactly
+ * one original per source.
  */
 
 import {
@@ -21,7 +22,6 @@ import {
   getImageSourcesByKeys,
   hasOriginalRender,
   insertImageRender,
-  setImageMirrorState,
   type Database,
 } from '@hiroba/db';
 import {
@@ -62,8 +62,9 @@ export type MirrorOutcome = 'mirrored' | 'skipped' | 'failed';
  * Record the mirrored original as a render — its `images` row (language NULL)
  * plus its `image_files`: the primary at the source key (dims measured) and
  * whatever derived files encode beside it (DQX-49), all in one atomic insert.
- * Once per source: guarded on `hasOriginalRender`, since the file key is the
- * fixed source key and latest-wins never needs a second original.
+ * Once per source: callers reach here only past a `hasOriginalRender` miss,
+ * since the file key is the fixed source key and latest-wins never needs a
+ * second original.
  */
 async function recordOriginalRender(
   db: Database,
@@ -92,42 +93,35 @@ async function recordOriginalRender(
 }
 
 /**
- * Ensure the original render exists for a source whose bytes are already in
- * the bucket, reading them back to measure. Renders normally land with the
- * mirror itself, but bytes can reach R2 without one — the web/admin `/img`
- * routes self-heal objects on a miss without touching D1, and pre-migration
- * sources that weren't mirror_state='done' got no seeded render — so the skip
- * path heals the row here. Cheap in steady state: one indexed existence check;
- * the R2 read + measure run only when the render is actually missing.
+ * Log why a key didn't mirror, and return the outcome. Dropping `mirror_state`
+ * took away the failed row that used to be the only breadcrumb, so every
+ * non-throwing failure says so in the run's logs instead. A thrown value goes
+ * in `detail` rather than the message, so an Error keeps its stack.
  */
-async function ensureOriginalRender(
-  db: Database,
-  bucket: R2Bucket,
-  images: ImagesBinding,
-  key: string,
-  sourceId: number,
-): Promise<void> {
-  if (await hasOriginalRender(db, sourceId)) return;
-  const obj = await bucket.get(key);
-  if (!obj) return; // raced a delete; the next mirror pass re-copies.
-  const bytes = new Uint8Array(await obj.arrayBuffer());
-  await recordOriginalRender(
-    db,
-    bucket,
-    images,
-    key,
-    sourceId,
-    bytes,
-    obj.httpMetadata?.contentType ?? null,
-  );
+function failed(key: string, reason: string, detail?: unknown): MirrorOutcome {
+  const message = `Failed to mirror ${key}: ${reason}`;
+  if (detail === undefined) console.error(message);
+  else console.error(message, detail);
+  return 'failed';
 }
 
 /**
  * Mirror a single image key into R2 (the per-unit worker behind
  * `mirrorImages`, exported for the flow framework's per-image `map` units).
- * Assumes the key's image_sources row exists (ensureImageSourceRows ran). Never
- * throws for an upstream failure — the row is marked failed and the outcome
- * says so, because one bad image degrades the article, never blocks it.
+ * Assumes the key's image_sources row exists (ensureImageSourceRows ran).
+ *
+ * Three paths, cheapest first:
+ *  1. the original render exists → already mirrored, nothing to do;
+ *  2. no render but the bytes are in the bucket → read them back and record the
+ *     render (self-heal: the web/admin `/img` routes restore objects on a miss
+ *     without touching D1, so R2 can be ahead of the render table);
+ *  3. neither → fetch upstream, store, record.
+ *
+ * Never throws: one bad image degrades the article, never blocks it. EVERY
+ * path is inside the guard, not just the upstream fetch — a D1 read, a
+ * corrupted object in the bucket, or a render insert that fails all come back
+ * as `'failed'` with no render row, which is exactly the state that makes the
+ * next pass retry.
  */
 export async function mirrorOneImage(
   db: Database,
@@ -135,21 +129,30 @@ export async function mirrorOneImage(
   images: ImagesBinding,
   key: string,
 ): Promise<MirrorOutcome> {
-  const [source] = await getImageSourcesByKeys(db, [key]);
-  if (await bucket.head(key)) {
-    await setImageMirrorState(db, key, 'done');
-    if (source) await ensureOriginalRender(db, bucket, images, key, source.id);
-    return 'skipped';
-  }
-  await setImageMirrorState(db, key, 'running');
   try {
+    const [source] = await getImageSourcesByKeys(db, [key]);
+    if (source && (await hasOriginalRender(db, source.id))) return 'skipped';
+
+    const stored = await bucket.get(key);
+    if (stored) {
+      const bytes = new Uint8Array(await stored.arrayBuffer());
+      if (source)
+        await recordOriginalRender(
+          db,
+          bucket,
+          images,
+          key,
+          source.id,
+          bytes,
+          stored.httpMetadata?.contentType ?? null,
+        );
+      return 'skipped';
+    }
+
     const res = await fetch(imageUpstreamUrl(key), {
       headers: FETCH_HEADERS,
     });
-    if (!res.ok || !res.body) {
-      await setImageMirrorState(db, key, 'failed');
-      return 'failed';
-    }
+    if (!res.ok || !res.body) return failed(key, `upstream HTTP ${res.status}`);
     const bytes = new Uint8Array(await res.arrayBuffer());
     // A mirrored object must be an image: trust the magic bytes first, the
     // upstream header only when it at least claims image/* (SVG has no
@@ -158,15 +161,12 @@ export async function mirrorOneImage(
     const header = res.headers.get('content-type');
     const contentType =
       sniffMimeType(bytes) ?? (header?.startsWith('image/') ? header : null);
-    if (!contentType) {
-      await setImageMirrorState(db, key, 'failed');
-      return 'failed';
-    }
+    if (!contentType)
+      return failed(key, `not an image (content-type ${header ?? 'absent'})`);
     await bucket.put(key, bytes, {
       httpMetadata: { contentType, cacheControl: CACHE_CONTROL },
     });
-    await setImageMirrorState(db, key, 'done');
-    if (source && !(await hasOriginalRender(db, source.id))) {
+    if (source)
       await recordOriginalRender(
         db,
         bucket,
@@ -176,11 +176,9 @@ export async function mirrorOneImage(
         bytes,
         contentType,
       );
-    }
     return 'mirrored';
-  } catch {
-    await setImageMirrorState(db, key, 'failed');
-    return 'failed';
+  } catch (err) {
+    return failed(key, 'unexpected error', err);
   }
 }
 
@@ -189,8 +187,7 @@ export async function mirrorOneImage(
  * from the DQX CDN once and streams it into R2 with a content type + long TTL.
  *
  * Also the pipeline's image-discovery point: every referenced key gets an
- * image_sources row here (pending), and its mirror_state tracks the copy —
- * that's what feeds the "Downloading images (x/y)" progress in the SSE snapshot.
+ * image_sources row here, so the set is known before any copy completes.
  */
 export async function mirrorImages(
   db: Database,

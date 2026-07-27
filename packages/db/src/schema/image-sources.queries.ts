@@ -1,15 +1,13 @@
 /**
  * Image-source queries, co-located with the image_sources schema (DQX-51):
- * discovery (ensure rows exist), transcription/mirror state, the transcription
- * upsert, the admin span-restructure edit, and the key lookup that fans the
- * pipeline out (the most-shared read in the package).
+ * discovery (ensure rows exist), the transcription upsert, the admin
+ * span-restructure edit, and the key lookup that fans the pipeline out (the
+ * most-shared read in the package).
  */
 
 import { and, eq, inArray } from 'drizzle-orm';
 import type { BatchItem } from 'drizzle-orm/batch';
 import { Temporal } from 'temporal-polyfill';
-
-import type { PhaseState } from '@hiroba/shared';
 
 import type { Database } from '../client';
 import { chunked } from '../d1-limits';
@@ -18,8 +16,7 @@ import { translations } from './translations';
 
 /**
  * Ensure an image-source row exists for every key, so the pipeline has rows to
- * hang transcription state (and renders) on. Existing rows (any state) are left
- * untouched.
+ * hang transcriptions (and renders) on. Existing rows are left untouched.
  */
 export async function ensureImageSourceRows(
   db: Database,
@@ -41,33 +38,10 @@ export async function ensureImageSourceRows(
   }
 }
 
-/** Set the transcription state on an image-source row (running/failed transitions). */
-export async function setImageTranscribeState(
-  db: Database,
-  key: string,
-  state: Exclude<PhaseState, 'done'>, // 'done' lands with texts via upsertImageTranscription
-): Promise<void> {
-  await db
-    .update(imageSources)
-    .set({ transcribeState: state, updatedAt: Temporal.Now.instant() })
-    .where(eq(imageSources.key, key));
-}
-
-/** Set the mirror (CDN → R2 copy) state on an image-source row. */
-export async function setImageMirrorState(
-  db: Database,
-  key: string,
-  state: PhaseState,
-): Promise<void> {
-  await db
-    .update(imageSources)
-    .set({ mirrorState: state, updatedAt: Temporal.Now.instant() })
-    .where(eq(imageSources.key, key));
-}
-
 /**
  * Record an image source's transcription (get-or-create by key). `textsJa` is
- * every transcribed span ([] if none). Returns the surrogate source id (used as
+ * every transcribed span ([] if none) — writing it IS the "transcribed" signal
+ * (DQX-46 dropped the state column). Returns the surrogate source id (used as
  * translations.item_id and images.source_id). Whether it's worth localizing is
  * derived from textsJa.
  */
@@ -82,7 +56,6 @@ export async function upsertImageTranscription(
       key: params.key,
       textsJa: params.textsJa,
       transcribeModel: params.model,
-      transcribeState: 'done',
       updatedAt: now,
     })
     .onConflictDoUpdate({
@@ -90,7 +63,6 @@ export async function upsertImageTranscription(
       set: {
         textsJa: params.textsJa,
         transcribeModel: params.model,
-        transcribeState: 'done',
         updatedAt: now,
       },
     })

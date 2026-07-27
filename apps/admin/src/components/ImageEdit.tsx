@@ -285,7 +285,9 @@ export default function ImageEdit({ id }: Props) {
   const langLabel =
     detail.languages.find((l) => l.code === lang)?.nativeLabel ?? lang;
   const localizedSrc =
-    t?.urlState === 'done' && t.localizedKey ? `/img/${t.localizedKey}` : null;
+    t?.renderState === 'done' && t.localizedKey
+      ? `/img/${t.localizedKey}`
+      : null;
   const busy = saving || regenerating || uploading;
 
   return (
@@ -351,9 +353,9 @@ export default function ImageEdit({ id }: Props) {
                 />
               </a>
               <div className="image-edit__source-tag">
-                {t?.urlModel === 'manual'
+                {t?.renderModel === 'manual'
                   ? 'manual override'
-                  : (t?.urlModel ?? 'generated')}
+                  : (t?.renderModel ?? 'generated')}
                 {t?.translatedAt && ` · ${formatLocalDate(t.translatedAt)}`}
               </div>
             </>

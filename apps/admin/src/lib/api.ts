@@ -550,8 +550,8 @@ export type ImageTranslation = {
   textState: PhaseState | null;
   /** Translated text spans (index-aligned to textsJa); null until done. */
   texts: string[] | null;
-  /** Localized-image row state; null = not started for this language. */
-  urlState: PhaseState | null;
+  /** 'done' once a localized render exists for this language; null = not yet. */
+  renderState: PhaseState | null;
   /** R2 key of the localized image (`l10n/<lang>/<key>`); null until done. */
   localizedKey: string | null;
   /** Failure detail when a step failed. */
@@ -565,8 +565,10 @@ export type AdminImage = {
   textsJa: string[] | null; // transcribed source spans; null = not transcribed
   hasText: boolean; // has >=1 Japanese span (i.e. a localization candidate)
   isBanner: boolean; // backs a rotation banner (banners.imageKey = key)
-  mirrorState: PhaseState;
-  transcribeState: PhaseState;
+  /** 'done' once the mirrored original render exists; null = not yet. */
+  mirrorState: PhaseState | null;
+  /** 'done' once texts_ja is written ([] counts); null = not yet. */
+  transcribeState: PhaseState | null;
   updatedAt: string; // ISO-8601 UTC instant
   translation: ImageTranslation;
 };
@@ -602,12 +604,12 @@ export type ImageLangDetail = {
   textState: PhaseState | null;
   /** Translated text spans (index-aligned to textsJa); null until saved. */
   texts: string[] | null;
-  /** Localized-image row state; null = not started for this language. */
-  urlState: PhaseState | null;
+  /** 'done' once a localized render exists for this language; null = not yet. */
+  renderState: PhaseState | null;
   /** R2 key of the localized image (`l10n/<lang>/<key>`); null until produced. */
   localizedKey: string | null;
   /** Model that produced the localized image ('manual' = hand-supplied). */
-  urlModel: string | null;
+  renderModel: string | null;
   /** Failure detail when a step failed. */
   error: string | null;
   translatedAt: string | null; // ISO-8601 UTC instant
@@ -618,8 +620,10 @@ export type ImageDetail = {
   key: string; // imageKey <host>/<path> — the R2 key of the original
   textsJa: string[] | null; // transcribed source spans; null = not transcribed
   hasText: boolean;
-  mirrorState: PhaseState;
-  transcribeState: PhaseState;
+  /** 'done' once the mirrored original render exists; null = not yet. */
+  mirrorState: PhaseState | null;
+  /** 'done' once texts_ja is written ([] counts); null = not yet. */
+  transcribeState: PhaseState | null;
   updatedAt: string; // ISO-8601 UTC instant
   /** Enabled languages, in code order — one editor tab each. */
   languages: ArticleLanguage[];

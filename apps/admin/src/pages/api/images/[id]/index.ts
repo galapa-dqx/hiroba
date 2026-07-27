@@ -13,7 +13,7 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 
-import { createDb, getEnabledLanguages } from '@hiroba/db';
+import { createDb, getEnabledLanguages, hasOriginalRender } from '@hiroba/db';
 import { hasJapanese } from '@hiroba/shared';
 
 import { getLatestRendersBySource } from '../../../../lib/image-queries';
@@ -58,6 +58,8 @@ export const GET: APIRoute = async ({ params }) => {
 
   // The localized image is a render now — newest per language, no `url` row.
   const localizedByLang = await getLatestRendersBySource(db, id);
+  // Mirror-done = the original render exists (DQX-46 dropped `mirror_state`).
+  const isMirrored = await hasOriginalRender(db, id);
 
   const textsJa = image.textsJa ?? null;
   const translations = Object.fromEntries(
@@ -69,9 +71,9 @@ export const GET: APIRoute = async ({ params }) => {
         {
           textState: text?.state ?? null,
           texts: parseSpans(text?.value),
-          urlState: localized ? 'done' : null,
+          renderState: localized ? 'done' : null,
           localizedKey: localized?.key ?? null,
-          urlModel: localized?.model ?? null,
+          renderModel: localized?.model ?? null,
           error: text?.error ?? null,
           translatedAt:
             (localized?.createdAt ?? text?.translatedAt)?.toString() ?? null,
@@ -85,8 +87,9 @@ export const GET: APIRoute = async ({ params }) => {
     key: image.key,
     textsJa,
     hasText: !!textsJa && hasJapanese(textsJa),
-    mirrorState: image.mirrorState,
-    transcribeState: image.transcribeState,
+    mirrorState: isMirrored ? 'done' : null,
+    // On NULL, not emptiness: `[]` is "transcribed, no text" — done.
+    transcribeState: textsJa !== null ? 'done' : null,
     updatedAt: image.updatedAt.toString(),
     languages: enabled.map((l) => ({
       code: l.code,

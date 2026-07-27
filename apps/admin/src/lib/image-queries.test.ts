@@ -126,6 +126,57 @@ describe('listImagesForAdmin', () => {
     expect(frRow.text).toBeNull();
   });
 
+  it('reports isMirrored from the original render, not a state column', async () => {
+    const mirrored = await upsertImageTranscription(ctx.db, {
+      key: 'host/mirrored.png',
+      textsJa: [],
+      model: 'gpt-vision',
+    });
+    const unmirrored = await upsertImageTranscription(ctx.db, {
+      key: 'host/unmirrored.png',
+      textsJa: [],
+      model: 'gpt-vision',
+    });
+    // The mirrored original: language NULL, primary file at the source key.
+    await insertImageRender(ctx.db, {
+      id: crypto.randomUUID(),
+      sourceId: mirrored,
+      language: null,
+      model: null,
+      files: [
+        {
+          key: 'host/mirrored.png',
+          isPrimary: true,
+          mime: 'image/png',
+          width: 40,
+          height: 20,
+          bytes: 123,
+        },
+      ],
+    });
+    // A localized render alone must NOT read as mirrored.
+    await insertImageRender(ctx.db, {
+      id: crypto.randomUUID(),
+      sourceId: unmirrored,
+      language: 'en',
+      model: 'gpt-image-2',
+      files: [
+        {
+          key: 'l10n/en/host/unmirrored.png',
+          isPrimary: true,
+          mime: 'image/png',
+          width: null,
+          height: null,
+          bytes: null,
+        },
+      ],
+    });
+
+    const { rows } = await listImagesForAdmin(ctx.db, { language: 'en' });
+    expect(rows.find((r) => r.image.id === mirrored)?.isMirrored).toBe(true);
+    expect(rows.find((r) => r.image.id === unmirrored)?.isMirrored).toBe(false);
+  });
+
   it('tags images that back a rotation banner via isBanner', async () => {
     const bannerId = await upsertImageTranscription(ctx.db, {
       key: 'cache.hiroba.dqx.jp/banner_rotation_20260101_a.png',
